@@ -52,7 +52,8 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 
 | Do | See |
 |---|---|
-| `cargo test --workspace` (Rust from `rust-toolchain.toml`; needs network for the sandbox binary and for W-13) | 11 core tests (golden vectors V-1..V-3, fees F-1..F-7), 48 contract unit tests incl. U-16 (10,000 sequences), 17 sandbox tests |
+| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached) | 11 core tests (golden vectors V-1..V-3, fees F-1..F-7), 48 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests; 3 more are `ignored` because they need network |
+| `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
 | `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; built from commit `0fb7929` it has sha256 `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` |
 | `near account list-keys v1.arras-dev.testnet network-config testnet now` | an empty table: nobody can redeploy or touch the contract account |

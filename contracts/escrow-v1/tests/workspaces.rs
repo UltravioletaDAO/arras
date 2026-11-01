@@ -3,10 +3,12 @@
 //! - U-24 vive aca porque `#[private]` solo existe en el wrapper de la wasm (`near-sdk-macros`,
 //!   `#[cfg(target_arch = "wasm32")]`): un test unitario que llama `Arras::new` directo no lo ve.
 //! - W-01..W-12 usan el FT de prueba de near-contract-standards (`contracts/test-ft`).
-//! - W-13 y W-13b usan el USDC de Circle de testnet clonado al sandbox (`import_contract`, necesita red; RPC por
-//!   `ARRAS_TESTNET_RPC`, por defecto FastNEAR). Con `ARRAS_GRABAR_FIXTURE=1`, W-13 graba el
-//!   `EXPERIMENTAL_tx_status` del rechazo en `tests/fixtures/w13_rechazo_e06_usdc_real.json` (fixture de H-4);
-//!   sin esa variable, valida el fixture commiteado.
+//! - W-13, W-13b y W-09b usan el USDC de Circle de testnet clonado al sandbox (`import_contract`): necesitan red,
+//!   asi que son opt-in (`#[ignore]`; RESPUESTA de c0der del 2026-11-01): corren con
+//!   `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored`.
+//!   Sin red, `w13_fixture_grabado` valida igual el fixture commiteado. Con `ARRAS_GRABAR_FIXTURE=1`, W-13 regraba el
+//!   `EXPERIMENTAL_tx_status` del rechazo en `tests/fixtures/w13_rechazo_e06_usdc_real.json` (fixture de H-4).
+//! - El sandbox (nearcore 2.13.4) se descarga una vez y queda en cache; sin red y sin cache, `NEAR_SANDBOX_BIN_PATH`.
 //!
 //! Las mediciones (gas de W-09, gas minimo de W-04, gas del `ft_transfer` de Circle) se imprimen con prefijo
 //! `MEDIDA`: `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture`.
@@ -1024,6 +1026,15 @@ async fn w12_worker_sin_registro_usdc() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// RPC de testnet para los tests con red (opt-in): `ARRAS_TESTNET_RPC`, o FastNEAR si se corren con `--ignored`
+/// sin la variable.
+fn testnet_rpc() -> String {
+    std::env::var("ARRAS_TESTNET_RPC")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "https://rpc.testnet.fastnear.com".into())
+}
+
 /// El USDC de Circle de testnet clonado al sandbox, con un minter configurado por el flujo de multisig del propio
 /// contrato (dos master minters, dos controllers del mismo minter) y 100 USDC acunados al payer.
 struct EnvUsdc {
@@ -1032,8 +1043,7 @@ struct EnvUsdc {
 
 async fn setup_usdc_real() -> anyhow::Result<EnvUsdc> {
     let w = near_workspaces::sandbox().await?;
-    let rpc = std::env::var("ARRAS_TESTNET_RPC")
-        .unwrap_or_else(|_| "https://rpc.testnet.fastnear.com".into());
+    let rpc = testnet_rpc();
     let testnet = near_workspaces::testnet().rpc_addr(&rpc).await?;
     let root = w.root_account()?;
     let usdc_testnet: AccountId = USDC_TESTNET.parse()?;
@@ -1219,6 +1229,7 @@ fn validar_fixture_w13(f: &Value) {
 /// W-13 `rechazo_con_ft_real`: `E06` con el USDC real: `ft_resolve_transfer` devuelve `"0"`, el 100 % vuelve al
 /// payer y sale el evento `nep141 ft_transfer` de reembolso. El outcome es el fixture de H-4.
 #[tokio::test]
+#[ignore = "necesita red (clona el USDC de testnet): ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored"]
 async fn w13_rechazo_con_ft_real() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
     let EnvUsdc { e } = setup_usdc_real().await?;
@@ -1280,6 +1291,7 @@ async fn w13_rechazo_con_ft_real() -> anyhow::Result<()> {
 /// W-13b: el flujo feliz con el USDC real (authorize -> release -> `withdraw_for`): los 10 TGas de
 /// `GAS_FT_TRANSFER` alcanzan para el `ft_transfer` de Circle.
 #[tokio::test]
+#[ignore = "necesita red (clona el USDC de testnet): ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored"]
 async fn w13b_flujo_con_ft_real() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
     let EnvUsdc { e } = setup_usdc_real().await?;
@@ -1348,6 +1360,7 @@ async fn w13b_flujo_con_ft_real() -> anyhow::Result<()> {
 /// W-09b: gas de cada metodo del ciclo de vida que relaya H-4, con el USDC real: quemado por la transaccion y
 /// prepagado minimo que pasa (busqueda binaria). H-4 calibra `NEAR_ESCROW_*_GAS_TGAS` con esto mas un 20 %.
 #[tokio::test]
+#[ignore = "necesita red (clona el USDC de testnet): ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored"]
 async fn w09b_gas_por_metodo() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
     let EnvUsdc { e } = setup_usdc_real().await?;
@@ -1520,5 +1533,16 @@ async fn w09b_gas_por_metodo() -> anyhow::Result<()> {
     );
     e.invariante(&[e.payer.id(), e.worker.id(), e.fees.id(), sin_usdc.id()])
         .await?;
+    Ok(())
+}
+
+/// Sin red: el fixture W-13 commiteado (el `EXPERIMENTAL_tx_status` real del rechazo `E06` con el USDC de Circle)
+/// tiene todo lo que H-4 lee. Los tests con red son `#[ignore]` (ver el encabezado).
+#[test]
+fn w13_fixture_grabado() -> anyhow::Result<()> {
+    let grabado: Value = serde_json::from_str(&std::fs::read_to_string(FIXTURE_W13)?)?;
+    validar_fixture_w13(&grabado);
+    assert_eq!(grabado["final_execution_status"], "FINAL");
+    assert_eq!(grabado["transaction"]["receiver_id"], "usdc.test.near");
     Ok(())
 }
