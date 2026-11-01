@@ -24,21 +24,21 @@ impl Arras {
         self.start_withdraw(account)
     }
 
-    /// Callback de cada retiro. `Err` -> `claimable += amount`, `in_flight -= amount`, `withdrawn ok:false` y
-    /// devuelve 0; Ok -> `tvl_global -= amount` y devuelve lo transferido. `TooLong` no puede pasar (`max_bytes`
-    /// es `usize::MAX`) y, si pasara, el transfer igual se hizo: cuenta como Ok, nunca se acredita dos veces.
+    /// Callback de cada retiro. `Failed` -> `claimable += amount`, `in_flight -= amount`, `withdrawn ok:false` y
+    /// devuelve 0; exito -> `tvl_global -= amount` y devuelve lo transferido.
+    ///
+    /// No usa `#[callback_result] r: Result<(), PromiseError>` (sec. 3.3): esa macro deserializa lo que devuelve el
+    /// token y entra en panico si no es vacio ni `null`, y un panico aca, despues de un `ft_transfer` exitoso, dejaria
+    /// `in_flight` y `tvl_global` arriba para siempre (el USDC de Circle es actualizable). Se lee el resultado sin
+    /// mirar los bytes: solo `Failed` es falla; un exito con datos (`TooLong` con `max_len` 0) cuenta como Ok, asi un
+    /// transfer hecho nunca se acredita dos veces. Refutacion de H-1, P3-2.
     #[private]
-    pub fn on_withdraw(
-        &mut self,
-        account: AccountId,
-        amount: U128,
-        #[callback_result] r: Result<(), PromiseError>,
-    ) -> U128 {
+    pub fn on_withdraw(&mut self, account: AccountId, amount: U128) -> U128 {
+        let ok = !matches!(env::promise_result_checked(0, 0), Err(PromiseError::Failed));
         self.in_flight = self
             .in_flight
             .checked_sub(amount.0)
             .unwrap_or_else(|| env::abort());
-        let ok = !matches!(r, Err(PromiseError::Failed));
         if ok {
             self.tvl_global = self
                 .tvl_global

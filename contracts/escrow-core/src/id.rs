@@ -11,7 +11,9 @@ use near_sdk::{AccountId, bs58, env, serde_json};
 
 use crate::ArrasError;
 
-/// String base58 de 43 o 44 caracteres (V-2 tiene 43).
+/// String base58 de un hash de 32 bytes: **de 32 a 44 caracteres**. Casi siempre 43 o 44 (V-2 tiene 43), pero un hash
+/// con bytes altos chicos da 42 o menos (p. ej. `1y1ZbrieUbaioiUBHxX7EyZMNkCis2tLKCs5Xxezgy`, salt `00..0415` sobre V-1;
+/// refutacion de H-1, P2-1): nadie puede asumir un largo fijo.
 pub type PaymentId = String;
 
 /// `v` del `msg` y de la preimagen.
@@ -174,9 +176,10 @@ pub fn compute_payment_id(input: &PaymentIdInput<'_>) -> ([u8; 32], PaymentId) {
     (hash, bs58::encode(hash).into_string())
 }
 
-/// El hash de 32 bytes de un `payment_id` en su forma canonica (la que sale de [`compute_payment_id`]).
+/// El hash de 32 bytes de un `payment_id` en su forma canonica (la que sale de [`compute_payment_id`]): cualquier
+/// largo de 32 a 44 que vuelva igual al re-codificar.
 pub fn decode_payment_id(id: &str) -> Option<[u8; 32]> {
-    if !(43..=44).contains(&id.len()) {
+    if !(32..=44).contains(&id.len()) {
         return None;
     }
     let mut out = [0u8; 32];
@@ -390,6 +393,28 @@ mod tests {
         for malo in ["", "EM", "e m", "em.", "ém", &"x".repeat(33)] {
             assert!(!is_valid_operator_id(malo), "{malo}");
         }
+    }
+
+    /// P2-1 de la refutacion: un hash con bytes altos chicos da un id de 42 caracteres (y 32 si es todo ceros);
+    /// tiene que decodificar igual.
+    #[test]
+    fn payment_id_de_menos_de_43_caracteres() {
+        let mut m = parse_authorize_msg(&msg_v1()).unwrap();
+        m.salt[14] = 0x04;
+        m.salt[15] = 0x15;
+        let (hash, id) = compute_payment_id(&PaymentIdInput::from_msg(
+            &m,
+            USDC_TESTNET,
+            "payer-demo.testnet",
+            1_000_000,
+        ));
+        assert_eq!(id, "1y1ZbrieUbaioiUBHxX7EyZMNkCis2tLKCs5Xxezgy");
+        assert_eq!(id.len(), 42);
+        assert_eq!(decode_payment_id(&id), Some(hash));
+        let ceros = bs58::encode([0u8; 32]).into_string();
+        assert_eq!(ceros.len(), 32);
+        assert_eq!(decode_payment_id(&ceros), Some([0u8; 32]));
+        assert_eq!(decode_payment_id(&"1".repeat(31)), None);
     }
 
     #[test]

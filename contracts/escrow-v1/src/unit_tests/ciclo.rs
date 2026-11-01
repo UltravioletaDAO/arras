@@ -265,3 +265,30 @@ fn fee_congelada_es_la_del_operador_no_el_maximo_firmado() {
         (870_000, 130_000)
     );
 }
+
+/// P2-3 de la refutacion: el capturer de un operador no libera ni reembolsa pagos de otro operador.
+#[test]
+fn capturer_de_otro_operador_no_mueve_el_pago() {
+    let (mut c, id_em) = setup_v1();
+    let kk_capturer = "kk-capturer.testnet";
+    ctx(OWNER, 1, NOW);
+    let mut i = operator_input();
+    i.capturers = vec![acc(kk_capturer)];
+    c.register_operator("kk".into(), i);
+    ctx(kk_capturer, 0, NOW);
+    expect_panic("ARRAS_E21", || c.release(id_em.clone(), None));
+    expect_panic("ARRAS_E25", || c.refund(id_em.clone()));
+    // Y al reves: el capturer de em no mueve un pago de kk; el de kk si.
+    let mut m = msg_v1();
+    m.operator_id = "kk".into();
+    let id_kk = authorize(&mut c, PAYER, 1_000_000, &m.to_canonical_json());
+    ctx(CAPTURER, 0, NOW);
+    expect_panic("ARRAS_E21", || c.release(id_kk.clone(), None));
+    expect_panic("ARRAS_E25", || c.refund(id_kk.clone()));
+    ctx(kk_capturer, 0, NOW);
+    c.release(id_kk, None);
+    assert_eq!(
+        c.get_payment(id_em).unwrap().status,
+        PaymentStatus::Authorized
+    );
+}

@@ -1,6 +1,6 @@
 //! U-16 `invariante_proptest`: 10.000 secuencias de operaciones al azar sobre el contrato real (mock de near-sdk).
 //! El retiro es **tres pasos intercalables**: `withdraw*` crea la promesa, el `ft_transfer` del token se ejecuta
-//! (resultado al azar) y despues corre `on_withdraw`; entre cualquiera de ellos pueden pasar otras operaciones.
+//! (resultado al azar) y despues corre `on_withdraw` con ese resultado entregado por el runtime mockeado; entre cualquiera de ellos pueden pasar otras operaciones.
 //!
 //! Despues de cada paso:
 //! - `sum(vivos) + sum(claimable) + in_flight == tvl_global` (sec. 3.5), con `tvl_operador` y `payer_tvl` iguales a
@@ -12,7 +12,6 @@
 
 use super::common::*;
 use crate::*;
-use near_sdk::PromiseError;
 use proptest::prelude::*;
 
 const DIA: u64 = 86_400 * 1_000_000_000;
@@ -269,13 +268,13 @@ impl Modelo {
                     return;
                 }
                 let p = self.pendientes.remove(listos[pick % listos.len()]);
-                let r = if p.ejecutado == Some(true) {
-                    Ok(())
-                } else {
-                    Err(PromiseError::Failed)
-                };
-                ctx(CONTRACT, 0, now);
-                let devuelto = self.c.on_withdraw(p.cuenta, U128(p.amount), r).0;
+                let devuelto = on_withdraw_con(
+                    &mut self.c,
+                    p.cuenta.as_str(),
+                    p.amount,
+                    p.ejecutado == Some(true),
+                    now,
+                );
                 assert_eq!(
                     devuelto,
                     if p.ejecutado == Some(true) {
@@ -385,8 +384,7 @@ proptest! {
             if p.ejecutado.is_none() && ok {
                 m.saldo_token -= p.amount;
             }
-            ctx(CONTRACT, 0, m.now);
-            m.c.on_withdraw(p.cuenta, U128(p.amount), if ok { Ok(()) } else { Err(PromiseError::Failed) });
+            on_withdraw_con(&mut m.c, p.cuenta.as_str(), p.amount, ok, m.now);
             m.verificar();
         }
     }

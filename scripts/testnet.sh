@@ -121,7 +121,7 @@ paso8() {
 paso9() {
   local msg id
   msg=$(cat "$ESTADO/msg.json")
-  id=$(near contract call-function as-read-only "v1.$P" compute_payment_id json-args "$(jq -nc --arg s "payer-demo.$P" --arg m "$msg" '{sender_id:$s,amount:"1000000",msg:$m}')" network-config "$NET" now 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -oE '"[1-9A-HJ-NP-Za-km-z]{43,44}"' | tail -1 | tr -d '"')
+  id=$(near contract call-function as-read-only "v1.$P" compute_payment_id json-args "$(jq -nc --arg s "payer-demo.$P" --arg m "$msg" '{sender_id:$s,amount:"1000000",msg:$m}')" network-config "$NET" now 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -oE '"[1-9A-HJ-NP-Za-km-z]{32,44}"' | tail -1 | tr -d '"')
   echo "payment_id: $id"
   run near contract call-function as-read-only "v1.$P" get_payment json-args "{\"payment_id\":\"$id\"}" network-config "$NET" now
   run near contract call-function as-transaction "v1.$P" release json-args "{\"payment_id\":\"$id\"}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' sign-as "em-capturer.$P" network-config "$NET" "$SIGN" send

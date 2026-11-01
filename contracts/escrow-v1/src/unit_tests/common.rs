@@ -54,6 +54,36 @@ pub fn ctx(predecessor: &str, deposit_yocto: u128, ts: u64) {
     );
 }
 
+/// Contexto de un callback: predecessor = el contrato y `r` como resultado de la promesa anterior (el
+/// `ft_transfer`), como lo entrega el runtime.
+pub fn ctx_callback(r: near_sdk::PromiseResult, ts: u64) {
+    testing_env!(
+        VMContextBuilder::new()
+            .current_account_id(acc(CONTRACT))
+            .predecessor_account_id(acc(CONTRACT))
+            .signer_account_id(acc(OTHER))
+            .account_balance(near(10))
+            .block_timestamp(ts)
+            .build(),
+        near_sdk::test_vm_config(),
+        near_sdk::RuntimeFeesConfig::test(),
+        Default::default(),
+        vec![r]
+    );
+}
+
+/// `on_withdraw` con el resultado del `ft_transfer`: `true` = `Successful` vacio (lo que devuelve `ft_transfer`),
+/// `false` = `Failed`.
+pub fn on_withdraw_con(c: &mut Arras, account: &str, amount: u128, ok: bool, ts: u64) -> u128 {
+    let r = if ok {
+        near_sdk::PromiseResult::Successful(vec![])
+    } else {
+        near_sdk::PromiseResult::Failed
+    };
+    ctx_callback(r, ts);
+    c.on_withdraw(acc(account), U128(amount)).0
+}
+
 pub fn new_contract() -> Arras {
     ctx(CONTRACT, 0, NOW);
     Arras::new(
@@ -274,3 +304,19 @@ pub fn setup_v1() -> (Arras, PaymentId) {
 }
 
 pub const TODAS: [&str; 6] = [PAYER, WORKER, FEES, OTHER, CAPTURER, OWNER];
+
+/// Las transferencias de NEAR que la llamada creo: `(destino, yocto)`.
+pub fn transfers() -> Vec<(String, u128)> {
+    near_sdk::test_utils::get_created_receipts()
+        .into_iter()
+        .flat_map(|r| {
+            let to = r.receiver_id.to_string();
+            r.actions.into_iter().filter_map(move |a| match a {
+                near_sdk::mock::MockAction::Transfer { deposit, .. } => {
+                    Some((to.clone(), deposit.as_yoctonear()))
+                }
+                _ => None,
+            })
+        })
+        .collect()
+}

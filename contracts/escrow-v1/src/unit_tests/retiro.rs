@@ -2,7 +2,7 @@
 
 use super::common::*;
 use crate::*;
-use near_sdk::PromiseError;
+use near_sdk::PromiseResult;
 
 const COMPACT_AT: u64 = RECLAIM + RETENTION_NS;
 
@@ -13,9 +13,9 @@ fn released_v1() -> (Arras, PaymentId) {
     (c, id)
 }
 
-fn callback(c: &mut Arras, account: &str, amount: u128, r: Result<(), PromiseError>) -> u128 {
-    ctx(CONTRACT, 0, NOW);
-    c.on_withdraw(acc(account), U128(amount), r).0
+fn callback(c: &mut Arras, account: &str, amount: u128, r: PromiseResult) -> u128 {
+    ctx_callback(r, NOW);
+    c.on_withdraw(acc(account), U128(amount)).0
 }
 
 fn withdrawn_log(account: &str, amount: u128, ok: bool) -> String {
@@ -60,10 +60,7 @@ fn u15_on_withdraw_falla() {
     let (mut c, _) = released_v1();
     ctx(WORKER, 0, NOW);
     let _ = c.withdraw();
-    assert_eq!(
-        callback(&mut c, WORKER, 870_000, Err(PromiseError::Failed)),
-        0
-    );
+    assert_eq!(callback(&mut c, WORKER, 870_000, PromiseResult::Failed), 0);
     assert_eq!(c.claimable_of(&acc(WORKER)), 870_000);
     assert_eq!(c.in_flight, 0);
     assert_eq!(c.tvl_global, 1_000_000);
@@ -82,7 +79,7 @@ fn u15b_on_withdraw_falla_con_release_intercalado() {
     ctx(CAPTURER, 0, NOW);
     c.release(id2, Some(U128(400_000)));
     assert_eq!(c.claimable_of(&acc(WORKER)), 348_000);
-    callback(&mut c, WORKER, 870_000, Err(PromiseError::Failed));
+    callback(&mut c, WORKER, 870_000, PromiseResult::Failed);
     assert_eq!(c.claimable_of(&acc(WORKER)), 870_000 + 348_000);
     assert_eq!(c.in_flight, 0);
     assert_invariante(&c, &TODAS);
@@ -96,15 +93,23 @@ fn u19_tvl_baja_solo_al_salir() {
     assert_eq!(c.tvl_global, 1_000_000);
     ctx(WORKER, 0, NOW);
     let _ = c.withdraw();
-    assert_eq!(callback(&mut c, WORKER, 870_000, Ok(())), 870_000);
+    assert_eq!(
+        callback(&mut c, WORKER, 870_000, PromiseResult::Successful(vec![])),
+        870_000
+    );
     assert_eq!(logs(), vec![withdrawn_log(WORKER, 870_000, true)]);
     assert_eq!((c.tvl_global, c.in_flight), (130_000, 0));
     assert_invariante(&c, &TODAS);
     ctx(CAPTURER, 0, NOW);
     let _ = c.withdraw_for(acc(FEES));
-    // TooLong no puede pasar con max_bytes = usize::MAX; si pasara, el transfer se hizo: cuenta como Ok.
+    // Un exito con datos (aunque no sean JSON) cuenta como Ok y no entra en panico: el transfer se hizo.
     assert_eq!(
-        callback(&mut c, FEES, 130_000, Err(PromiseError::TooLong(1))),
+        callback(
+            &mut c,
+            FEES,
+            130_000,
+            PromiseResult::Successful(b"\x00basura no json".to_vec())
+        ),
         130_000
     );
     assert_eq!(
@@ -120,14 +125,14 @@ fn withdraw_dos_veces_sin_candado() {
     let (mut c, _) = released_v1();
     ctx(WORKER, 0, NOW);
     let _ = c.withdraw();
-    callback(&mut c, WORKER, 870_000, Ok(()));
+    callback(&mut c, WORKER, 870_000, PromiseResult::Successful(vec![]));
     let id2 = authorize(&mut c, PAYER, 1_000_000, &msg_salt(2));
     ctx(CAPTURER, 0, NOW);
     c.release(id2, None);
     ctx(WORKER, 0, NOW);
     let _ = c.withdraw();
     assert_eq!(c.in_flight, 870_000);
-    callback(&mut c, WORKER, 870_000, Ok(()));
+    callback(&mut c, WORKER, 870_000, PromiseResult::Successful(vec![]));
     assert_eq!(c.claimable_of(&acc(WORKER)), 0);
     assert_invariante(&c, &TODAS);
 }
@@ -146,8 +151,8 @@ fn dos_withdraw_en_vuelo() {
     ctx(WORKER, 0, NOW);
     let _ = c.withdraw(); // otros 870000 en vuelo
     assert_eq!(c.in_flight, 1_740_000);
-    callback(&mut c, WORKER, 870_000, Err(PromiseError::Failed));
-    callback(&mut c, WORKER, 870_000, Ok(()));
+    callback(&mut c, WORKER, 870_000, PromiseResult::Failed);
+    callback(&mut c, WORKER, 870_000, PromiseResult::Successful(vec![]));
     assert_eq!((c.claimable_of(&acc(WORKER)), c.in_flight), (870_000, 0));
     assert_eq!(c.tvl_global, 2_000_000 - 870_000);
     assert_invariante(&c, &TODAS);
@@ -255,4 +260,59 @@ fn compact_patrocinado_devuelve_al_pool() {
     );
     assert_eq!(c.sponsored_used_of(OP, &acc(OTHER)), usado - devuelto);
     assert_eq!(despues.storage_payer, None);
+}
+
+/// P2-1 de la refutacion: un `payment_id` de 42 caracteres (salt `00..0415` sobre V-1) se autoriza y tambien se
+/// compacta.
+#[test]
+fn compact_con_payment_id_de_42_caracteres() {
+    let mut c = setup();
+    let mut m = msg_v1();
+    m.salt[14] = 0x04;
+    m.salt[15] = 0x15;
+    let id = authorize(&mut c, PAYER, 1_000_000, &m.to_canonical_json());
+    assert_eq!(id, "1y1ZbrieUbaioiUBHxX7EyZMNkCis2tLKCs5Xxezgy");
+    ctx(CAPTURER, 0, NOW);
+    c.refund(id.clone());
+    ctx(OTHER, 0, COMPACT_AT);
+    c.compact(id.clone());
+    assert_eq!(c.get_payment(id), None);
+    assert_rechazo(
+        &mut c,
+        USDC,
+        PAYER,
+        1_000_000,
+        &m.to_canonical_json(),
+        "E13_ID_USADO",
+    );
+}
+
+/// P3-2 de la refutacion: un exito del `ft_transfer` con cualquier dato (JSON o no) es Ok y no entra en panico.
+#[test]
+fn on_withdraw_no_deserializa_lo_que_devuelve_el_token() {
+    for datos in [
+        b"null".to_vec(),
+        b"\"0\"".to_vec(),
+        vec![0xff, 0x00, 0x13],
+        vec![],
+    ] {
+        let _ = near_sdk::mock::with_mocked_blockchain(|b| b.take_storage());
+        let (mut c, _) = released_v1();
+        ctx(WORKER, 0, NOW);
+        let _ = c.withdraw();
+        assert_eq!(
+            callback(
+                &mut c,
+                WORKER,
+                870_000,
+                PromiseResult::Successful(datos.clone())
+            ),
+            870_000,
+            "{datos:?}"
+        );
+        assert_eq!(
+            (c.claimable_of(&acc(WORKER)), c.in_flight, c.tvl_global),
+            (0, 0, 130_000)
+        );
+    }
 }

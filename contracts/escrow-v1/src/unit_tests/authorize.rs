@@ -594,3 +594,26 @@ fn orden_de_las_guardas() {
         "E14_SIN_STORAGE",
     );
 }
+
+/// P3-4 de la refutacion: `list_payments` recorta `limit` a 50 y pagina por `from_index`.
+#[test]
+fn list_payments_pagina_con_tope_50() {
+    let mut c = setup();
+    ctx(PAYER, near(1).as_yoctonear(), NOW);
+    c.storage_deposit(None, None);
+    let mut ids = vec![];
+    for n in 0..51u8 {
+        ids.push(authorize(&mut c, PAYER, MIN_AMOUNT, &msg_salt(n)));
+    }
+    let pagina = |c: &Arras, from: u32, limit: u32| -> Vec<PaymentId> {
+        c.list_payments(OP.into(), from, limit)
+            .into_iter()
+            .map(|(i, _)| i)
+            .collect()
+    };
+    assert_eq!(pagina(&c, 0, 1000), ids[..50].to_vec());
+    assert_eq!(pagina(&c, 50, 50), ids[50..].to_vec());
+    assert_eq!(pagina(&c, 10, 3), ids[10..13].to_vec());
+    assert!(pagina(&c, 51, 50).is_empty());
+    assert!(pagina(&c, u32::MAX, 50).is_empty());
+}

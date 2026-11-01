@@ -204,3 +204,89 @@ fn registro_nep145_de_64_ocupa_exactamente_min() {
     c.flush_all();
     assert_eq!(env::storage_usage() - antes, STORAGE_RECORD_MAX_BYTES);
 }
+
+/// P2-4 de la refutacion: el NEAR que NEP-145 devuelve o retira, no solo el `StorageBalance` que se informa.
+#[test]
+fn nep145_transfiere_los_montos_exactos() {
+    let mut c = new_contract();
+    let min = c.storage_balance_bounds().min.as_yoctonear();
+    // Registro solo: devuelve deposito - min a quien pago.
+    ctx(OTHER, 3 * min, NOW);
+    c.storage_deposit(Some(acc(WORKER)), Some(true));
+    assert_eq!(transfers(), vec![(OTHER.to_string(), 2 * min)]);
+    // Ya registrado y registro solo: devuelve todo.
+    ctx(OTHER, 7, NOW);
+    c.storage_deposit(Some(acc(WORKER)), Some(true));
+    assert_eq!(transfers(), vec![(OTHER.to_string(), 7)]);
+    // Deposito sin registration_only: no devuelve nada.
+    ctx(PAYER, NearToken::from_millinear(50).as_yoctonear(), NOW);
+    c.storage_deposit(None, None);
+    assert_eq!(transfers(), vec![]);
+    // storage_withdraw: exactamente lo pedido, al titular.
+    ctx(PAYER, 1, NOW);
+    c.storage_withdraw(Some(U128(1_000)));
+    assert_eq!(transfers(), vec![(PAYER.to_string(), 1_000)]);
+    let resto = c
+        .storage_balance_of(acc(PAYER))
+        .unwrap()
+        .available
+        .as_yoctonear();
+    ctx(PAYER, 1, NOW);
+    c.storage_withdraw(None);
+    assert_eq!(transfers(), vec![(PAYER.to_string(), resto)]);
+    ctx(PAYER, 1, NOW);
+    c.storage_withdraw(None);
+    assert_eq!(transfers(), vec![], "sin available no transfiere");
+}
+
+/// P3-3 de la refutacion: `free_reserve` resta los pools de patrocinio. Fondear el pool mete el NEAR en el saldo
+/// y en el pool a la vez: la reserva libre no cambia (si no se restara el pool, subiria).
+#[test]
+fn storage_health_resta_el_pool() {
+    let mut c = setup();
+    let x = NearToken::from_millinear(500).as_yoctonear();
+    ctx(OTHER, 0, NOW);
+    let antes = c.get_storage_health();
+    ctx(OTHER, x, NOW);
+    c.fund_operator_storage(OP.into());
+    let despues = c.get_storage_health();
+    assert_eq!(despues.storage_usage, antes.storage_usage);
+    assert_eq!(
+        despues.balance.0,
+        antes.balance.0 + x,
+        "el deposito adjunto ya esta en el saldo"
+    );
+    assert_eq!(despues.sponsor_pools.0, antes.sponsor_pools.0 + x);
+    assert_eq!(despues.free_reserve, antes.free_reserve);
+    assert_eq!(
+        despues.free_reserve.0,
+        despues.balance.0
+            - despues.storage_cost.0
+            - despues.nep145_available.0
+            - despues.sponsor_pools.0
+    );
+}
+
+/// P3-1 de la refutacion: un `fee_recipient` igual al propio contrato es `E46` (las tarifas quedarian atrapadas).
+#[test]
+fn fee_recipient_no_puede_ser_el_contrato() {
+    let mut c = setup();
+    ctx(OWNER, 1, NOW);
+    let mut i = operator_input();
+    i.fee_recipient = acc(CONTRACT);
+    expect_panic("ARRAS_E46", || c.register_operator("kk".into(), i.clone()));
+    expect_panic("ARRAS_E46", || {
+        c.update_operator(
+            OP.into(),
+            OperatorPatch {
+                fee_recipient: Some(acc(CONTRACT)),
+                ..Default::default()
+            },
+        )
+    });
+    // El orden: E43 antes que E46.
+    i.fee_bps = 1801;
+    expect_panic("ARRAS_E43", || c.register_operator("kk".into(), i.clone()));
+    assert_eq!(c.get_operator(OP.into()).unwrap().fee_recipient, acc(FEES));
+    assert_eq!(c.get_operator("kk".into()), None);
+}

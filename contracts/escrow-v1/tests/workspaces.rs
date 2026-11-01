@@ -1338,20 +1338,30 @@ async fn w13b_flujo_con_ft_real() -> anyhow::Result<()> {
         detalle.join(", ")
     );
     e.release(&id, None).await?;
+    // Con el prepagado minimo de W-04 (24 TGas) el `ft_transfer` recibe sus 10 TGas estaticos y casi nada mas del
+    // reparto: si 10 no alcanzaran para el `ft_transfer` de Circle, este retiro daria `ok:false`.
     let r = e
-        .withdraw_for(&e.capturer, e.worker.id(), Gas::from_tgas(50))
+        .withdraw_for(&e.capturer, e.worker.id(), Gas::from_tgas(24))
         .await?;
     assert!(r.is_success(), "{:?}", r.clone().into_result());
-    assert_eq!(withdrawn_ok(&r), vec![true]);
+    assert_eq!(
+        withdrawn_ok(&r),
+        vec![true],
+        "10 TGas alcanzan para el ft_transfer de Circle"
+    );
     assert_eq!(e.ft_balance(e.worker.id()).await?, 870_000);
     let ft_transfer = r
         .receipt_outcomes()
         .iter()
         .find(|o| &o.executor_id == e.ft.id() && o.logs.iter().any(|l| l.contains("ft_transfer")))
-        .map(|o| o.gas_burnt.as_gas() as f64 / 1e12);
+        .map(|o| o.gas_burnt.as_gas() as f64 / 1e12)
+        .expect("receipt del ft_transfer de Circle");
+    assert!(
+        ft_transfer < 10.0,
+        "ft_transfer de Circle quema {ft_transfer} TGas de 10"
+    );
     println!(
-        "MEDIDA W-13b ft_transfer de Circle quemo {:?} TGas (GAS_FT_TRANSFER = 10)",
-        ft_transfer
+        "MEDIDA W-13b ft_transfer de Circle quemo {ft_transfer:.3} TGas (GAS_FT_TRANSFER = 10), con withdraw_for a 24 TGas"
     );
     e.invariante(&e.todas()).await?;
     Ok(())

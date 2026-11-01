@@ -16,8 +16,9 @@ Status: v1 contract, unit tests, near-workspaces tests and testnet deployment (h
 
 Agents that pay for work over x402 on NEAR today can only send money (`exact`): there is no way to hold the money
 until the work is checked. Arras adds the escrow: the money is locked by the payer's own signature, the operator can
-only move it to the receiver or back to the payer (never to itself), and every path ends in a pull withdrawal that
-cannot get stuck.
+only move it to the receiver or back to the payer (never to itself), and every path ends in a pull withdrawal: if a
+transfer fails (for example, the receiver is not registered in USDC), the balance stays claimable and the withdrawal
+can be retried.
 
 ## How it works
 
@@ -87,15 +88,25 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 - **Immutable and keyless:** no `migrate`; `new` is `#[private]` and runs in the deploy transaction; every access key
   of the contract account is deleted. A bug is answered by pausing and deploying a new version in a new account.
 - **Roles:** the owner registers and edits operators and can only lower caps; the guardian (or owner) pauses; only
-  the owner unpauses. Neither can move funds. Pause only blocks new payments: release, refund, reclaim, withdraw and
-  compact keep working.
+  the owner unpauses. Neither can send funds to itself. The owner can change an operator's capturers, so it can
+  choose who releases or refunds live payments, but the destinations (receiver, payer, the frozen fee recipient) do
+  not change. Pause only blocks new payments: release, refund, reclaim, withdraw and compact keep working.
 - **Frozen terms:** the fee and the fee recipient are copied into each payment when it is authorized.
 - **Caps:** 10 USDC per payment and 1,000 USDC global TVL, fixed at `new` and never raisable; per-operator and
   per-payer TVL caps and a minimum amount per operator.
 - **Pull model:** no promise in release/refund/reclaim; each withdrawal has its own callback with static gas, so a
   failed transfer (an unregistered receiver, for example) only puts that balance back.
-- **Not mitigated, declared:** Circle can blocklist or pause the contract's USDC account. Tokens sent directly to the
-  contract are not recoverable by design.
+- **Not mitigated, declared:**
+  - Circle can blocklist or pause the contract's USDC account, and can upgrade its token contract.
+  - Tokens sent directly to the contract (not through `ft_transfer_call`) are not recoverable, by design.
+  - A funded attacker can fill the global TVL cap (1,000 USDC, immutable) with payments to accounts it controls and
+    get the money back by refund: new payments then get `E10` for everyone until those are released or refunded.
+    The per-payer and per-operator caps limit each account, not a set of sybil accounts.
+  - Sybil payers without NEP-145 can use up the operator's sponsorship pool (each up to its per-payer cap); then
+    payers without their own NEP-145 deposit get `E14`. The pool cannot be withdrawn, only spent or refilled.
+  - Operator registration and edits are paid from the contract's free reserve, so the owner is trusted not to
+    exhaust it (for example with a huge capturer list); `get_storage_health` reports the reserve.
+  - A `payment_id` is the base58 of a 32-byte hash: usually 43 or 44 characters, but it can be shorter (down to 32).
 
 ## Repository
 

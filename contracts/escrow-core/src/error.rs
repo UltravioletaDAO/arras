@@ -40,6 +40,9 @@ pub enum ArrasError {
     /// No esta en la tabla de la sec. 3.4: `register_operator` necesita rechazar un `operator_id` fuera de
     /// `[a-z0-9_-]{1,32}` (sec. 3.1). Anotado en PREGUNTA-c0der.md.
     E45OperatorIdInvalido,
+    /// Tampoco esta en la sec. 3.4: un `fee_recipient` igual al propio contrato deja las tarifas atrapadas para
+    /// siempre (`ft_transfer` de si mismo a si mismo falla). Refutacion de H-1, P3-1.
+    E46FeeRecipientInvalido,
 }
 
 impl ArrasError {
@@ -76,6 +79,7 @@ impl ArrasError {
             Self::E43FeeBps => "E43_FEE_BPS",
             Self::E44OperadorExiste => "E44_OPERADOR_EXISTE",
             Self::E45OperatorIdInvalido => "E45_OPERATOR_ID_INVALIDO",
+            Self::E46FeeRecipientInvalido => "E46_FEE_RECIPIENT_INVALIDO",
         }
     }
 
@@ -119,6 +123,7 @@ impl ArrasError {
             Self::E43FeeBps => "fee_bps mayor a 1800".into(),
             Self::E44OperadorExiste => "el operador ya existe".into(),
             Self::E45OperatorIdInvalido => "operator_id fuera de [a-z0-9_-]{1,32}".into(),
+            Self::E46FeeRecipientInvalido => "fee_recipient no puede ser el propio contrato".into(),
         }
     }
 
@@ -188,6 +193,7 @@ mod tests {
             ArrasError::E43FeeBps,
             ArrasError::E44OperadorExiste,
             ArrasError::E45OperatorIdInvalido,
+            ArrasError::E46FeeRecipientInvalido,
         ];
         let mut numeros: Vec<&str> = todos.iter().map(|e| e.number()).collect();
         numeros.sort_unstable();

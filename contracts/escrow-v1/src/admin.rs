@@ -8,7 +8,8 @@ use near_sdk::assert_one_yocto;
 
 #[near]
 impl Arras {
-    /// Solo el owner, 1 yocto. `E40` -> `E45` (id fuera de `[a-z0-9_-]{1,32}`) -> `E44` -> `E43`.
+    /// Solo el owner, 1 yocto. `E40` -> `E45` (id fuera de `[a-z0-9_-]{1,32}`) -> `E44` -> `E43` -> `E46`
+    /// (`fee_recipient` = el propio contrato).
     #[payable]
     pub fn register_operator(&mut self, operator_id: OperatorId, input: OperatorInput) {
         assert_one_yocto();
@@ -21,6 +22,9 @@ impl Arras {
         }
         if input.fee_bps > MAX_FEE_BPS {
             ArrasError::E43FeeBps.panic();
+        }
+        if input.fee_recipient == env::current_account_id() {
+            ArrasError::E46FeeRecipientInvalido.panic();
         }
         let operator = Operator {
             owner: input.owner,
@@ -67,7 +71,8 @@ impl Arras {
         );
     }
 
-    /// Solo el owner, 1 yocto. `E40` -> `E04` -> `E43` (fee > 1800) -> `E42` (un tope que sube). No toca la
+    /// Solo el owner, 1 yocto. `E40` -> `E04` -> `E43` (fee > 1800) -> `E42` (un tope que sube) -> `E46`
+    /// (`fee_recipient` = el propio contrato). No toca la
     /// `fee_bps` ni el `fee_recipient` de los pagos vivos (estan congelados en cada `Payment`); los `capturers`
     /// nuevos si valen para los pagos vivos (sec. 16, P3-9).
     #[payable]
@@ -88,6 +93,9 @@ impl Arras {
                 .is_some_and(|t| t.0 > op.tope_tvl_por_payer.0)
         {
             ArrasError::E42SoloBajarTopes.panic();
+        }
+        if patch.fee_recipient.as_ref() == Some(&env::current_account_id()) {
+            ArrasError::E46FeeRecipientInvalido.panic();
         }
         if let Some(v) = &patch.capturers {
             op.capturers = v.clone();
