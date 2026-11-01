@@ -7,7 +7,8 @@
 #                  worker-demo (0,2); las que ya existen se saltan
 #   3 usdc         storage_deposit en el USDC de testnet para el contrato, worker-demo, em-fees y payer-demo
 #                  (las ya registradas se saltan)
-#   4 faucet-usdc  a mano: USDC de https://faucet.circle.com (NEAR Testnet) a payer-demo.$P
+#   4 faucet-usdc  a mano: USDC de https://faucet.circle.com (NEAR Testnet) a payer-demo.$P (1 USDC por authorize;
+#                  `todo` hace dos: 2 USDC)
 #   5 deploy       build reproducible (si falta la wasm) y deploy con init privado (`with-init-call new`)
 #   6 operador     operador em (sin listas), patrocinio de storage y NEP-145 del payer
 #   7 capturer     FunctionCall key del capturer acotada al contrato y borrado de su FullAccess
@@ -20,7 +21,8 @@
 #
 # Variables: ARRAS_PARENT (arras-dev.testnet); ARRAS_CONTRATO (v1.$ARRAS_PARENT; el deploy final usa una cuenta de
 # nivel superior del faucet, p. ej. arras-v1b-1101.testnet); ARRAS_CAPTURER (em-capturer.$ARRAS_PARENT; una
-# FunctionCall key sirve para un solo contrato, asi que cada contrato lleva su capturer); ARRAS_WASM
+# FunctionCall key sirve para un solo contrato y, sin FullAccess desde su paso 7, un capturer ya no puede agregar otra
+# con AddKey: cada contrato lleva su capturer); ARRAS_WASM
 # (target/near/arras_escrow_v1/arras_escrow_v1.wasm); ARRAS_REV (la rev NEP-330 que tiene que traer la wasm del paso 5;
 # por defecto `git rev-parse HEAD`); ARRAS_KEYCHAIN (keychain | legacy-keychain: el llavero de
 # macOS o ~/.near-credentials); ARRAS_ESTADO (donde se guarda el msg del paso 8, fuera del repo); ARRAS_RPC (el RPC de
@@ -88,24 +90,47 @@ rpc_query() {
     -d "$(jq -nc --argjson p "$1" '{jsonrpc:"2.0",id:"arras",method:"query",params:$p}')"
 }
 
+# Las ultimas lineas de una salida de near, sin colores y sin nada que parezca una llave o una firma (near no imprime la
+# llave; el filtro es una segunda red).
+cola_near() {
+  printf '%s\n' "$1" | sed 's/\x1b\[[0-9;]*m//g' | grep -viE 'secret|private|ed25519:[1-9A-HJ-NP-Za-km-z]{60,}' | tail -n 8 >&2 || true
+}
+
+# El ultimo nonce que este script mando con la llave del capturer. El nonce se lee de $RPC y la tx sale por el RPC de
+# la red testnet de near-cli; si el de lectura viene atrasado, el nonce siguiente sale de aca.
+NONCE_CAPT=0
+
 # Una llamada del capturer con su FunctionCall key. near-cli-rs 0.30.1 en linea solo firma con llaves FullAccess del
 # llavero (sign_with_keychain/mod.rs y sign_with_legacy_keychain/mod.rs filtran AccessKeyPermissionView::FullAccess), y
 # el capturer no tiene ninguna desde el paso 7. Con --offline firma con la llave que se le nombra: nonce y bloque se leen
 # de la cadena, la tx firmada se manda con send-signed-transaction y la llave no sale del llavero.
 capturer() {
-  local metodo=$1 args=$2 gas=$3 pk vista nonce hash altura firmada
-  pk=$(rpc_query "$(jq -nc --arg a "$CAPT" '{request_type:"view_access_key_list",finality:"optimistic",account_id:$a}')" |
-    jq -r --arg c "$C" '[.result.keys[] | select((.access_key.permission | objects | .FunctionCall.receiver_id) == $c)][0].public_key // empty')
+  local metodo=$1 args=$2 gas=$3 lista pk vista nonce hash altura salida firmada
+  lista=$(rpc_query "$(jq -nc --arg a "$CAPT" '{request_type:"view_access_key_list",finality:"optimistic",account_id:$a}')") ||
+    { echo "$RPC no respondio a view_access_key_list de $CAPT" >&2; return 1; }
+  jq -e '.result.keys | arrays' <<<"$lista" >/dev/null 2>&1 ||
+    { echo "view_access_key_list de $CAPT en $RPC no trajo .result.keys: $(head -c 300 <<<"$lista")" >&2; return 1; }
+  pk=$(jq -r --arg c "$C" '[.result.keys[] | select((.access_key.permission | objects | .FunctionCall.receiver_id) == $c)][0].public_key // empty' <<<"$lista")
   [ -n "$pk" ] || { echo "$CAPT no tiene una FunctionCall key para $C (paso 7)" >&2; return 1; }
-  vista=$(rpc_query "$(jq -nc --arg a "$CAPT" --arg k "$pk" '{request_type:"view_access_key",finality:"optimistic",account_id:$a,public_key:$k}')")
-  nonce=$(( $(jq -r .result.nonce <<<"$vista") + 1 ))
-  hash=$(jq -r .result.block_hash <<<"$vista")
-  altura=$(jq -r .result.block_height <<<"$vista")
+  vista=$(rpc_query "$(jq -nc --arg a "$CAPT" --arg k "$pk" '{request_type:"view_access_key",finality:"optimistic",account_id:$a,public_key:$k}')") ||
+    { echo "$RPC no respondio a view_access_key de $CAPT ($pk)" >&2; return 1; }
+  if ! { nonce=$(jq -er '.result.nonce | numbers' <<<"$vista" 2>/dev/null) &&
+    hash=$(jq -er '.result.block_hash | strings' <<<"$vista" 2>/dev/null) &&
+    altura=$(jq -er '.result.block_height | numbers' <<<"$vista" 2>/dev/null); }; then
+    echo "view_access_key de $CAPT ($pk) en $RPC no trajo nonce y bloque: $(head -c 300 <<<"$vista")" >&2
+    return 1
+  fi
+  nonce=$(( nonce + 1 ))
+  if [ "$nonce" -le "$NONCE_CAPT" ]; then
+    nonce=$(( NONCE_CAPT + 1 ))
+  fi
   printf '\n+ %s %s %s (capturer %s, firma --offline, nonce %s)\n' "$metodo" "$args" "$gas" "$pk" "$nonce"
-  firmada=$(near --offline contract call-function as-transaction "$C" "$metodo" json-args "$args" prepaid-gas "$gas" attached-deposit '0 NEAR' sign-as "$CAPT" network-config "$NET" "$SIGN" --signer-public-key "$pk" --nonce "$nonce" --block-hash "$hash" --block-height "$altura" display 2>&1 |
-    sed 's/\x1b\[[0-9;]*m//g' | awk 'f { print; f = 0 } /serialized as base64/ { f = 1 }' | tr -d ' ')
-  [ -n "$firmada" ] || { echo "no se pudo firmar $metodo con $pk del llavero" >&2; return 1; }
+  salida=$(near --offline contract call-function as-transaction "$C" "$metodo" json-args "$args" prepaid-gas "$gas" attached-deposit '0 NEAR' sign-as "$CAPT" network-config "$NET" "$SIGN" --signer-public-key "$pk" --nonce "$nonce" --block-hash "$hash" --block-height "$altura" display 2>&1) ||
+    { echo "near --offline no pudo firmar $metodo con $pk del llavero; sus ultimas lineas:" >&2; cola_near "$salida"; return 1; }
+  firmada=$(printf '%s\n' "$salida" | sed 's/\x1b\[[0-9;]*m//g' | awk 'f { print; f = 0 } /serialized as base64/ { f = 1 }' | tr -d ' ')
+  [ -n "$firmada" ] || { echo "near --offline no devolvio la tx firmada de $metodo; sus ultimas lineas:" >&2; cola_near "$salida"; return 1; }
   run near transaction send-signed-transaction base64-signed-transaction "$firmada" network-config "$NET" send
+  NONCE_CAPT=$nonce
 }
 
 # El payment_id del ultimo authorize del paso 8 (un payment_id tiene de 32 a 44 caracteres: base58 de 32 bytes).
@@ -152,7 +177,7 @@ paso3() {
 }
 
 paso4() {
-  echo "A mano: https://faucet.circle.com -> NEAR Testnet -> payer-demo.$P (1 USDC alcanza para el paso 8)."
+  echo "A mano: https://faucet.circle.com -> NEAR Testnet -> payer-demo.$P (1 USDC por authorize; todo hace dos: 2 USDC)."
   run near contract call-function as-read-only "$USDC" ft_balance_of json-args "{\"account_id\":\"payer-demo.$P\"}" network-config "$NET" now
 }
 
@@ -276,5 +301,5 @@ case "${1:-}" in
   11 | refund) paso11 ;;
   verificar) verificar ;;
   todo) paso1; paso2; paso3; paso4; paso5; paso6; paso7; paso8; paso9; paso10; paso8; paso11 ;;
-  *) sed -n '2,28p' "$0"; exit 1 ;;
+  *) sed -n '2,30p' "$0"; exit 1 ;;
 esac
