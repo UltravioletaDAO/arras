@@ -14,6 +14,7 @@ use near_sdk::store::{IterableMap, LookupMap, LookupSet, Vector};
 use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, env, near};
 
 mod admin;
+mod authorize;
 mod storage;
 mod views;
 
@@ -265,6 +266,22 @@ impl Arras {
 
     pub(crate) fn claimable_of(&self, account: &AccountId) -> u128 {
         self.claimable.get(account).copied().unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn payer_tvl_of(&self, operator_id: &str, payer: &AccountId) -> u128 {
+        self.payer_tvl
+            .get(&(operator_id.to_string(), payer.clone()))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sponsored_used_of(&self, operator_id: &str, payer: &AccountId) -> u128 {
+        self.sponsored_used
+            .get(&(operator_id.to_string(), payer.clone()))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Persiste los caches de todas las colecciones (en la wasm lo hace el `Drop` al final de la llamada; los tests

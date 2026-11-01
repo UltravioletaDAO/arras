@@ -89,6 +89,45 @@ pub fn setup() -> Arras {
     c
 }
 
+/// Lo que un rechazo no puede tocar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Snapshot {
+    pub payments: u32,
+    pub tvl_global: u128,
+    pub in_flight: u128,
+    pub tvl_operador: u128,
+    pub payer_tvl: u128,
+    pub sponsor_pool: u128,
+    pub sponsored_used: u128,
+    pub storage_payer: Option<(u128, u128)>,
+    pub storage_available_total: u128,
+    pub claimable: [u128; 3],
+    pub storage_usage: u64,
+}
+
+pub fn snapshot(c: &mut Arras, payer: &str) -> Snapshot {
+    c.flush_all();
+    let op = c.operators.get(OP).cloned();
+    let payer = acc(payer);
+    Snapshot {
+        payments: c.payments.len(),
+        tvl_global: c.tvl_global,
+        in_flight: c.in_flight,
+        tvl_operador: op.as_ref().map_or(0, |o| o.tvl_operador.0),
+        payer_tvl: c.payer_tvl_of(OP, &payer),
+        sponsor_pool: op.as_ref().map_or(0, |o| o.sponsor_pool.0),
+        sponsored_used: c.sponsored_used_of(OP, &payer),
+        storage_payer: c.storage.get(&payer).map(|b| (b.total, b.available)),
+        storage_available_total: c.storage_available_total,
+        claimable: [
+            c.claimable_of(&payer),
+            c.claimable_of(&acc(WORKER)),
+            c.claimable_of(&acc(FEES)),
+        ],
+        storage_usage: env::storage_usage(),
+    }
+}
+
 /// El panic de `f` contiene `needle` (p. ej. `ARRAS_E21`).
 pub fn expect_panic<R>(needle: &str, f: impl FnOnce() -> R) {
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
@@ -111,4 +150,79 @@ pub fn sb(b: near_contract_standards::storage_management::StorageBalance) -> (u1
 
 pub fn logs() -> Vec<String> {
     get_logs()
+}
+
+/// El `msg` de V-1 (sec. 3.2 y 7) como struct, para variarlo.
+pub fn msg_v1() -> arras_escrow_core::AuthorizeMsg {
+    arras_escrow_core::AuthorizeMsg {
+        operator_id: OP.into(),
+        receiver: acc(WORKER),
+        release_deadline: RELEASE,
+        reclaim_after: RECLAIM,
+        fee_bps_max: 1300,
+        terms_hash: [0; 32],
+        salt: [0; 16],
+    }
+}
+
+/// `msg` de V-1 con otro `salt` (para ids distintos).
+pub fn msg_salt(n: u8) -> String {
+    let mut m = msg_v1();
+    m.salt[15] = n;
+    m.to_canonical_json()
+}
+
+/// `ft_on_transfer` en el contexto actual (sin cambiarlo: `testing_env!` reinicia el contador de
+/// `env::storage_usage()`, asi que las mediciones van dentro de un mismo contexto).
+pub fn call_ft_on_transfer(c: &mut Arras, sender: &str, amount: u128, msg: &str) -> u128 {
+    use near_contract_standards::fungible_token::receiver::FungibleTokenReceiver;
+    match c.ft_on_transfer(acc(sender), U128(amount), msg.to_string()) {
+        near_sdk::PromiseOrValue::Value(v) => v.0,
+        near_sdk::PromiseOrValue::Promise(_) => panic!("ft_on_transfer no devuelve promesas"),
+    }
+}
+
+/// `ft_on_transfer` llamado por `token` (predecessor) en `NOW`. Devuelve lo que el contrato devuelve al token.
+pub fn ft_on_transfer_as(
+    c: &mut Arras,
+    token: &str,
+    sender: &str,
+    amount: u128,
+    msg: &str,
+) -> u128 {
+    ctx(token, 0, NOW);
+    call_ft_on_transfer(c, sender, amount, msg)
+}
+
+/// El `payment_id` que daria authorize.
+pub fn id_of(sender: &str, amount: u128, msg: &str) -> PaymentId {
+    let parsed = arras_escrow_core::parse_authorize_msg(msg).unwrap();
+    arras_escrow_core::compute_payment_id(&arras_escrow_core::PaymentIdInput::from_msg(
+        &parsed, USDC, sender, amount,
+    ))
+    .1
+}
+
+/// authorize valido desde el USDC; afirma `Value(0)` y devuelve el `payment_id`.
+pub fn authorize(c: &mut Arras, sender: &str, amount: u128, msg: &str) -> PaymentId {
+    let back = ft_on_transfer_as(c, USDC, sender, amount, msg);
+    assert_eq!(back, 0, "authorize rechazado: {:?}", logs());
+    id_of(sender, amount, msg)
+}
+
+/// Rechazo: `Value(amount)`, el log `arras:rechazo:<code>` y el estado intacto (incluidos los bytes de storage).
+pub fn assert_rechazo(
+    c: &mut Arras,
+    token: &str,
+    sender: &str,
+    amount: u128,
+    msg: &str,
+    code: &str,
+) {
+    ctx(token, 0, NOW);
+    let antes = snapshot(c, sender);
+    let back = call_ft_on_transfer(c, sender, amount, msg);
+    assert_eq!(back, amount, "el rechazo devuelve todo");
+    assert_eq!(logs(), vec![format!("arras:rechazo:{code}")]);
+    assert_eq!(snapshot(c, sender), antes, "estado intacto tras {code}");
 }
