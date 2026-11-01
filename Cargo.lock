@@ -74,8 +74,17 @@ dependencies = [
  "near-sdk",
  "near-workspaces",
  "proptest",
+ "reqwest 0.13.5",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "arras-test-ft"
+version = "0.1.0"
+dependencies = [
+ "near-contract-standards",
+ "near-sdk",
 ]
 
 [[package]]
