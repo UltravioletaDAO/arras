@@ -1,0 +1,5 @@
+# El que genera `cargo near new` con cargo-near 0.22.0 (medido 2026-11-01).
+[toolchain]
+channel = "1.93.0"
+components = ["rustfmt", "clippy", "rust-analyzer"]
+targets = ["wasm32-unknown-unknown"]

@@ -1,0 +1,24 @@
+[workspace]
+resolver = "3"
+# v2 (contracts/escrow-v2) entra con C11..C15; no es parte de H-1.
+# contracts/test-ft: FT de prueba, solo para el sandbox de near-workspaces.
+members = ["contracts/escrow-core", "contracts/escrow-v1", "contracts/test-ft"]
+
+[workspace.lints.rust.unexpected_cfgs]
+# `cfg(near)` existe desde near-sdk 5.27.0 (bloque copiado de `cargo near new`, cargo-near 0.22.0).
+level = "warn"
+check-cfg = ['cfg(near)']
+
+# Los perfiles solo valen en la raiz del workspace (cargo ignora los de los miembros).
+[profile.release]
+codegen-units = 1
+opt-level = "z"
+lto = true
+debug = false
+panic = "abort"
+overflow-checks = true
+
+# Tests: las dependencias (el mock de near-sdk con near-vm-runner, near-workspaces) optimizadas; nuestras crates
+# quedan en debug. Solo afecta `cargo test`/`cargo build` en dev: la wasm sale del perfil release de arriba.
+[profile.dev.package."*"]
+opt-level = 2

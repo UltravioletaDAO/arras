@@ -1,0 +1,17 @@
+[package]
+name = "arras-escrow-core"
+description = "Arras: tipos, errores, eventos, payment_id y tarifas (sin estado de contrato)"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/UltravioletaDAO/arras"
+publish = false
+
+[dependencies]
+near-sdk = "=5.29.1"
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "arras-test-ft"
+description = "FT de prueba (FungibleToken de near-contract-standards) para los tests near-workspaces de Arras"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/UltravioletaDAO/arras"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.29.1"
+near-contract-standards = "=5.29.1"
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+
+[lints]
+workspace = true
