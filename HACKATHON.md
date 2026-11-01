@@ -26,3 +26,13 @@
 Everything after the start SHA: the `arras-escrow-core` and `arras-escrow-v1` crates, their unit tests, the
 near-workspaces tests, the reproducible build and `scripts/testnet.sh`. `git log --format='%h %aI %s' 3a2ebdf..HEAD`
 lists each commit with its timestamp.
+
+## Deployed during the hackathon (testnet)
+
+| Contract | Commit | Wasm sha256 | Role |
+|---|---|---|---|
+| `arras-v1b-1101.testnet` | `8da7174` (in `main`) | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` | **demo contract**, keyless, deployed 2026-11-01 after the money review |
+| `v1.arras-dev.testnet` | `0fb7929` | `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` | first deployment, keyless, before the self-review fixes |
+
+Both wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
+NEP-330 metadata (`contract_source_metadata`). Transactions and checks: README, "Testnet deployments".

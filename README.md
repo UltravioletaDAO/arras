@@ -53,25 +53,54 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 
 | Do | See |
 |---|---|
-| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached) | 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 56 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests; 3 more are `ignored` because they need network |
+| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached) | 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests; 3 more are `ignored` because they need network |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
-| `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; built from commit `0fb7929` it has sha256 `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` |
-| `near account list-keys v1.arras-dev.testnet network-config testnet now` | an empty table: nobody can redeploy or touch the contract account |
-| `near account view-account-summary v1.arras-dev.testnet network-config testnet now` | contract sha256 `811e454f...5897a0`, "Account is locked (no access keys)" |
-| `near contract call-function as-read-only v1.arras-dev.testnet get_config json-args '{}' network-config testnet now` | `"version": "arras-v1"`, `tope_por_pago` 10 USDC, `tope_tvl_global` 1,000 USDC |
-| `near contract call-function as-read-only v1.arras-dev.testnet contract_source_metadata json-args '{}' network-config testnet now` | NEP-330 build info: image digest and `source_code_snapshot` at commit `0fb7929` |
+| `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; checked out at commit `8da7174` (the demo contract) it has sha256 `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` |
+| `near account list-keys arras-v1b-1101.testnet network-config testnet now` | an empty table: nobody can redeploy or touch the contract account |
+| `near account view-account-summary arras-v1b-1101.testnet network-config testnet now` | contract sha256 `7058319d...0eada`, "Account is locked (no access keys)" |
+| `near contract call-function as-read-only arras-v1b-1101.testnet get_config json-args '{}' network-config testnet now` | `"version": "arras-v1"`, `tope_por_pago` 10 USDC, `tope_tvl_global` 1,000 USDC |
+| `near contract call-function as-read-only arras-v1b-1101.testnet contract_source_metadata json-args '{}' network-config testnet now` | NEP-330 build info: image digest and `source_code_snapshot` at commit `8da71748b428ceccf9fccd358e61bb4213d54e29` |
+| `ARRAS_CONTRATO=arras-v1b-1101.testnet scripts/testnet.sh verificar` | local wasm (commit and sha256) next to the code hash on chain, keys and config |
 | `scripts/testnet.sh <step>` | the whole testnet sequence, step by step (see the header of the script) |
 
-## Testnet deployment (2026-11-01)
+## Testnet deployments (2026-11-01)
 
-**First deployment:** `v1.arras-dev.testnet` runs the reproducible wasm of commit `0fb7929`, from before the
-self-review fixes. Compared with the final code it lacks `E46` (a fee recipient equal to the contract itself is
-accepted), the `on_withdraw` that does not deserialize the token's return value, and `compact` for payment ids shorter
-than 43 characters (about 2 in a million payments cannot be compacted; no USDC is affected). It stays as it is
-(immutable, keyless). **The final deployment** goes to `arras-v1b-1101.testnet` (already funded by the faucet) with
-the reproducible wasm of the reviewed commit, after the money review of this code; the authorize -> release ->
-withdraw run with real USDC goes there.
+### Demo contract: `arras-v1b-1101.testnet`
+
+The reproducible wasm of commit `8da7174` (merged into `main`), deployed after the money review of that code.
+A top-level account funded by the testnet faucet; it has no access keys.
+
+| Check | Command | Result |
+|---|---|---|
+| code on chain = reproducible build | `near account view-account-summary arras-v1b-1101.testnet network-config testnet now` | `Local Contract (SHA-256 checksum hex) 7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` |
+| source commit (NEP-330) | `near contract call-function as-read-only arras-v1b-1101.testnet contract_source_metadata json-args '{}' network-config testnet now` | `"source_code_snapshot": "git+https://github.com/UltravioletaDAO/arras?rev=8da71748b428ceccf9fccd358e61bb4213d54e29"`, image `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...` |
+| no keys | `near account list-keys arras-v1b-1101.testnet network-config testnet now` | `\| # \| Public Key \| Nonce \| Permissions \|` (empty); summary: "Account is locked (no access keys)" |
+
+| Step | Transaction |
+|---|---|
+| `arras-v1b-1101.testnet` from the faucet (10 NEAR) | `EkRBwNuPxkn1GGw4UuVbnyN9vfWfDjnFqASihkC8pZFs` |
+| capturer `em-capturer-v1b.arras-dev.testnet` (0.5 NEAR) | `3dZ1SMJTqgdCsGwCm7Gap2VWhSaMhNt1S13ddftTt4P7` |
+| USDC storage for the contract | `FNnkvZm8Hy1Fvmx4SfCrkujMvE2Xgx7DAQHGA4bCbk3s` |
+| deploy + private `new` in one transaction | `5T6wLHkWjfxyMSaYBUbJPkJLhqJppj31bManEkcxuSr2` |
+| operator `em` (13 % fee, no lists) | `2pQnJm6M5ckjpsE2L988iAc8MBYM4rgytNMSU3p28uMp` |
+| sponsorship pool 0.5 NEAR / payer NEP-145 0.05 NEAR | `754m8tKiUWNptzsuJan8HVhdc9EVREBZaqo6C27fYPLN` / `XZnG8ww9ijyYCR1kYbXbTgxW6KJcXxTFeAY8XP68ND3` |
+| capturer: function-call key (`release, refund, withdraw_for`, 0.5 NEAR allowance) / its full-access key deleted | `5rVXH5it7qRgMC5xqLBRXbaC5nHCEYoBcERMUvFNKfbe` / `5RrVLeaFErEyDEQ7Fq2nYgMSJS6ZWpav1vvDwN3BTXWH` |
+| **all keys of `arras-v1b-1101.testnet` deleted** | `EUw6W4ioffekbBV7aJVvuLrkYSCKpB5LDxEVpJq91ejJ` |
+| authorize -> release -> withdraw with real testnet USDC | pending: the payer (`payer-demo.arras-dev.testnet`) needs USDC from Circle's faucet |
+
+The roles are shared with the first deployment: owner `owner.arras-dev.testnet`, guardian `guardian.arras-dev.testnet`,
+fee recipient `em-fees.arras-dev.testnet`, payer `payer-demo.arras-dev.testnet`, worker `worker-demo.arras-dev.testnet`;
+the token is the testnet USDC `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`. The capturer is its own
+account because a function-call key only works for one contract.
+
+### First deployment: `v1.arras-dev.testnet`
+
+The reproducible wasm of commit `0fb7929` (sha256 `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0`),
+from before the self-review fixes. Compared with the demo contract it lacks `E46` (a fee recipient equal to the
+contract itself is accepted), the `on_withdraw` that does not deserialize the token's return value, and `compact` for
+payment ids shorter than 43 characters (about 2 in a million payments cannot be compacted; no USDC is affected). It
+stays as it is (immutable, keyless); use the demo contract above.
 
 | Step | Transaction |
 |---|---|
@@ -81,15 +110,8 @@ withdraw run with real USDC goes there.
 | deploy + private `new` in one transaction | `4WU6tDDCidUYhTXAnvcH3qpUyyDZc1zTWZSjYC2qX3AW` |
 | operator `em` (13 % fee, no lists) | `B9ZMoLYryZ2r6a2hfEKoBReHEMBSk6rVxAknqkhMSpQT` |
 | sponsorship pool 0.5 NEAR / payer NEP-145 0.05 NEAR | `BNdWM2p4fwcDthqGrNJ5ujLeSjJdkvxhhoAYPaR8dPKr` / `CbteM3u2ZAs6eiMMSeLpq7m1H56fRqwe8LJZ4wtLrkJP` |
-| capturer: function-call key (`release, refund, withdraw_for`, 0.5 NEAR allowance) / its full-access key deleted | `3wSmCACjW7Me1AhEeAaGfMcMiiMteZEGrcpTHzYtgZXn` / `6VfeZ2zRbMKkjZbH2TJpeT8TUCxvGPuhxd9wjPjoZago` |
+| capturer `em-capturer.arras-dev.testnet`: function-call key / its full-access key deleted | `3wSmCACjW7Me1AhEeAaGfMcMiiMteZEGrcpTHzYtgZXn` / `6VfeZ2zRbMKkjZbH2TJpeT8TUCxvGPuhxd9wjPjoZago` |
 | **all keys of `v1.arras-dev.testnet` deleted** | `CgaHtGKsBC3112THLTzBDpKK8QyXWPVhJ8fCy9435vQh` |
-| authorize -> release -> withdraw with real testnet USDC | pending: the payer needs USDC from Circle's faucet |
-
-`list-keys v1.arras-dev.testnet` after the last step:
-
-```
-| # | Public Key | Nonce | Permissions |
-```
 
 ## Security model
 
