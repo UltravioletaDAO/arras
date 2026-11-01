@@ -12,8 +12,10 @@
 #   6 operador     operador em (sin listas), patrocinio de storage y NEP-145 del payer
 #   7 capturer     FunctionCall key del capturer acotada al contrato y borrado de su FullAccess
 #   8 authorize    ft_transfer_call de 1 USDC con salt de un CSPRNG (necesita el paso 4)
-#   9 release      release, withdraw_for del worker y del fee_recipient, saldo del worker
+#   9 release      release del ultimo pago del paso 8, withdraw_for del worker y del fee_recipient, saldo del worker
 #  10 sin-llaves   borra TODAS las llaves del contrato y muestra list-keys vacio
+#  11 refund       refund del ultimo pago del paso 8, withdraw_for del payer y su saldo (camino authorize -> refund:
+#                  corre el paso 8 otra vez antes)
 #     verificar    hash de la wasm desplegada, llaves y get_config del contrato
 #
 # Variables: ARRAS_PARENT (arras-dev.testnet); ARRAS_CONTRATO (v1.$ARRAS_PARENT; el deploy final usa una cuenta de
@@ -21,8 +23,9 @@
 # FunctionCall key sirve para un solo contrato, asi que cada contrato lleva su capturer); ARRAS_WASM
 # (target/near/arras_escrow_v1/arras_escrow_v1.wasm); ARRAS_REV (la rev NEP-330 que tiene que traer la wasm del paso 5;
 # por defecto `git rev-parse HEAD`); ARRAS_KEYCHAIN (keychain | legacy-keychain: el llavero de
-# macOS o ~/.near-credentials); ARRAS_ESTADO (donde se guarda el msg del paso 8, fuera del repo). Las llaves quedan en
-# el llavero de near-cli-rs: este script nunca imprime una llave privada. Solo testnet: mainnet es H-3.
+# macOS o ~/.near-credentials); ARRAS_ESTADO (donde se guarda el msg del paso 8, fuera del repo); ARRAS_RPC (el RPC de
+# testnet para el nonce y el bloque de las firmas del capturer). Las llaves quedan en el llavero de near-cli-rs: este
+# script nunca imprime una llave privada. Solo testnet: mainnet es H-3.
 set -euo pipefail
 
 NET=testnet
@@ -33,6 +36,7 @@ USDC=3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af
 WASM=${ARRAS_WASM:-target/near/arras_escrow_v1/arras_escrow_v1.wasm}
 KC=${ARRAS_KEYCHAIN:-keychain}
 ESTADO=${ARRAS_ESTADO:-$HOME/.arras-testnet}
+RPC=${ARRAS_RPC:-https://rpc.testnet.fastnear.com}
 SAVE="save-to-$KC"
 SIGN="sign-with-$KC"
 
@@ -77,6 +81,38 @@ rev_de_wasm() {
 hash_onchain() {
   near account view-account-summary "$1" network-config "$NET" now 2>/dev/null |
     sed 's/\x1b\[[0-9;]*m//g' | awk '/SHA-256 checksum hex/ { print $NF }'
+}
+
+rpc_query() {
+  curl -sf -m 30 -X POST "$RPC" -H 'Content-Type: application/json' \
+    -d "$(jq -nc --argjson p "$1" '{jsonrpc:"2.0",id:"arras",method:"query",params:$p}')"
+}
+
+# Una llamada del capturer con su FunctionCall key. near-cli-rs 0.30.1 en linea solo firma con llaves FullAccess del
+# llavero (sign_with_keychain/mod.rs y sign_with_legacy_keychain/mod.rs filtran AccessKeyPermissionView::FullAccess), y
+# el capturer no tiene ninguna desde el paso 7. Con --offline firma con la llave que se le nombra: nonce y bloque se leen
+# de la cadena, la tx firmada se manda con send-signed-transaction y la llave no sale del llavero.
+capturer() {
+  local metodo=$1 args=$2 gas=$3 pk vista nonce hash altura firmada
+  pk=$(rpc_query "$(jq -nc --arg a "$CAPT" '{request_type:"view_access_key_list",finality:"optimistic",account_id:$a}')" |
+    jq -r --arg c "$C" '[.result.keys[] | select((.access_key.permission | objects | .FunctionCall.receiver_id) == $c)][0].public_key // empty')
+  [ -n "$pk" ] || { echo "$CAPT no tiene una FunctionCall key para $C (paso 7)" >&2; return 1; }
+  vista=$(rpc_query "$(jq -nc --arg a "$CAPT" --arg k "$pk" '{request_type:"view_access_key",finality:"optimistic",account_id:$a,public_key:$k}')")
+  nonce=$(( $(jq -r .result.nonce <<<"$vista") + 1 ))
+  hash=$(jq -r .result.block_hash <<<"$vista")
+  altura=$(jq -r .result.block_height <<<"$vista")
+  printf '\n+ %s %s %s (capturer %s, firma --offline, nonce %s)\n' "$metodo" "$args" "$gas" "$pk" "$nonce"
+  firmada=$(near --offline contract call-function as-transaction "$C" "$metodo" json-args "$args" prepaid-gas "$gas" attached-deposit '0 NEAR' sign-as "$CAPT" network-config "$NET" "$SIGN" --signer-public-key "$pk" --nonce "$nonce" --block-hash "$hash" --block-height "$altura" display 2>&1 |
+    sed 's/\x1b\[[0-9;]*m//g' | awk 'f { print; f = 0 } /serialized as base64/ { f = 1 }' | tr -d ' ')
+  [ -n "$firmada" ] || { echo "no se pudo firmar $metodo con $pk del llavero" >&2; return 1; }
+  run near transaction send-signed-transaction base64-signed-transaction "$firmada" network-config "$NET" send
+}
+
+# El payment_id del ultimo authorize del paso 8 (un payment_id tiene de 32 a 44 caracteres: base58 de 32 bytes).
+pago_actual() {
+  local msg
+  msg=$(cat "$ESTADO/msg-$C.json")
+  near contract call-function as-read-only "$C" compute_payment_id json-args "$(jq -nc --arg s "payer-demo.$P" --arg m "$msg" '{sender_id:$s,amount:"1000000",msg:$m}')" network-config "$NET" now 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -oE '"[1-9A-HJ-NP-Za-km-z]{32,44}"' | tail -1 | tr -d '"'
 }
 
 crear() {
@@ -182,15 +218,13 @@ paso8() {
 }
 
 paso9() {
-  local msg id
-  msg=$(cat "$ESTADO/msg-$C.json")
-  # Un payment_id tiene de 32 a 44 caracteres (base58 de 32 bytes).
-  id=$(near contract call-function as-read-only "$C" compute_payment_id json-args "$(jq -nc --arg s "payer-demo.$P" --arg m "$msg" '{sender_id:$s,amount:"1000000",msg:$m}')" network-config "$NET" now 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -oE '"[1-9A-HJ-NP-Za-km-z]{32,44}"' | tail -1 | tr -d '"')
+  local id
+  id=$(pago_actual)
   echo "payment_id: $id"
   run near contract call-function as-read-only "$C" get_payment json-args "{\"payment_id\":\"$id\"}" network-config "$NET" now
-  run near contract call-function as-transaction "$C" release json-args "{\"payment_id\":\"$id\"}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' sign-as "$CAPT" network-config "$NET" "$SIGN" send
+  capturer release "{\"payment_id\":\"$id\"}" '30.0 Tgas'
   for a in worker-demo em-fees; do
-    run near contract call-function as-transaction "$C" withdraw_for json-args "{\"account\":\"$a.$P\"}" prepaid-gas '50.0 Tgas' attached-deposit '0 NEAR' sign-as "$CAPT" network-config "$NET" "$SIGN" send
+    capturer withdraw_for "{\"account\":\"$a.$P\"}" '50.0 Tgas'
   done
   run near contract call-function as-read-only "$USDC" ft_balance_of json-args "{\"account_id\":\"worker-demo.$P\"}" network-config "$NET" now
   run near contract call-function as-read-only "$C" get_config json-args '{}' network-config "$NET" now
@@ -205,6 +239,17 @@ paso10() {
   done
   run near account list-keys "$C" network-config "$NET" now
   [ -z "$(llaves "$C")" ] && echo "OK: $C sin llaves"
+}
+
+paso11() {
+  local id
+  id=$(pago_actual)
+  echo "payment_id: $id"
+  run near contract call-function as-read-only "$C" get_payment json-args "{\"payment_id\":\"$id\"}" network-config "$NET" now
+  capturer refund "{\"payment_id\":\"$id\"}" '30.0 Tgas'
+  capturer withdraw_for "{\"account\":\"payer-demo.$P\"}" '50.0 Tgas'
+  run near contract call-function as-read-only "$USDC" ft_balance_of json-args "{\"account_id\":\"payer-demo.$P\"}" network-config "$NET" now
+  run near contract call-function as-read-only "$C" get_config json-args '{}' network-config "$NET" now
 }
 
 verificar() {
@@ -228,7 +273,8 @@ case "${1:-}" in
   8 | authorize) paso8 ;;
   9 | release) paso9 ;;
   10 | sin-llaves) paso10 ;;
+  11 | refund) paso11 ;;
   verificar) verificar ;;
-  todo) paso1; paso2; paso3; paso4; paso5; paso6; paso7; paso8; paso9; paso10 ;;
-  *) sed -n '2,29p' "$0"; exit 1 ;;
+  todo) paso1; paso2; paso3; paso4; paso5; paso6; paso7; paso8; paso9; paso10; paso8; paso11 ;;
+  *) sed -n '2,28p' "$0"; exit 1 ;;
 esac
