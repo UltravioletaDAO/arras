@@ -19,7 +19,8 @@
 # Variables: ARRAS_PARENT (arras-dev.testnet); ARRAS_CONTRATO (v1.$ARRAS_PARENT; el deploy final usa una cuenta de
 # nivel superior del faucet, p. ej. arras-v1b-1101.testnet); ARRAS_CAPTURER (em-capturer.$ARRAS_PARENT; una
 # FunctionCall key sirve para un solo contrato, asi que cada contrato lleva su capturer); ARRAS_WASM
-# (target/near/arras_escrow_v1/arras_escrow_v1.wasm); ARRAS_KEYCHAIN (keychain | legacy-keychain: el llavero de
+# (target/near/arras_escrow_v1/arras_escrow_v1.wasm); ARRAS_REV (la rev NEP-330 que tiene que traer la wasm del paso 5;
+# por defecto `git rev-parse HEAD`); ARRAS_KEYCHAIN (keychain | legacy-keychain: el llavero de
 # macOS o ~/.near-credentials); ARRAS_ESTADO (donde se guarda el msg del paso 8, fuera del repo). Las llaves quedan en
 # el llavero de near-cli-rs: este script nunca imprime una llave privada. Solo testnet: mainnet es H-3.
 set -euo pipefail
@@ -65,6 +66,17 @@ llaves() {
   near account list-keys "$1" network-config "$NET" now 2>/dev/null |
     sed 's/\x1b\[[0-9;]*m//g' |
     awk -F'|' -v solo="${2:-}" '$3 ~ /ed25519:/ { gsub(/ /, "", $3); if (solo != "full" || $5 ~ /full access/) print $3 }'
+}
+
+# La rev NEP-330 embebida en la wasm (`source_code_snapshot ...?rev=<sha>`).
+rev_de_wasm() {
+  LC_ALL=C grep -ao 'rev=[0-9a-f]\{40\}' "$1" | head -1 | cut -d= -f2
+}
+
+# El sha256 del codigo desplegado en una cuenta (view-account-summary, en hex).
+hash_onchain() {
+  near account view-account-summary "$1" network-config "$NET" now 2>/dev/null |
+    sed 's/\x1b\[[0-9;]*m//g' | awk '/SHA-256 checksum hex/ { print $NF }'
 }
 
 crear() {
@@ -114,9 +126,27 @@ paso5() {
     # archivo, lo borra como "previous artifact" y falla al copiarlo (os error 2). Sale en target/near/ del repo.
     run env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml
   fi
-  shasum -a 256 "$WASM"
+  local esperada rev local_hash onchain _intento
+  esperada=${ARRAS_REV:-$(git rev-parse HEAD)}
+  rev=$(rev_de_wasm "$WASM")
+  if [ "$rev" != "$esperada" ]; then
+    echo "ABORTO: $WASM es de la rev ${rev:-desconocida}, no de $esperada. Borrala y corre el paso 5 (reconstruye) o fija ARRAS_REV." >&2
+    return 1
+  fi
+  local_hash=$(shasum -a 256 "$WASM" | awk '{ print $1 }')
+  echo "wasm rev $rev, sha256 $local_hash"
   # Tope global de v1: 1.000 USDC (decision del dueno del 2026-10-26, Q3); por pago 10 USDC.
   run near contract deploy "$C" use-file "$WASM" with-init-call new json-args "{\"owner\":\"owner.$P\",\"guardian\":\"guardian.$P\",\"token\":\"$USDC\",\"tope_por_pago\":\"10000000\",\"tope_tvl_global\":\"1000000000\"}" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' network-config "$NET" "$SIGN" send
+  for _intento in 1 2 3 4 5 6; do
+    onchain=$(hash_onchain "$C")
+    [ -n "$onchain" ] && break
+    sleep 5
+  done
+  if [ "$onchain" != "$local_hash" ]; then
+    echo "ABORTO: el codigo de $C tiene sha256 ${onchain:-?} y la wasm local $local_hash" >&2
+    return 1
+  fi
+  echo "OK: el codigo de $C es la wasm $local_hash (rev $rev)"
   run near contract call-function as-read-only "$C" get_config json-args '{}' network-config "$NET" now
 }
 
@@ -178,7 +208,10 @@ paso10() {
 }
 
 verificar() {
-  [ -f "$WASM" ] && shasum -a 256 "$WASM"
+  if [ -f "$WASM" ]; then
+    echo "wasm local: rev $(rev_de_wasm "$WASM"), sha256 $(shasum -a 256 "$WASM" | awk '{ print $1 }')"
+  fi
+  echo "codigo en $C: sha256 $(hash_onchain "$C")"
   run near account view-account-summary "$C" network-config "$NET" now
   run near account list-keys "$C" network-config "$NET" now
   run near contract call-function as-read-only "$C" get_config json-args '{}' network-config "$NET" now

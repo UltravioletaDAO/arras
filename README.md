@@ -95,7 +95,9 @@ withdraw run with real USDC goes there.
 
 - **Immutable and keyless:** no `migrate`; `new` is `#[private]` and runs in the deploy transaction; every access key
   of the contract account is deleted. A bug is answered by pausing and deploying a new version in a new account.
-- **Roles:** the owner registers and edits operators and can only lower caps; the guardian (or owner) pauses; only
+- **Roles:** the owner registers and edits operators; the TVL caps (global, per operator, per payer) and the
+  per-payment cap can only go down, while an operator's minimum amount and its sponsorship cap per payer can be
+  changed in both directions; the guardian (or owner) pauses; only
   the owner unpauses. Neither can send funds to itself. The owner can change an operator's capturers, so it can
   choose who releases or refunds live payments, but the destinations (receiver, payer, the frozen fee recipient) do
   not change. Pause only blocks new payments: release, refund, reclaim, withdraw and compact keep working.
@@ -109,11 +111,15 @@ withdraw run with real USDC goes there.
     blocklists a receiver or a fee recipient, its `claimable` balance cannot be withdrawn (every retry fails) and
     keeps counting in `tvl_global`; there is no way to redirect it.
   - Tokens sent directly to the contract (not through `ft_transfer_call`) are not recoverable, by design.
-  - A funded attacker with many payer accounts (sybils) can fill an operator's TVL cap (200 USDC for `em` on testnet:
-    10 payers x 20 USDC) with payments to receivers it controls and get the money back by refund: until those are
-    released or refunded, every payer of that operator gets `E09`. Across several operators the same works against
-    the global cap (1,000 USDC, immutable, `E10` for everyone). The per-payer cap limits each account, not a set of
-    sybil accounts; the per-operator and global caps add up all payers.
+  - The TVL caps can be filled on purpose by anyone with the money to lock, and that money is not lost: it can be
+    recovered. The per-payer and per-operator caps count only what is still locked in open payments, so release,
+    refund and reclaim free them; several payer accounts can fill an operator's cap (`E09` for its payers) while
+    their payments stay open. The global cap (1,000 USDC, fixed forever) also counts what was already released,
+    refunded or reclaimed but not yet withdrawn (`claimable`, and withdrawals in flight): it only goes down when a
+    withdrawal succeeds. A single account can therefore keep it full, and every new payment gets `E10`, until that
+    balance is withdrawn. Anyone can call `withdraw_for` and clear it, unless the holder cannot receive USDC (for
+    example, it is not registered in the token or Circle blocks it); then the global cap stays full and v1 cannot be
+    changed. Open payments keep working while a cap is full: release, refund, reclaim and withdraw do not check it.
   - Sybil payers without NEP-145 can use up the operator's sponsorship pool (each up to its per-payer cap); then
     payers without their own NEP-145 deposit get `E14`. The pool cannot be withdrawn, only spent or refilled.
   - Operator registration and edits are paid from the contract's free reserve, so the owner is trusted not to

@@ -617,3 +617,76 @@ fn list_payments_pagina_con_tope_50() {
     assert!(pagina(&c, 51, 50).is_empty());
     assert!(pagina(&c, u32::MAX, 50).is_empty());
 }
+
+/// Ronda 1 de c0der (P3-1, mutante R8): con el saldo NEP-145 del payer **exactamente** igual al costo, paga el payer
+/// (no el pool) y su `available` queda en 0.
+#[test]
+fn storage_payer_con_saldo_exacto_paga_el_payer() {
+    let mut c = setup();
+    ctx(OWNER, near(1).as_yoctonear(), NOW);
+    c.fund_operator_storage(OP.into());
+    let msg = msg_salt(1);
+    ctx(USDC, 0, NOW);
+    let costo = c
+        .plan_authorize(&acc(PAYER), 1_000_000, &msg)
+        .ok()
+        .unwrap()
+        .payment
+        .storage_charged
+        .0;
+    let disponible = c.storage.get(&acc(PAYER)).unwrap().available;
+    c.storage.get_mut(&acc(PAYER)).unwrap().available = costo;
+    c.storage_available_total = c.storage_available_total - disponible + costo;
+    let id = authorize(&mut c, PAYER, 1_000_000, &msg);
+    let p = c.get_payment(id).unwrap();
+    assert!(!p.sponsored, "saldo == costo: paga el payer");
+    assert_eq!(p.storage_charged.0, costo);
+    assert_eq!(c.storage.get(&acc(PAYER)).unwrap().available, 0);
+    assert_eq!(
+        c.get_operator(OP.into()).unwrap().sponsor_pool.0,
+        near(1).as_yoctonear()
+    );
+}
+
+/// Ronda 1 de c0der (P3-1, mutante R7): con el `sponsor_pool` **exactamente** igual al costo, paga el pool (no `E14`)
+/// y queda en 0.
+#[test]
+fn storage_pool_exacto_patrocina() {
+    let mut c = setup();
+    ctx(OWNER, near(1).as_yoctonear(), NOW);
+    c.fund_operator_storage(OP.into());
+    let msg = msg_salt(1);
+    ctx(USDC, 0, NOW);
+    let costo = c
+        .plan_authorize(&acc(OTHER), 1_000_000, &msg)
+        .ok()
+        .unwrap()
+        .payment
+        .storage_charged
+        .0;
+    c.operators.get_mut(OP).unwrap().sponsor_pool = U128(costo);
+    let id = authorize(&mut c, OTHER, 1_000_000, &msg);
+    let p = c.get_payment(id).unwrap();
+    assert!(p.sponsored, "pool == costo: paga el pool");
+    assert_eq!(p.storage_charged.0, costo);
+    assert_eq!(c.get_operator(OP.into()).unwrap().sponsor_pool, U128(0));
+}
+
+/// El borde de al lado de R7: un yocto menos en el pool ya es `E14`, con el estado intacto.
+#[test]
+fn storage_pool_un_yocto_corto_es_e14() {
+    let mut c = setup();
+    ctx(OWNER, near(1).as_yoctonear(), NOW);
+    c.fund_operator_storage(OP.into());
+    let msg = msg_salt(1);
+    ctx(USDC, 0, NOW);
+    let costo = c
+        .plan_authorize(&acc(OTHER), 1_000_000, &msg)
+        .ok()
+        .unwrap()
+        .payment
+        .storage_charged
+        .0;
+    c.operators.get_mut(OP).unwrap().sponsor_pool = U128(costo - 1);
+    assert_rechazo(&mut c, USDC, OTHER, 1_000_000, &msg, "E14_SIN_STORAGE");
+}

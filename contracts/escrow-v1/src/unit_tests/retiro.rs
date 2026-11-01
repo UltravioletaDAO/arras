@@ -5,6 +5,7 @@ use crate::*;
 use near_sdk::PromiseResult;
 
 const COMPACT_AT: u64 = RECLAIM + RETENTION_NS;
+const DIA_NS: u64 = 86_400 * 1_000_000_000;
 
 fn released_v1() -> (Arras, PaymentId) {
     let (mut c, id) = setup_v1();
@@ -315,4 +316,83 @@ fn on_withdraw_no_deserializa_lo_que_devuelve_el_token() {
             (0, 0, 130_000)
         );
     }
+}
+
+/// Ronda 1 de c0der (P2-1): el tope global cuenta lo ya liberado, reembolsado o recuperado que todavia no se retiro
+/// (`claimable` e `in_flight`, sec. 3.5). `refund` y `reclaim` liberan el tope por payer y el del operador, no el
+/// global: una sola cuenta lo puede mantener lleno hasta que ese saldo se retira. Un retiro fallido no lo libera; uno
+/// exitoso si, y los pagos nuevos vuelven a pasar.
+#[test]
+fn tope_global_cuenta_lo_no_retirado_hasta_el_retiro() {
+    let mut c = setup();
+    ctx(PAYER, near(5).as_yoctonear(), NOW);
+    c.storage_deposit(None, None);
+    let mut t = NOW;
+    let mut pagos = 0u32;
+    loop {
+        let mut m = msg_v1();
+        m.release_deadline = t + 1;
+        m.reclaim_after = t + 2;
+        m.salt[..4].copy_from_slice(&pagos.to_le_bytes());
+        let msg = m.to_canonical_json();
+        ctx(USDC, 0, t);
+        if call_ft_on_transfer(&mut c, PAYER, TOPE_POR_PAGO, &msg) != 0 {
+            assert_eq!(logs(), vec!["arras:rechazo:E10_TVL_GLOBAL".to_string()]);
+            break;
+        }
+        ctx(PAYER, 0, t + 2);
+        c.reclaim(id_of(PAYER, TOPE_POR_PAGO, &msg));
+        t += 3;
+        pagos += 1;
+        assert!(pagos <= 100, "el tope global corta en 1.000 USDC");
+    }
+    // Un payer, un operador: los topes por payer (20 USDC) y por operador (200) quedan libres; el global, lleno.
+    assert_eq!(pagos, 100);
+    assert_eq!(c.tvl_global, TOPE_TVL_GLOBAL);
+    assert_eq!(c.payer_tvl_of(OP, &acc(PAYER)), 0);
+    assert_eq!(c.get_operator(OP.into()).unwrap().tvl_operador, U128(0));
+    assert_eq!(c.claimable_of(&acc(PAYER)), TOPE_TVL_GLOBAL);
+    assert_rechazo(
+        &mut c,
+        USDC,
+        OTHER,
+        MIN_AMOUNT,
+        &msg_salt(200),
+        "E10_TVL_GLOBAL",
+    );
+    assert_invariante(&c, &TODAS);
+    // Un retiro que falla (p. ej. el titular no puede recibir USDC) no libera nada.
+    ctx(OTHER, 0, t);
+    let _ = c.withdraw_for(acc(PAYER));
+    on_withdraw_con(&mut c, PAYER, TOPE_TVL_GLOBAL, false, t);
+    assert_eq!(
+        (c.tvl_global, c.claimable_of(&acc(PAYER))),
+        (TOPE_TVL_GLOBAL, TOPE_TVL_GLOBAL)
+    );
+    assert_rechazo(
+        &mut c,
+        USDC,
+        OTHER,
+        MIN_AMOUNT,
+        &msg_salt(201),
+        "E10_TVL_GLOBAL",
+    );
+    // `withdraw_for` lo puede disparar cualquiera: con el retiro exitoso el tope se libera.
+    ctx(OTHER, 0, t);
+    let _ = c.withdraw_for(acc(PAYER));
+    on_withdraw_con(&mut c, PAYER, TOPE_TVL_GLOBAL, true, t);
+    assert_eq!((c.tvl_global, c.claimable_of(&acc(PAYER))), (0, 0));
+    ctx(OTHER, near(1).as_yoctonear(), t);
+    c.storage_deposit(None, None);
+    let mut m = msg_v1();
+    m.release_deadline = t + DIA_NS;
+    m.reclaim_after = t + 2 * DIA_NS;
+    ctx(USDC, 0, t);
+    assert_eq!(
+        call_ft_on_transfer(&mut c, OTHER, MIN_AMOUNT, &m.to_canonical_json()),
+        0,
+        "{:?}",
+        logs()
+    );
+    assert_invariante(&c, &TODAS);
 }
