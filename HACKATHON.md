@@ -36,3 +36,8 @@ lists each commit with its timestamp.
 
 Both wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
 NEP-330 metadata (`contract_source_metadata`). Transactions and checks: README, "Testnet deployments".
+
+On 2026-11-01 both payment paths ran on the demo contract with Circle's testnet USDC, 1 USDC each:
+authorize -> release -> withdraw (0.87 USDC to the worker, 0.13 to the fee recipient) and authorize -> refund ->
+withdraw (the 1 USDC back to the payer). The contract ended with 0 USDC and `tvl_global` 0. Transactions, events and
+balances: README, "Payments with Circle's testnet USDC".
