@@ -62,7 +62,7 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 | `near contract call-function as-read-only arras-v1b-1101.testnet get_config json-args '{}' network-config testnet now` | `"version": "arras-v1"`, `tope_por_pago` 10 USDC, `tope_tvl_global` 1,000 USDC |
 | `near contract call-function as-read-only arras-v1b-1101.testnet contract_source_metadata json-args '{}' network-config testnet now` | NEP-330 build info: image digest and `source_code_snapshot` at commit `8da71748b428ceccf9fccd358e61bb4213d54e29` |
 | `ARRAS_CONTRATO=arras-v1b-1101.testnet scripts/testnet.sh verificar` | local wasm (commit and sha256) next to the code hash on chain, keys and config |
-| `scripts/testnet.sh <step>` | the whole testnet sequence, step by step (see the header of the script) |
+| `ARRAS_CONTRATO=arras-v1b-1101.testnet ARRAS_CAPTURER=em-capturer-v1b.arras-dev.testnet scripts/testnet.sh <step>` | the whole testnet sequence on the demo contract, step by step (see the header of the script) |
 
 ## Testnet deployments (2026-11-01)
 
@@ -87,12 +87,61 @@ A top-level account funded by the testnet faucet; it has no access keys.
 | sponsorship pool 0.5 NEAR / payer NEP-145 0.05 NEAR | `754m8tKiUWNptzsuJan8HVhdc9EVREBZaqo6C27fYPLN` / `XZnG8ww9ijyYCR1kYbXbTgxW6KJcXxTFeAY8XP68ND3` |
 | capturer: function-call key (`release, refund, withdraw_for`, 0.5 NEAR allowance) / its full-access key deleted | `5rVXH5it7qRgMC5xqLBRXbaC5nHCEYoBcERMUvFNKfbe` / `5RrVLeaFErEyDEQ7Fq2nYgMSJS6ZWpav1vvDwN3BTXWH` |
 | **all keys of `arras-v1b-1101.testnet` deleted** | `EUw6W4ioffekbBV7aJVvuLrkYSCKpB5LDxEVpJq91ejJ` |
-| authorize -> release -> withdraw with real testnet USDC | pending: the payer (`payer-demo.arras-dev.testnet`) needs USDC from Circle's faucet |
+| authorize -> release -> withdraw and authorize -> refund with real testnet USDC | below, "Payments with Circle's testnet USDC" |
 
 The roles are shared with the first deployment: owner `owner.arras-dev.testnet`, guardian `guardian.arras-dev.testnet`,
 fee recipient `em-fees.arras-dev.testnet`, payer `payer-demo.arras-dev.testnet`, worker `worker-demo.arras-dev.testnet`;
 the token is the testnet USDC `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`. The capturer is its own
-account because a function-call key only works for one contract.
+account because the first deployment's capturer (`em-capturer.arras-dev.testnet`) has no full-access key since its
+step 7, so it cannot add (`AddKey`) a function-call key for another contract.
+
+### Payments with Circle's testnet USDC (2026-11-01)
+
+Both paths ran once on the demo contract, 1 USDC each, from `payer-demo.arras-dev.testnet` (20 of Circle's testnet
+USDC). The signing commands need the accounts' keys (in the near-cli-rs keychain), so only the account holders can
+run them; anyone can check the result with the read-only calls of the second table.
+
+```bash
+export ARRAS_CONTRATO=arras-v1b-1101.testnet ARRAS_CAPTURER=em-capturer-v1b.arras-dev.testnet
+scripts/testnet.sh 8    # authorize: ft_transfer_call of 1 USDC, msg with a random salt
+scripts/testnet.sh 9    # release by the capturer, withdraw_for of the worker and of the fee recipient
+scripts/testnet.sh 8    # a second authorize
+scripts/testnet.sh 11   # refund by the capturer, withdraw_for of the payer
+```
+
+| Step | Transaction | `arras` event | USDC after (payer / contract / worker / fee recipient), `tvl_global` |
+|---|---|---|---|
+| before | | | 20 / 0 / 0 / 0, 0 |
+| authorize (step 8) | `Ge2dQPopfxA3r4Ufm9hhowCkSKGTjK7QUsHX8hLN61VF` | `authorized` `H65pqeK9Ps8FQ69NsiXdi7Vs8AA2dw81dsaZw2cjTNK9`, amount `1000000`, `fee_bps` 1300 | 19 / 1 / 0 / 0, 1 |
+| release (step 9) | `4yXFfhfX2weQwYbLZ8vj1gx9Tqs4Qc8iSVrLeAPizArk` | `released`, amount `1000000`, net `870000`, fee `130000` | 19 / 1 / 0 / 0, 1 (now `claimable`) |
+| withdraw_for worker | `73rNxSLv9gKkX8dLYwSD9K3vfVyWMTj51XUc76af31PM` | `withdrawn` `worker-demo.arras-dev.testnet`, `870000`, `ok: true` | 19 / 0.13 / 0.87 / 0, 0.13 |
+| withdraw_for fee recipient | `HbuAjzCHN7a5C6jvJDnNaU1PQqZumCAFoov8AFS3tLAy` | `withdrawn` `em-fees.arras-dev.testnet`, `130000`, `ok: true` | 19 / 0 / 0.87 / 0.13, 0 |
+| authorize (step 8 again) | `2VFRw7FQ4Qut8GQoWnKgrcC1WHC871cXxWHDJyMTzRMJ` | `authorized` `HTib1a7gG2ieacAi6hFiDgWaL5pppaGUdhBxERC5pKPM`, amount `1000000` | 18 / 1 / 0.87 / 0.13, 1 |
+| refund (step 11) | `455XMa5NPohRyofi7bBPgRca6Lax3jSzue7fMnrNxh35` | `refunded`, amount `1000000` | 18 / 1 / 0.87 / 0.13, 1 (now `claimable`) |
+| withdraw_for payer | `4z7ctqQFuJNRWkZ6WSN9XZo8cmU2yjMVHYUa3PjWzrSU` | `withdrawn` `payer-demo.arras-dev.testnet`, `1000000`, `ok: true` | 19 / 0 / 0.87 / 0.13, 0 |
+
+Balances were read (`ft_balance_of`, `get_claimable`, `get_config`) before and after each script step; the rows
+inside steps 9 and 11 follow from their events.
+
+| Check | Command | Result |
+|---|---|---|
+| the released payment | `near contract call-function as-read-only arras-v1b-1101.testnet get_payment json-args '{"payment_id":"H65pqeK9Ps8FQ69NsiXdi7Vs8AA2dw81dsaZw2cjTNK9"}' network-config testnet now` | `"status": "Released"`, `"released": "1000000"` |
+| the refunded payment | `near contract call-function as-read-only arras-v1b-1101.testnet get_payment json-args '{"payment_id":"HTib1a7gG2ieacAi6hFiDgWaL5pppaGUdhBxERC5pKPM"}' network-config testnet now` | `"status": "Refunded"`, `"refunded": "1000000"` |
+| nothing left in the contract | `near contract call-function as-read-only 3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af ft_balance_of json-args '{"account_id":"arras-v1b-1101.testnet"}' network-config testnet now` | `"0"`; `get_config`: `"tvl_global": "0"`, `"in_flight": "0"`, `"payments": 2` |
+| the worker got the net amount | `near contract call-function as-read-only 3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af ft_balance_of json-args '{"account_id":"worker-demo.arras-dev.testnet"}' network-config testnet now` | `"870000"` (`em-fees.arras-dev.testnet`: `"130000"`) |
+
+Two notes from running it:
+
+- The capturer only has a function-call key, and near-cli-rs 0.30.1 online picks only full-access keys from its
+  keychain (`sign_with_keychain/mod.rs` and `sign_with_legacy_keychain/mod.rs` filter on `FullAccess`). The script
+  therefore signs the capturer's calls with `--offline` and the key's public key, nonce and a recent block hash read
+  from the RPC, then sends the signed transaction with `near transaction send-signed-transaction`. The key stays in
+  the keychain. Each capturer call burned 2.9-7.3 TGas (release and refund about 3, withdraw_for about 7.3);
+  its allowance went from 0.5 to 0.4975 NEAR.
+- The authorize reserves its 100 TGas at the pessimistic gas price (about 0.1 NEAR), so the payer needs that much
+  free NEAR. `payer-demo` had paid the NEP-145 deposit in both contracts and had 0.0996 NEAR left; the first try
+  stopped in near-cli-rs before sending anything, and 0.3 NEAR from the parent fixed it
+  (`5nHWbXa5xN8XdQjJSujbCYPTbRYfY4ZU1gVND4eXGq1`).
 
 ### First deployment: `v1.arras-dev.testnet`
 
