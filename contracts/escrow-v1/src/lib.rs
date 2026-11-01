@@ -18,6 +18,7 @@ mod authorize;
 mod lifecycle;
 mod storage;
 mod views;
+mod withdraw;
 
 pub use arras_escrow_core::{MAX_FEE_BPS, PaymentId};
 pub use views::{ConfigView, StorageHealth};
