@@ -247,3 +247,21 @@ fn orden_de_las_guardas_del_ciclo() {
     ctx(PAYER, 0, RECLAIM);
     expect_panic("ARRAS_E22", || c.reclaim(id2.clone()));
 }
+
+/// La tarifa que se congela en el pago es la del operador, no el `fee_bps_max` que firmo el payer (que solo es un
+/// tope, E12): con maximo 1800 y operador en 1300, el release cobra 13 %. (Mata la mutacion M23.)
+#[test]
+fn fee_congelada_es_la_del_operador_no_el_maximo_firmado() {
+    let mut c = setup();
+    let mut m = msg_v1();
+    m.fee_bps_max = 1800;
+    let id = authorize(&mut c, PAYER, 1_000_000, &m.to_canonical_json());
+    let p = c.get_payment(id.clone()).unwrap();
+    assert_eq!((p.fee_bps, p.fee_bps_max), (1300, 1800));
+    ctx(CAPTURER, 0, NOW);
+    c.release(id, None);
+    assert_eq!(
+        (c.claimable_of(&acc(WORKER)), c.claimable_of(&acc(FEES))),
+        (870_000, 130_000)
+    );
+}
