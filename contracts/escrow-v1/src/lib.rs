@@ -15,6 +15,7 @@ use near_sdk::{AccountId, Gas, NearToken, PanicOnDefault, env, near};
 
 mod admin;
 mod authorize;
+mod lifecycle;
 mod storage;
 mod views;
 

@@ -226,3 +226,51 @@ pub fn assert_rechazo(
     assert_eq!(logs(), vec![format!("arras:rechazo:{code}")]);
     assert_eq!(snapshot(c, sender), antes, "estado intacto tras {code}");
 }
+
+/// Invariante de la sec. 3.5 sobre las cuentas dadas (las unicas con `claimable` en el test):
+/// `sum(vivos) + sum(claimable) + in_flight == tvl_global`, y `tvl_operador`/`payer_tvl` = lo vivo de cada uno.
+pub fn assert_invariante(c: &Arras, cuentas: &[&str]) {
+    let vivos: u128 = c
+        .payments
+        .values()
+        .filter(|p| p.status.is_live())
+        .map(|p| p.live_amount())
+        .sum();
+    let claim: u128 = cuentas.iter().map(|a| c.claimable_of(&acc(a))).sum();
+    assert_eq!(
+        vivos + claim + c.in_flight,
+        c.tvl_global,
+        "sum(vivos) + sum(claimable) + in_flight == tvl_global"
+    );
+    for (op_id, op) in c.operators.iter() {
+        let vivo_op: u128 = c
+            .payments
+            .values()
+            .filter(|p| &p.operator_id == op_id && p.status.is_live())
+            .map(|p| p.live_amount())
+            .sum();
+        assert_eq!(op.tvl_operador.0, vivo_op, "tvl_operador de {op_id}");
+        for a in cuentas {
+            let vivo_payer: u128 = c
+                .payments
+                .values()
+                .filter(|p| &p.operator_id == op_id && p.payer == acc(a) && p.status.is_live())
+                .map(|p| p.live_amount())
+                .sum();
+            assert_eq!(
+                c.payer_tvl_of(op_id, &acc(a)),
+                vivo_payer,
+                "payer_tvl de ({op_id}, {a})"
+            );
+        }
+    }
+}
+
+/// V-1 autorizado; devuelve su id.
+pub fn setup_v1() -> (Arras, PaymentId) {
+    let mut c = setup();
+    let id = authorize(&mut c, PAYER, 1_000_000, &msg_v1().to_canonical_json());
+    (c, id)
+}
+
+pub const TODAS: [&str; 6] = [PAYER, WORKER, FEES, OTHER, CAPTURER, OWNER];

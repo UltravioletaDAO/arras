@@ -2,5 +2,6 @@
 //! `sponsor_pool` y los bytes de storage **no cambiaron** ([`common::Snapshot`]).
 
 mod authorize;
+mod ciclo;
 mod common;
 mod estado;
