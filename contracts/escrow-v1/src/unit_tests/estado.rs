@@ -284,9 +284,29 @@ fn fee_recipient_no_puede_ser_el_contrato() {
             },
         )
     });
-    // El orden: E43 antes que E46.
+    // El orden: E43 antes que E46 en register_operator; E43 y E42 antes que E46 en update_operator (P3-D de la ronda 2).
     i.fee_bps = 1801;
     expect_panic("ARRAS_E43", || c.register_operator("kk".into(), i.clone()));
+    expect_panic("ARRAS_E43", || {
+        c.update_operator(
+            OP.into(),
+            OperatorPatch {
+                fee_bps: Some(1801),
+                fee_recipient: Some(acc(CONTRACT)),
+                ..Default::default()
+            },
+        )
+    });
+    expect_panic("ARRAS_E42", || {
+        c.update_operator(
+            OP.into(),
+            OperatorPatch {
+                tope_tvl_operador: Some(U128(TOPE_TVL_OPERADOR + 1)),
+                fee_recipient: Some(acc(CONTRACT)),
+                ..Default::default()
+            },
+        )
+    });
     assert_eq!(c.get_operator(OP.into()).unwrap().fee_recipient, acc(FEES));
     assert_eq!(c.get_operator("kk".into()), None);
 }

@@ -420,8 +420,9 @@ mod tests {
     #[test]
     fn decode_payment_id_rechaza_formas_no_canonicas() {
         assert!(decode_payment_id("DN5eMA3sNES7xsoy6qvy24cVF6Dmwjxpkvd2b4e8P38M").is_some());
-        // 45 y 42 caracteres, un '1' de mas adelante (otro largo de bytes), una 'l' fuera del alfabeto y 32 bytes con
-        // ceros adelante escritos sin el '1' que les toca.
+        // 45 caracteres (largo), dos strings que decodifican a otro largo de bytes (el de 42 sale de recortar un id de
+        // 44: es base58 valido pero no da 32 bytes), un '1' de mas adelante, una 'l' fuera del alfabeto y 32 bytes
+        // con ceros adelante escritos sin el '1' que les toca.
         for malo in [
             "",
             "0",

@@ -53,7 +53,7 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 
 | Do | See |
 |---|---|
-| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached) | 11 core tests (golden vectors V-1..V-3, fees F-1..F-7), 48 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests; 3 more are `ignored` because they need network |
+| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached) | 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 56 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests; 3 more are `ignored` because they need network |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
 | `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; built from commit `0fb7929` it has sha256 `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` |
@@ -64,6 +64,14 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 | `scripts/testnet.sh <step>` | the whole testnet sequence, step by step (see the header of the script) |
 
 ## Testnet deployment (2026-11-01)
+
+**First deployment:** `v1.arras-dev.testnet` runs the reproducible wasm of commit `0fb7929`, from before the
+self-review fixes. Compared with the final code it lacks `E46` (a fee recipient equal to the contract itself is
+accepted), the `on_withdraw` that does not deserialize the token's return value, and `compact` for payment ids shorter
+than 43 characters (about 2 in a million payments cannot be compacted; no USDC is affected). It stays as it is
+(immutable, keyless). **The final deployment** goes to `arras-v1b-1101.testnet` (already funded by the faucet) with
+the reproducible wasm of the reviewed commit, after the money review of this code; the authorize -> release ->
+withdraw run with real USDC goes there.
 
 | Step | Transaction |
 |---|---|
@@ -97,11 +105,15 @@ operator's sponsorship pool up to a per-payer cap. There are no allow-lists of a
 - **Pull model:** no promise in release/refund/reclaim; each withdrawal has its own callback with static gas, so a
   failed transfer (an unregistered receiver, for example) only puts that balance back.
 - **Not mitigated, declared:**
-  - Circle can blocklist or pause the contract's USDC account, and can upgrade its token contract.
+  - Circle can blocklist or pause the contract's USDC account, and can upgrade its token contract. If Circle
+    blocklists a receiver or a fee recipient, its `claimable` balance cannot be withdrawn (every retry fails) and
+    keeps counting in `tvl_global`; there is no way to redirect it.
   - Tokens sent directly to the contract (not through `ft_transfer_call`) are not recoverable, by design.
-  - A funded attacker can fill the global TVL cap (1,000 USDC, immutable) with payments to accounts it controls and
-    get the money back by refund: new payments then get `E10` for everyone until those are released or refunded.
-    The per-payer and per-operator caps limit each account, not a set of sybil accounts.
+  - A funded attacker with many payer accounts (sybils) can fill an operator's TVL cap (200 USDC for `em` on testnet:
+    10 payers x 20 USDC) with payments to receivers it controls and get the money back by refund: until those are
+    released or refunded, every payer of that operator gets `E09`. Across several operators the same works against
+    the global cap (1,000 USDC, immutable, `E10` for everyone). The per-payer cap limits each account, not a set of
+    sybil accounts; the per-operator and global caps add up all payers.
   - Sybil payers without NEP-145 can use up the operator's sponsorship pool (each up to its per-payer cap); then
     payers without their own NEP-145 deposit get `E14`. The pool cannot be withdrawn, only spent or refilled.
   - Operator registration and edits are paid from the contract's free reserve, so the owner is trusted not to
