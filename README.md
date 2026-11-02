@@ -210,3 +210,7 @@ stays as it is (immutable, keyless); use the demo contract above.
 
 Pinned: near-sdk and near-contract-standards `=5.29.1`, near-workspaces `=0.23.0`, cargo-near 0.22.0, near-cli-rs
 0.30.1. `Cargo.lock` is committed (the reproducible build requires it).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
