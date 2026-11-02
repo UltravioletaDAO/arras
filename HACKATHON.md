@@ -41,3 +41,7 @@ On 2026-11-01 both payment paths ran on the demo contract with Circle's testnet 
 authorize -> release -> withdraw (0.87 USDC to the worker, 0.13 to the fee recipient) and authorize -> refund ->
 withdraw (the 1 USDC back to the payer). The contract ended with 0 USDC and `tvl_global` 0. Transactions, events and
 balances: README, "Payments with Circle's testnet USDC".
+
+## License
+
+MIT. See [LICENSE](LICENSE).
