@@ -80,6 +80,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "arras-escrow-v2"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arras-escrow-core",
+ "ed25519-dalek",
+ "near-contract-standards",
+ "near-sdk",
+ "near-workspaces",
+ "proptest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "arras-test-ft"
 version = "0.1.0"
 dependencies = [

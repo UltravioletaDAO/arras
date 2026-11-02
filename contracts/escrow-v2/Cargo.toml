@@ -1,0 +1,45 @@
+[package]
+name = "arras-escrow-v2"
+description = "Arras v2: v1 + disputa con arbitro, presupuesto de agente con function-call key y ticket del operador"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/UltravioletaDAO/arras"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Build reproducible (NEP-330): el mismo bloque que v1 (`cargo near new` con cargo-near 0.22.0, 2026-11-01).
+[package.metadata.near.reproducible_build]
+# imagen docker del entorno de build; el tag es descriptivo, la imagen se identifica por el digest
+image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
+image_digest = "sha256:ccb22bb4e677ed022d8b9d1aa1b32f0af52dd0471ef1c32e48dedbf68ee6ee17"
+passed_env = []
+container_build_command = [
+    "cargo",
+    "near",
+    "build",
+    "non-reproducible-wasm",
+    "--locked",
+]
+
+[dependencies]
+near-sdk = "=5.29.1"
+near-contract-standards = "=5.29.1"
+# Solo se usa (no se toca): cambiar el core cambia la wasm de v1 aunque v1 no use lo nuevo (medido: ver el PR).
+arras-escrow-core = { path = "../escrow-core" }
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+near-workspaces = { version = "=0.23.0", features = ["unstable"] }
+tokio = { version = "1", features = ["full"] }
+proptest = "=1.12.0"
+serde_json = "1"
+anyhow = "1"
+# Firma los tickets en los tests (ya esta en el arbol por near-workspaces).
+ed25519-dalek = { version = "=2.2.0", default-features = false }
+
+[lints]
+workspace = true
