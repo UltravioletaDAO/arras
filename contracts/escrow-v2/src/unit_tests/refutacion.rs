@@ -224,7 +224,14 @@ fn p3_5_storage_health_resta_la_reserva_de_disputa() {
     assert_eq!(h0.dispute_reserve, U128(0));
     let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_salt(1));
     let id2 = authorize(&mut c, PAYER, USDC_UNIT, &msg_salt(2));
-    assert_eq!(c.get_storage_health().dispute_reserve, U128(2 * reserva));
+    let h = c.get_storage_health();
+    assert_eq!(h.dispute_reserve, U128(2 * reserva));
+    // Con la reserva viva, `free_reserve` la descuenta (mutante M53).
+    assert!(h.free_reserve.0 > 0);
+    assert_eq!(
+        h.free_reserve.0 + 2 * reserva,
+        h.balance.0 - h.storage_cost.0 - h.nep145_available.0 - h.sponsor_pools.0
+    );
     ctx(PAYER, 0, NOW);
     c.open_dispute(id, "ab".repeat(32));
     assert_eq!(c.get_storage_health().dispute_reserve, U128(reserva));
