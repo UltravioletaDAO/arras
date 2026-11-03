@@ -223,6 +223,10 @@ The reproducible wasm of commit `c416989` (`env -u CARGO_TARGET_DIR cargo near b
 contracts/escrow-v2/Cargo.toml`, built twice, the second time from a clean clone: same hash), deployed with a private
 `new` in the same transaction to a top-level account funded by the testnet faucet. All its keys are deleted.
 
+This is the pre-review deployment. The contract code after `c416989` differs in one string only: the text of `E57` said
+"30 dias" while the limit was already 60 days (`git diff c416989 HEAD -- contracts/escrow-v2/src` shows it, plus tests).
+As with v1, the reviewed commit is deployed to a new keyless account after the money review.
+
 | Check | Command | Result |
 |---|---|---|
 | code on chain = reproducible build | `near account view-account-summary arras-v2-1103.testnet network-config testnet now` | `Local Contract (SHA-256 checksum hex) 8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` (366,095 bytes) |

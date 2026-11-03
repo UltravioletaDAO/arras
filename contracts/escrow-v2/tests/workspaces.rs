@@ -779,10 +779,10 @@ async fn w2_02_topes_del_agente() -> anyhow::Result<()> {
     };
     falla(afb(2 * USDC + 1, 1).await?, "ARRAS_E52");
     falla(afb(10 * USDC + 1, 1).await?, "ARRAS_E06");
-    // Horizonte: el agente no elige un reclaim_after a mas de 30 dias (refutacion de v2, P1-1).
+    // Horizonte: el agente no elige un reclaim_after a mas de 60 dias (refutacion de v2, P1-1 y P2-N1).
     let mut lejos = e.afb_args(e.payer.id(), USDC, 9);
-    lejos["release_deadline"] = json!((e.now + 40 * DAY_NS).to_string());
-    lejos["reclaim_after"] = json!((e.now + 41 * DAY_NS).to_string());
+    lejos["release_deadline"] = json!((e.now + 60 * DAY_NS).to_string());
+    lejos["reclaim_after"] = json!((e.now + 61 * DAY_NS).to_string());
     falla(
         agent
             .call(e.arras.id(), "authorize_from_budget")

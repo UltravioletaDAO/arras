@@ -8,14 +8,14 @@
 //!
 //! 1. el tope por pago del presupuesto (`E52`) y el global del contrato (`E06`);
 //! 2. el tope de la ventana diaria (dia UTC, `E51`) y el saldo (`E50`);
-//! 3. el horizonte: `reclaim_after <= now + 30 dias` (`E57`), asi el owner siempre recupera lo que el agente autorizo
+//! 3. el horizonte: `reclaim_after <= now + 60 dias` (`E57`), asi el owner siempre recupera lo que el agente autorizo
 //!    y nadie libero;
 //! 4. el pago queda en escrow: el agente no lo libera. Lo libera el capturer del operador al receiver, y un refund o
 //!    un reclaim vuelve al **owner** (el payer del pago), nunca al agente ni al presupuesto.
 //!
 //! | Metodo | Quien | Guardas | En pausa |
 //! |---|---|---|---|
-//! | `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after, dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)` | el agente | E02 -> E03 -> E04 -> E50 (no hay presupuesto) -> E15 (receiver = contrato, owner o agente) -> E24 (monto 0) -> E05 -> E06 -> E52 -> E51 -> E50 (saldo) -> E57 (`reclaim_after` a mas de 30 dias) -> E11 -> E12 -> E13 -> E53/E54 -> E14 | no |
+//! | `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after, dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)` | el agente | E02 -> E03 -> E04 -> E50 (no hay presupuesto) -> E15 (receiver = contrato, owner o agente) -> E24 (monto 0) -> E05 -> E06 -> E52 -> E51 -> E50 (saldo) -> E57 (`reclaim_after` a mas de 60 dias) -> E11 -> E12 -> E13 -> E53/E54 -> E14 | no |
 //! | `withdraw_budget(agent, operator_id)` | el owner | E50 -> E30 | si |
 //! | `revoke_agent(agent, operator_id)` | el owner | E50 | si |
 //! | `set_budget_caps(agent, operator_id, tope_por_pago, tope_diario)` | el owner, 1 yocto | E50 -> E56 | si |

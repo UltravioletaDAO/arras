@@ -83,7 +83,7 @@ impl ArrasErrorV2 {
             Self::E55AgenteInvalido => "agente invalido".into(),
             Self::E56TopesPresupuesto => "topes del presupuesto invalidos (tienen que ser > 0)".into(),
             Self::E57PlazoPresupuesto => {
-                "reclaim_after de un pago del presupuesto a mas de 30 dias".into()
+                "reclaim_after de un pago del presupuesto a mas de 60 dias".into()
             }
             Self::E60NoEsParte => "solo el payer o el receiver".into(),
             Self::E61FueraDePlazoDisputa => "dispute_deadline vencido".into(),
@@ -157,6 +157,19 @@ mod tests {
         let e11: ArrasErrorV2 = ArrasError::E11Plazos.into();
         assert_eq!(e11.code(), "E11_PLAZOS");
         assert!(e11.message().contains("dispute_deadline"));
+    }
+
+    /// El texto de E57 dice el horizonte de verdad (en `c416989`, desplegado en testnet, decia 30 con el tope ya en 60).
+    #[test]
+    fn e57_dice_el_horizonte_de_la_constante() {
+        let dias = crate::MAX_PLAZO_PRESUPUESTO_NS / crate::DAY_NS;
+        assert!(
+            ArrasErrorV2::E57PlazoPresupuesto
+                .message()
+                .contains(&format!("a mas de {dias} dias")),
+            "{}",
+            ArrasErrorV2::E57PlazoPresupuesto.message()
+        );
     }
 
     #[test]
