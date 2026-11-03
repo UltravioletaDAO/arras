@@ -148,7 +148,7 @@
           "owner": "payer-demo.testnet",
           "agent": "agent-demo.testnet",
           "operator_id": "em",
-          "token": "3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af",
+          "token_de": "V-1 (USDC de testnet)",
           "receiver": "worker-demo.testnet",
           "amount": "1000000",
           "release_deadline": "1793577600000000000",

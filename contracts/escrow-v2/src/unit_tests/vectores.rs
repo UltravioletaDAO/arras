@@ -75,8 +75,11 @@ fn vectores_v2_del_json() {
         FtMsg::Budget(m) => assert_eq!(m.to_canonical_json(), b),
         FtMsg::Authorize(_) => panic!("es un budget"),
     }
-    // VB-1.
+    // VB-1 (el token es el de V-1: `token_de`).
+    let token_v1 = s(&j["payment_id"]["vectores"][0]["token"]);
+    assert_eq!(token_v1, usdc);
     for v in v2["authorize_from_budget"]["vectores"].as_array().unwrap() {
+        assert!(s(&v["token_de"]).starts_with("V-1"));
         let m = arras_escrow_core::AuthorizeMsg {
             operator_id: s(&v["operator_id"]).into(),
             receiver: s(&v["receiver"]).parse().unwrap(),
@@ -88,7 +91,7 @@ fn vectores_v2_del_json() {
         };
         let id = compute_payment_id(&PaymentIdInput::from_msg(
             &m,
-            s(&v["token"]),
+            token_v1,
             s(&v["owner"]),
             s(&v["amount"]).parse().unwrap(),
         ))
