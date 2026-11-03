@@ -3,7 +3,7 @@
 //! el log `arras:rechazo:<CODIGO>`. Los codigos de v1 pasan tal cual ([`ArrasErrorV2::V1`]); `E11` cambia solo el
 //! texto del panic, porque v2 suma `dispute_deadline` a los plazos.
 //!
-//! Numeros nuevos: `E47`, `E48` (administracion), `E50`..`E56` (presupuesto y ticket), `E60`..`E66` (disputa). `E07` y
+//! Numeros nuevos: `E47`, `E48` (administracion), `E50`..`E57` (presupuesto y ticket), `E60`..`E67` (disputa). `E07` y
 //! `E31` siguen retirados.
 
 use arras_escrow_core::ArrasError;
@@ -30,6 +30,7 @@ pub enum ArrasErrorV2 {
     E64ArbitroEnPlazo,
     E65ArbitroVencido,
     E66ReasonHash,
+    E67DisputaAntesDeRelease,
 }
 
 impl From<ArrasError> for ArrasErrorV2 {
@@ -60,6 +61,7 @@ impl ArrasErrorV2 {
             Self::E64ArbitroEnPlazo => "E64_ARBITRO_EN_PLAZO",
             Self::E65ArbitroVencido => "E65_ARBITRO_VENCIDO",
             Self::E66ReasonHash => "E66_REASON_HASH",
+            Self::E67DisputaAntesDeRelease => "E67_DISPUTA_ANTES_DE_RELEASE",
         }
     }
 
@@ -92,6 +94,9 @@ impl ArrasErrorV2 {
             Self::E64ArbitroEnPlazo => "el arbitro todavia esta en plazo".into(),
             Self::E65ArbitroVencido => "vencio el plazo del arbitro".into(),
             Self::E66ReasonHash => "reason_hash invalido: hex de 64 en minusculas".into(),
+            Self::E67DisputaAntesDeRelease => {
+                "dispute_deadline antes de release_deadline: se exige release_deadline <= dispute_deadline".into()
+            }
         }
     }
 
@@ -115,7 +120,7 @@ impl ArrasErrorV2 {
 mod tests {
     use super::*;
 
-    const NUEVOS: [ArrasErrorV2; 17] = [
+    const NUEVOS: [ArrasErrorV2; 18] = [
         ArrasErrorV2::E47VentanaArbitro,
         ArrasErrorV2::E48TicketPubkey,
         ArrasErrorV2::E50SinPresupuesto,
@@ -133,6 +138,7 @@ mod tests {
         ArrasErrorV2::E64ArbitroEnPlazo,
         ArrasErrorV2::E65ArbitroVencido,
         ArrasErrorV2::E66ReasonHash,
+        ArrasErrorV2::E67DisputaAntesDeRelease,
     ];
 
     #[test]

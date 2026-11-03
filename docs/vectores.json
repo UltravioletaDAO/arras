@@ -164,6 +164,7 @@
     "operator_ticket": {
       "mensaje": "borsh(domain String, contract String, subject enum, expiry u64): domain = arras:v2:operator_ticket; contract = la cuenta del contrato; subject tag 0 = pago {payment_id String}, tag 1 = presupuesto {operator_id, owner, agent String}",
       "firma": "ed25519 de esos bytes; sig = base58 de los 64 bytes; vale mientras now < expiry",
+      "reuso": "un ticket de pago es de un solo uso de hecho (E13: el payment_id no se repite); uno de presupuesto firma (operator_id, owner, agent) y expiry, sin monto ni nonce: vale para cualquier cantidad de depositos del par hasta expiry, tambien despues de revoke_agent. El operador firma con expiry corto",
       "vista": "ticket_message_payment(payment_id, expiry) y ticket_message_budget(operator_id, owner, agent, expiry) devuelven los bytes en base64",
       "llave_de_prueba": {
         "semilla_hex": "0101010101010101010101010101010101010101010101010101010101010101",
@@ -207,7 +208,7 @@
         "min": "60000000000",
         "max": "2592000000000000"
       },
-      "vencida": "lo liberado queda liberado; lo vivo va a la parte que no abrio la disputa (to_receiver con la tarifa congelada)"
+      "vencida": "lo liberado queda liberado; lo vivo va a la parte que no abrio la disputa (to_receiver con la tarifa congelada), salvo que la haya abierto el payer con opened_at >= release_deadline: entonces vuelve al payer"
     },
     "codigos_nuevos": [
       "E47_VENTANA_ARBITRO",
@@ -226,7 +227,8 @@
       "E63_REPARTO_INVALIDO",
       "E64_ARBITRO_EN_PLAZO",
       "E65_ARBITRO_VENCIDO",
-      "E66_REASON_HASH"
+      "E66_REASON_HASH",
+      "E67_DISPUTA_ANTES_DE_RELEASE"
     ],
     "eventos_nuevos": [
       "budget_deposited",

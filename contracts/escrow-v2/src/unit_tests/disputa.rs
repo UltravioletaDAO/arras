@@ -37,7 +37,7 @@ fn dispute_deadline_en_el_msg() {
     // Sin dispute_deadline: vale reclaim_after.
     let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v1().to_canonical_json());
     assert_eq!(c.get_payment(id).unwrap().dispute_deadline, U64(RECLAIM));
-    // En el borde: == reclaim_after pasa; > reclaim_after y <= now son E11.
+    // En el borde: == reclaim_after pasa; > reclaim_after y <= now son E11; == release_deadline pasa.
     let mut m = msg_v1();
     m.salt[15] = 2;
     let id = authorize(
@@ -58,9 +58,40 @@ fn dispute_deadline_en_el_msg() {
             "E11_PLAZOS",
         );
     }
-    let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v2(m, Some(NOW + 1), None));
+    // Antes de release_deadline: E67 (RARRAS-6, P3-1), en el borde y lejos.
+    for d in [RELEASE - 1, NOW + 1] {
+        assert_rechazo(
+            &mut c,
+            USDC,
+            PAYER,
+            USDC_UNIT,
+            &msg_v2(m.clone(), Some(d), None),
+            "E67_DISPUTA_ANTES_DE_RELEASE",
+        );
+    }
+    // E11 antes que E67: `dispute_deadline <= now` tambien esta antes de release_deadline.
+    assert_rechazo(
+        &mut c,
+        USDC,
+        PAYER,
+        USDC_UNIT,
+        &msg_v2(m.clone(), Some(NOW), None),
+        "E11_PLAZOS",
+    );
+    // E67 antes que E12.
+    let mut caro = m.clone();
+    caro.fee_bps_max = 1;
+    assert_rechazo(
+        &mut c,
+        USDC,
+        PAYER,
+        USDC_UNIT,
+        &msg_v2(caro, Some(RELEASE - 1), None),
+        "E67_DISPUTA_ANTES_DE_RELEASE",
+    );
+    let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v2(m, Some(RELEASE), None));
     let p = c.get_payment(id).unwrap();
-    assert_eq!(p.dispute_deadline, U64(NOW + 1));
+    assert_eq!(p.dispute_deadline, U64(RELEASE));
     assert_eq!(
         p.arbiter_window_ns,
         U64(ARBITER_WINDOW),

@@ -428,6 +428,12 @@ fn authorize_from_budget_guardas() {
         x.dispute_deadline = dis;
         afb_falla(&mut c, AGENT, NOW, PAYER, &x, "ARRAS_E11");
     }
+    // E67: dispute_deadline antes de release_deadline (RARRAS-6, P3-1), en el borde y lejos.
+    for dis in [RELEASE - 1, NOW + 1] {
+        let mut x = a.clone();
+        x.dispute_deadline = Some(dis);
+        afb_falla(&mut c, AGENT, NOW, PAYER, &x, "ARRAS_E67");
+    }
     // E12.
     let mut x = a.clone();
     x.fee_bps_max = 1299;
@@ -450,16 +456,20 @@ fn authorize_from_budget_guardas() {
         sig: "x".into(),
     });
     afb_falla(&mut c, AGENT, NOW, PAYER, &x, "ARRAS_E53");
-    // dispute_deadline explicito, en el borde (== reclaim_after) y antes.
+    // dispute_deadline explicito, en los dos bordes: == reclaim_after y == release_deadline.
     let mut x = afb(USDC_UNIT, 11);
     x.dispute_deadline = Some(RECLAIM);
     ctx(AGENT, 0, NOW);
     let id = call_afb(&mut c, PAYER, &x);
     assert_eq!(c.get_payment(id).unwrap().dispute_deadline, U64(RECLAIM));
+    let mut x = afb(USDC_UNIT, 12);
+    x.dispute_deadline = Some(RELEASE);
+    let id = call_afb(&mut c, PAYER, &x);
+    assert_eq!(c.get_payment(id).unwrap().dispute_deadline, U64(RELEASE));
     assert_invariante(&c, &TODAS);
 }
 
-/// Orden: E02 -> E03 -> E04 -> E50 -> E15 -> E05 -> E06 -> E52 -> E51 -> E50 -> E11 -> E12 -> E13 -> E53 -> E14. Cada
+/// Orden: E02 -> E03 -> E04 -> E50 -> E15 -> E05 -> E06 -> E52 -> E51 -> E50 -> E11 -> E67 -> E12 -> E13 -> E53 -> E14. Cada
 /// paso rompe dos guardas consecutivas y espera la primera.
 #[test]
 fn authorize_from_budget_orden_de_las_guardas() {
@@ -503,12 +513,16 @@ fn authorize_from_budget_orden_de_las_guardas() {
     z.release_deadline = manana;
     afb_falla(&mut c, AGENT, manana, PAYER, &z, "ARRAS_E50");
 
-    // E11 antes que E12 y E12 antes que E13, con saldo.
+    // E11 antes que E67, E67 antes que E12 y E12 antes que E13, con saldo.
     let mut c = con_presupuesto();
     let mut z = afb(USDC_UNIT, 1);
     z.release_deadline = NOW;
     z.fee_bps_max = 0;
     afb_falla(&mut c, AGENT, NOW, PAYER, &z, "ARRAS_E11");
+    let mut z = afb(USDC_UNIT, 1);
+    z.dispute_deadline = Some(RELEASE - 1);
+    z.fee_bps_max = 0;
+    afb_falla(&mut c, AGENT, NOW, PAYER, &z, "ARRAS_E67");
     ctx(AGENT, 0, NOW);
     call_afb(&mut c, PAYER, &afb(USDC_UNIT, 1));
     c.operators.get_mut(OP).unwrap().fee_bps = 1301;

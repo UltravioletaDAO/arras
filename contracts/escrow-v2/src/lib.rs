@@ -5,9 +5,11 @@
 //!   agente; el agente autoriza pagos con `authorize_from_budget` (deposit 0, asi lo firma una function-call key
 //!   limitada a este contrato), con tope por pago y tope por ventana diaria. Lo que el agente autoriza queda en
 //!   escrow como cualquier pago: solo el capturer del operador lo libera al receiver, y un refund vuelve al humano.
-//! - **Disputa** ([`dispute`]): el payer o el receiver abren una disputa antes de `dispute_deadline`; solo el arbitro
-//!   del operador la resuelve (reparto libre de lo vivo) dentro de su plazo; vencido el plazo, cualquiera la cierra
-//!   al ultimo estado acordado: lo liberado queda liberado y lo vivo va a la parte que no abrio la disputa.
+//! - **Disputa** ([`dispute`]): el payer o el receiver abren una disputa antes de `dispute_deadline` (que no puede ser
+//!   anterior a `release_deadline`); solo el arbitro del operador la resuelve (reparto libre de lo vivo) dentro de su
+//!   plazo; vencido el plazo, cualquiera la cierra al ultimo estado acordado: lo liberado queda liberado y lo vivo va
+//!   a la parte que no abrio la disputa, salvo que la haya abierto el payer en o despues de `release_deadline` (el
+//!   capturer ya no podia liberar): entonces vuelve al payer.
 //! - **Ticket del operador** ([`ticket`]): si el operador tiene `ticket_pubkey`, todo pago y todo deposito de
 //!   presupuesto en ese operador necesita su firma ed25519 (contra el griefing del pool de storage y del TVL).
 //!
@@ -68,7 +70,10 @@ pub const MAX_ARBITER_WINDOW_NS: u64 = 30 * DAY_NS;
 /// `reclaim_after = max(now, deadline) + 7 d de revision + 7 d de reembolso` con tareas de hasta 30 dias, o sea hasta
 /// `now + 44 dias` (`execution-market:mcp_server/integrations/x402/near_escrow.py:_deadlines` y
 /// `uvd_x402_sdk.escrow_signing.REVIEW_WINDOW_SEC`/`REFUND_WINDOW_SEC`). Peor caso para el owner: 60 dias mas el plazo
-/// del arbitro (30) si el receiver disputa al final.
+/// del arbitro (30) si el receiver disputa al final. El `reclaim` del owner (lo que el agente trabo y nadie libero) esta
+/// garantizado si el owner no abre una disputa, o si la abre en o despues de `release_deadline` (vencida, lo vivo vuelve
+/// a el). Si la abre antes y el arbitro no contesta, lo vivo va al receiver: con la llave del agente filtrada, el owner
+/// espera el `reclaim`, le pide el refund al capturer o disputa desde `release_deadline` (RARRAS-6, P2-1).
 pub const MAX_PLAZO_PRESUPUESTO_NS: u64 = 60 * DAY_NS;
 /// Lo que crece un `Payment` al abrir y resolver su disputa: `Some(Dispute)` con `resolved_at` (87 bytes) menos
 /// `None` (1). Se cobra al autorizar (quien abre la disputa no adjunta deposito) y se devuelve al compactar si la

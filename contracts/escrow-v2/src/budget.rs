@@ -15,7 +15,7 @@
 //!
 //! | Metodo | Quien | Guardas | En pausa |
 //! |---|---|---|---|
-//! | `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after, dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)` | el agente | E02 -> E03 -> E04 -> E50 (no hay presupuesto) -> E15 (receiver = contrato, owner o agente) -> E24 (monto 0) -> E05 -> E06 -> E52 -> E51 -> E50 (saldo) -> E57 (`reclaim_after` a mas de 60 dias) -> E11 -> E12 -> E13 -> E53/E54 -> E14 | no |
+//! | `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after, dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)` | el agente | E02 -> E03 -> E04 -> E50 (no hay presupuesto) -> E15 (receiver = contrato, owner o agente) -> E24 (monto 0) -> E05 -> E06 -> E52 -> E51 -> E50 (saldo) -> E57 (`reclaim_after` a mas de 60 dias) -> E11 -> E67 (`dispute_deadline` antes de `release_deadline`) -> E12 -> E13 -> E53/E54 -> E14 | no |
 //! | `withdraw_budget(agent, operator_id)` | el owner | E50 -> E30 | si |
 //! | `revoke_agent(agent, operator_id)` | el owner | E50 | si |
 //! | `set_budget_caps(agent, operator_id, tope_por_pago, tope_diario)` | el owner, 1 yocto | E50 -> E56 | si |

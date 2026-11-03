@@ -16,6 +16,13 @@
 //! arbitro no aparece (griefing al worker, plan sec. 3.7), y un receiver que la abre para frenar un refund tampoco
 //! cobra por eso. Es la regla de la prescripcion sec. 4 ("quien disputa carga el riesgo del plazo"), revisable por
 //! el dueno.
+//!
+//! **Salvo** que la haya abierto el payer en o despues de `release_deadline` (`opened_at >= release_deadline`): ahi el
+//! capturer ya no podia liberar (`E23`), el ultimo estado acordado es la devolucion, y lo vivo vuelve al payer. Sin esa
+//! excepcion, un payer que disputaba un pago que nadie aprobo (o el owner de un presupuesto, un pago de la llave del
+//! agente filtrada) le regalaba lo vivo al receiver si el arbitro no contestaba (refutacion RARRAS-6, P2-1; decision de
+//! c0der). El caso que la regla protege, disputar antes de `release_deadline` para trabar un trabajo terminado, no
+//! cambia.
 
 use crate::error::ArrasErrorV2;
 use crate::events::{ArrasEventV2, DisputeOpenedData, DisputeResolvedData};
@@ -93,7 +100,8 @@ impl Arras {
         self.settle_dispute(payment_id, p, to_receiver.0, to_payer.0, caller, false);
     }
 
-    /// Cualquiera, vencido el plazo del arbitro: lo vivo va a la parte que no abrio la disputa.
+    /// Cualquiera, vencido el plazo del arbitro: lo vivo va a la parte que no abrio la disputa, salvo que la haya
+    /// abierto el payer en o despues de `release_deadline` (entonces vuelve al payer).
     pub fn resolve_expired_dispute(&mut self, payment_id: PaymentId) {
         let p = self.payment_or_e20(&payment_id);
         let resolve_by = Self::disputed_until(&p, "resolve_expired_dispute");
@@ -101,11 +109,16 @@ impl Arras {
             ArrasErrorV2::E64ArbitroEnPlazo.panic();
         }
         let live = p.live_amount();
-        let abrio_el_payer = p
+        // Cobra el receiver solo si la abrio el payer cuando el capturer todavia podia liberar.
+        let cobra_el_receiver = p
             .dispute
             .as_ref()
-            .is_some_and(|d| d.opened_by == Party::Payer);
-        let (to_receiver, to_payer) = if abrio_el_payer { (live, 0) } else { (0, live) };
+            .is_some_and(|d| d.opened_by == Party::Payer && d.opened_at.0 < p.release_deadline.0);
+        let (to_receiver, to_payer) = if cobra_el_receiver {
+            (live, 0)
+        } else {
+            (0, live)
+        };
         self.settle_dispute(
             payment_id,
             p,

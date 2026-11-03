@@ -3,8 +3,8 @@
 //! `&self` (`plan_*`) antes de la primera escritura (`apply_*`). Dos `msg`:
 //!
 //! - `authorize` (el de v1 mas `dispute_deadline` y `operator_ticket` opcionales). Guardas: E01 -> E02 -> E03 -> E04
-//!   -> E15 -> E05 -> E06 -> E08 -> E09 -> E10 -> E11 (con `now < dispute_deadline <= reclaim_after`) -> E12 -> E13
-//!   -> E53/E54 (ticket, si el operador tiene llave) -> E14.
+//!   -> E15 -> E05 -> E06 -> E08 -> E09 -> E10 -> E11 (con `now < dispute_deadline <= reclaim_after`) -> E67
+//!   (`dispute_deadline < release_deadline`) -> E12 -> E13 -> E53/E54 (ticket, si el operador tiene llave) -> E14.
 //! - `budget` (deposito en el presupuesto `(sender_id, agent, operator_id)`). Guardas: E01 -> E02 -> E03 -> E04 ->
 //!   E55 (agente = el contrato) -> E56 (un tope en 0) -> E05 -> E08 -> E09 -> E10 -> E53/E54 -> E14 (solo si el
 //!   presupuesto es nuevo). El deposito sube los tres TVL; un re-deposito solo puede bajar los topes (`min`).
@@ -137,8 +137,8 @@ impl Arras {
             .ok_or(ArrasError::E04OperadorInexistente.into())
     }
 
-    /// authorize por `ft_transfer_call`: E04 -> E15 -> E05 -> E06 -> E08 -> E09 -> E10 -> E11 -> E12 -> E13 -> ticket
-    /// -> E14.
+    /// authorize por `ft_transfer_call`: E04 -> E15 -> E05 -> E06 -> E08 -> E09 -> E10 -> E11 -> E67 -> E12 -> E13
+    /// -> ticket -> E14.
     fn plan_authorize(
         &self,
         payer: &AccountId,
@@ -198,7 +198,7 @@ impl Arras {
         )
     }
 
-    /// E11 -> E12 -> E13 y el `Payment` nuevo (sin storage cobrado todavia). Lo comparten el `ft_transfer_call` y
+    /// E11 -> E67 -> E12 -> E13 y el `Payment` nuevo (sin storage cobrado todavia). Lo comparten el `ft_transfer_call` y
     /// `authorize_from_budget`.
     pub(crate) fn build_payment(
         &self,
@@ -215,6 +215,12 @@ impl Arras {
                 && now < dispute_deadline
                 && dispute_deadline <= m.reclaim_after),
             ArrasError::E11Plazos,
+        )?;
+        // El payer (o el owner, en un pago del agente) tiene que poder disputar hasta que el capturer deja de poder
+        // liberar: si no, el agente le cierra la disputa con `dispute_deadline = now + 1` (RARRAS-6, P3-1).
+        rechazo_si(
+            dispute_deadline < m.release_deadline,
+            ArrasErrorV2::E67DisputaAntesDeRelease,
         )?;
         rechazo_si(
             operator.fee_bps > m.fee_bps_max,

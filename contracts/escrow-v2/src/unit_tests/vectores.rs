@@ -183,6 +183,7 @@ fn vectores_v2_del_json() {
         E::E64ArbitroEnPlazo,
         E::E65ArbitroVencido,
         E::E66ReasonHash,
+        E::E67DisputaAntesDeRelease,
     ];
     assert_eq!(codigos, todos.iter().map(|e| e.code()).collect::<Vec<_>>());
 }

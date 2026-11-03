@@ -88,6 +88,11 @@ enum Op {
         pick: usize,
         por_payer: bool,
     },
+    /// El payer disputa un pago vivo desde su `release_deadline` (el reloj avanza hasta ahi si hace falta): la rama
+    /// del vencimiento que vuelve al payer (RARRAS-6, P2-1) casi no sale de otra forma.
+    DisputaDesdeRelease {
+        pick: usize,
+    },
     Resolve {
         pick: usize,
         to_receiver: u128,
@@ -131,7 +136,8 @@ fn op() -> impl Strategy<Value = Op> {
         1 => any::<usize>().prop_map(|pick| Op::Reclaim { pick }),
         2 => (any::<usize>(), any::<bool>()).prop_map(|(pick, por_payer)| Op::OpenDispute { pick, por_payer }),
         2 => (any::<usize>(), 0..3_000_000u128).prop_map(|(pick, to_receiver)| Op::Resolve { pick, to_receiver }),
-        1 => any::<usize>().prop_map(|pick| Op::ResolveExpired { pick }),
+        1 => any::<usize>().prop_map(|pick| Op::DisputaDesdeRelease { pick }),
+        2 => any::<usize>().prop_map(|pick| Op::ResolveExpired { pick }),
         3 => (0..CUENTAS.len()).prop_map(|cuenta| Op::Withdraw { cuenta }),
         3 => (any::<usize>(), any::<bool>()).prop_map(|(pick, ok)| Op::EjecutarTransfer { pick, ok }),
         3 => any::<usize>().prop_map(|pick| Op::Callback { pick }),
@@ -154,6 +160,7 @@ fn nombre(o: &Op) -> &'static str {
         Op::Refund { .. } => "refund",
         Op::Reclaim { .. } => "reclaim",
         Op::OpenDispute { .. } => "open_dispute",
+        Op::DisputaDesdeRelease { .. } => "open_dispute_desde_release",
         Op::Resolve { .. } => "resolve_dispute",
         Op::ResolveExpired { .. } => "resolve_expired_dispute",
         Op::Withdraw { .. } => "withdraw",
@@ -335,7 +342,8 @@ impl Modelo {
                 m.reclaim_after = now + 2 * DAY_NS;
                 m.fee_bps_max = 1800;
                 m.salt[..2].copy_from_slice(&salt.to_le_bytes());
-                let dd = dispute_temprana.then_some(now + DAY_NS / 2);
+                // Entre release_deadline y reclaim_after (antes de release_deadline seria E67).
+                let dd = dispute_temprana.then_some(now + DAY_NS + DAY_NS / 2);
                 let msg = msg_v2(m, dd, None);
                 if self.ft(PAYERS[payer], amount, &msg) {
                     self.ids.push(id_of(PAYERS[payer], amount, &msg));
@@ -450,6 +458,23 @@ impl Modelo {
                 ctx(quien.as_str(), 0, now);
                 intentar(self, |c| c.open_dispute(id, "ab".repeat(32)));
             }
+            Op::DisputaDesdeRelease { pick } => {
+                let vivos: Vec<usize> = (0..self.ids.len())
+                    .filter(|&i| {
+                        self.c
+                            .payments
+                            .get(&self.ids[i])
+                            .is_some_and(|p| p.status.is_live())
+                    })
+                    .collect();
+                if vivos.is_empty() {
+                    return;
+                }
+                let (id, p) = self.pago(vivos[pick % vivos.len()]).unwrap();
+                self.now = self.now.max(p.release_deadline.0);
+                ctx(p.payer.as_str(), 0, self.now);
+                intentar(self, |c| c.open_dispute(id, "ab".repeat(32)));
+            }
             Op::Resolve { pick, to_receiver } => {
                 let Some((id, p)) = self.pago(pick) else {
                     return;
@@ -473,11 +498,46 @@ impl Modelo {
                 intentar(self, |c| c.resolve_dispute(id, U128(r), U128(py)));
             }
             Op::ResolveExpired { pick } => {
-                let Some((id, _)) = self.pago(pick) else {
+                // La mitad de las veces, entre los pagos en disputa (si no, casi siempre es E22 y las tres ramas del
+                // vencimiento casi no salen); la otra mitad, cualquiera.
+                let disputados: Vec<usize> = (0..self.ids.len())
+                    .filter(|&i| {
+                        self.c
+                            .payments
+                            .get(&self.ids[i])
+                            .is_some_and(|p| p.status == PaymentStatus::Disputed)
+                    })
+                    .collect();
+                let pick = if pick % 2 == 0 && !disputados.is_empty() {
+                    disputados[(pick / 2) % disputados.len()]
+                } else {
+                    pick
+                };
+                let Some((id, p)) = self.pago(pick) else {
                     return;
                 };
                 ctx(OTHER, 0, now);
-                intentar(self, |c| c.resolve_expired_dispute(id));
+                let i = id.clone();
+                if intentar(self, |c| c.resolve_expired_dispute(i)) {
+                    // La regla del vencimiento, escrita aparte de la del contrato: lo vivo va al receiver solo si
+                    // la abrio el payer antes de release_deadline (RARRAS-6, P2-1).
+                    let d = p.dispute.as_ref().unwrap();
+                    let (rama, al_receiver) = match d.opened_by {
+                        Party::Receiver => ("vencida:abrio_el_receiver", false),
+                        Party::Payer if d.opened_at.0 < p.release_deadline.0 => {
+                            ("vencida:abrio_el_payer_antes_de_release", true)
+                        }
+                        Party::Payer => ("vencida:abrio_el_payer_desde_release", false),
+                    };
+                    let live = p.live_amount();
+                    let q = self.c.payments.get(&id).unwrap();
+                    assert_eq!(
+                        (q.released.0 - p.released.0, q.refunded.0 - p.refunded.0),
+                        if al_receiver { (live, 0) } else { (0, live) },
+                        "{rama}"
+                    );
+                    *self.exitos.entry(rama).or_default() += 1;
+                }
             }
             Op::Withdraw { cuenta } => {
                 let a = acc(CUENTAS[cuenta]);
@@ -609,8 +669,8 @@ proptest! {
 }
 
 /// El proptest no pasa "por vacio": con una semilla fija, en 400 secuencias cada operacion que cambia el estado del
-/// contrato sale bien al menos una vez (incluidos el pago del agente, las dos formas de resolver una disputa, la
-/// revocacion, el retiro fallido y `compact`).
+/// contrato sale bien al menos una vez (incluidos el pago del agente, las dos formas de resolver una disputa con las
+/// tres ramas del vencimiento, la revocacion, el retiro fallido y `compact`).
 #[test]
 fn el_proptest_ejercita_cada_operacion() {
     use proptest::strategy::ValueTree;
@@ -645,8 +705,12 @@ fn el_proptest_ejercita_cada_operacion() {
         "refund",
         "reclaim",
         "open_dispute",
+        "open_dispute_desde_release",
         "resolve_dispute",
         "resolve_expired_dispute",
+        "vencida:abrio_el_receiver",
+        "vencida:abrio_el_payer_antes_de_release",
+        "vencida:abrio_el_payer_desde_release",
         "withdraw",
         "on_withdraw",
         "compact",

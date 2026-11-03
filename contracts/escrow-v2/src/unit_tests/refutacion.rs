@@ -12,7 +12,7 @@ fn afb_falla(c: &mut Arras, agent: &str, ts: u64, owner: &str, a: &Afb, needle: 
     assert_eq!(snapshot(c, owner), antes, "estado intacto tras {needle}");
 }
 
-/// P1-1 (R-1): el agente no puede trabar la plata del owner con plazos lejanos: `reclaim_after <= now + 30 dias`
+/// P1-1 (R-1): el agente no puede trabar la plata del owner con plazos lejanos: `reclaim_after <= now + 60 dias`
 /// (`E57`), con el borde exacto, y el owner recupera todo con `reclaim` dentro de ese horizonte.
 #[test]
 fn p1_1_horizonte_de_los_pagos_del_presupuesto() {
@@ -30,15 +30,16 @@ fn p1_1_horizonte_de_los_pagos_del_presupuesto() {
         a.receiver = OTHER.into();
         a.release_deadline = reclaim - 1;
         a.reclaim_after = reclaim;
-        a.dispute_deadline = Some(NOW + 1);
+        a.dispute_deadline = Some(reclaim - 1);
         afb_falla(&mut c, AGENT, NOW, PAYER, &a, "ARRAS_E57");
     }
-    // En el borde exacto pasa, y el owner reclama en `reclaim_after` aunque el agente no le haya dejado disputar.
+    // En el borde exacto pasa (con la disputa mas corta que el agente puede elegir, `dispute_deadline =
+    // release_deadline`, E67), y el owner reclama en `reclaim_after` sin disputar.
     let mut a = afb(2 * USDC_UNIT, 1);
     a.receiver = OTHER.into();
     a.release_deadline = limite - 1;
     a.reclaim_after = limite;
-    a.dispute_deadline = Some(NOW + 1);
+    a.dispute_deadline = Some(limite - 1);
     ctx(AGENT, 0, NOW);
     let id = call_afb(&mut c, PAYER, &a);
     ctx(PAYER, 0, limite);
@@ -339,5 +340,210 @@ fn r2_n3_reserva_exacta_con_la_disputa_abierta() {
     ctx(ARBITER, 0, NOW);
     c.resolve_dispute(id, U128(USDC_UNIT), U128(0));
     assert_eq!(c.dispute_reserve_total, 0);
+    assert_invariante(&c, &TODAS);
+}
+
+// Refutacion de c0der (RARRAS-6, ronda 1), sobre 179a843.
+
+const RAZON: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+
+/// Abre la disputa de `id` como `quien` en `ts`; el arbitro no contesta y un tercero la cierra al vencer su plazo.
+fn disputa_vencida(c: &mut Arras, quien: &str, ts: u64, id: &PaymentId) {
+    ctx(quien, 0, ts);
+    c.open_dispute(id.clone(), RAZON.into());
+    ctx(OTHER, 0, ts + ARBITER_WINDOW - 1);
+    expect_panic("ARRAS_E64", || c.resolve_expired_dispute(id.clone()));
+    ctx(OTHER, 0, ts + ARBITER_WINDOW);
+    c.resolve_expired_dispute(id.clone());
+}
+
+/// P2-1: el payer disputa en o despues de `release_deadline` (el capturer ya no podia liberar, `E23`) y el arbitro no
+/// contesta: lo vivo vuelve al payer, el ultimo estado acordado. Sin release previo, el payer recupera el 100 % y el
+/// worker 0, lo mismo que con `reclaim` sin disputa; con un release parcial previo, lo liberado queda liberado.
+#[test]
+fn rarras6_p2_1_el_payer_disputa_desde_release_deadline_y_recupera_lo_vivo() {
+    for abre in [RELEASE, RELEASE + 1] {
+        let mut c = setup();
+        let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v1().to_canonical_json());
+        ctx(CAPTURER, 0, abre);
+        expect_panic("ARRAS_E23", || c.release(id.clone(), None));
+        disputa_vencida(&mut c, PAYER, abre, &id);
+        assert_eq!(
+            logs(),
+            vec![format!(
+                r#"EVENT_JSON:{{"standard":"arras","version":"1.0.0","event":"dispute_resolved","data":[{{"payment_id":"{id}","by":"{OTHER}","to_receiver":"0","net":"0","fee":"0","to_payer":"1000000","expired":true}}]}}"#
+            )],
+            "abre en {abre}"
+        );
+        let p = c.get_payment(id).unwrap();
+        assert_eq!(
+            (p.released.0, p.refunded.0, p.status),
+            (0, USDC_UNIT, PaymentStatus::Resolved)
+        );
+        assert_eq!(c.claimable_of(&acc(PAYER)), USDC_UNIT, "abre en {abre}");
+        assert_eq!(c.claimable_of(&acc(WORKER)), 0, "abre en {abre}");
+        assert_eq!(c.claimable_of(&acc(FEES)), 0, "abre en {abre}");
+        assert_invariante(&c, &TODAS);
+    }
+    // Con un release parcial antes: lo liberado queda liberado y lo vivo vuelve al payer.
+    let mut c = setup();
+    let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v1().to_canonical_json());
+    ctx(CAPTURER, 0, NOW);
+    c.release(id.clone(), Some(U128(400_000)));
+    disputa_vencida(&mut c, PAYER, RELEASE, &id);
+    let p = c.get_payment(id).unwrap();
+    assert_eq!((p.released.0, p.refunded.0), (400_000, 600_000));
+    assert_eq!(c.claimable_of(&acc(PAYER)), 600_000);
+    assert_eq!(c.claimable_of(&acc(WORKER)), 348_000);
+    assert_eq!(c.claimable_of(&acc(FEES)), 52_000);
+    assert_invariante(&c, &TODAS);
+}
+
+/// P2-1, el borde de abajo: abierta por el payer en `release_deadline - 1` (el capturer todavia podia liberar), la
+/// regla de la sec. 4 sigue igual: lo vivo va al receiver, con la tarifa.
+#[test]
+fn rarras6_p2_1_el_payer_disputa_antes_de_release_deadline_y_cobra_el_receiver() {
+    let mut c = setup();
+    let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v1().to_canonical_json());
+    disputa_vencida(&mut c, PAYER, RELEASE - 1, &id);
+    let p = c.get_payment(id).unwrap();
+    assert_eq!((p.released.0, p.refunded.0), (USDC_UNIT, 0));
+    assert_eq!(c.claimable_of(&acc(PAYER)), 0);
+    assert_eq!(c.claimable_of(&acc(WORKER)), 870_000);
+    assert_eq!(c.claimable_of(&acc(FEES)), 130_000);
+    assert_invariante(&c, &TODAS);
+}
+
+/// P2-1, la llave del agente filtrada: el atacante autoriza desde el presupuesto a una cuenta suya (OTHER) y el capturer
+/// nunca libera. Si el owner disputa desde `release_deadline` y el arbitro no contesta, recupera todo; si disputa
+/// antes, cobra el receiver (por eso el README le dice que espere el `reclaim`, pida el refund o dispute desde
+/// `release_deadline`). Sin disputa, `reclaim` le devuelve todo.
+#[test]
+fn rarras6_p2_1_llave_del_agente_filtrada() {
+    let mut c = setup();
+    deposit(
+        &mut c,
+        PAYER,
+        AGENT,
+        3 * USDC_UNIT,
+        (USDC_UNIT, 3 * USDC_UNIT),
+    );
+    let mut ids = vec![];
+    for n in [7, 8, 9] {
+        let mut a = afb(USDC_UNIT, n);
+        a.receiver = OTHER.into();
+        ctx(AGENT, 0, NOW);
+        ids.push(call_afb(&mut c, PAYER, &a));
+    }
+    // En orden de tiempo: el owner disputa uno antes de release_deadline y otro desde release_deadline, reclama el
+    // tercero sin disputa, y el arbitro no contesta ninguna.
+    ctx(PAYER, 0, NOW + 1);
+    c.open_dispute(ids[1].clone(), RAZON.into());
+    ctx(PAYER, 0, RELEASE);
+    c.open_dispute(ids[0].clone(), RAZON.into());
+    ctx(PAYER, 0, RECLAIM);
+    c.reclaim(ids[2].clone());
+    assert_eq!(
+        c.claimable_of(&acc(PAYER)),
+        USDC_UNIT,
+        "sin disputa: reclaim"
+    );
+    // La de antes: cobra el atacante.
+    ctx(OTHER, 0, NOW + 1 + ARBITER_WINDOW);
+    c.resolve_expired_dispute(ids[1].clone());
+    assert_eq!(c.claimable_of(&acc(OTHER)), 870_000);
+    // La de desde release_deadline: vuelve al owner.
+    ctx(OTHER, 0, RELEASE + ARBITER_WINDOW);
+    c.resolve_expired_dispute(ids[0].clone());
+    assert_eq!(c.claimable_of(&acc(PAYER)), 2 * USDC_UNIT);
+    assert_eq!(c.claimable_of(&acc(OTHER)), 870_000);
+    assert_invariante(&c, &TODAS);
+}
+
+/// P2-1: si la abre el receiver, lo vivo vuelve al payer antes y despues de `release_deadline` (sin cambios).
+#[test]
+fn rarras6_p2_1_la_abre_el_receiver_vuelve_al_payer_siempre() {
+    for abre in [RELEASE - 1, RELEASE, RELEASE + 1] {
+        let mut c = setup();
+        let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_v1().to_canonical_json());
+        disputa_vencida(&mut c, WORKER, abre, &id);
+        assert_eq!(c.claimable_of(&acc(PAYER)), USDC_UNIT, "abre en {abre}");
+        assert_eq!(c.claimable_of(&acc(WORKER)), 0, "abre en {abre}");
+        assert_invariante(&c, &TODAS);
+    }
+}
+
+/// P3-1: el agente no le cierra la disputa al owner: `dispute_deadline >= release_deadline` (`E67`, con el estado
+/// intacto), y con el `dispute_deadline` mas corto que puede elegir el owner todavia disputa hasta `release_deadline`.
+#[test]
+fn rarras6_p3_1_el_agente_no_cierra_la_disputa_antes_de_release_deadline() {
+    let mut c = setup();
+    deposit(
+        &mut c,
+        PAYER,
+        AGENT,
+        2 * USDC_UNIT,
+        (USDC_UNIT, 2 * USDC_UNIT),
+    );
+    for d in [NOW + 1, RELEASE - 1] {
+        let mut a = afb(USDC_UNIT, 8);
+        a.dispute_deadline = Some(d);
+        afb_falla(&mut c, AGENT, NOW, PAYER, &a, "ARRAS_E67");
+    }
+    let mut ids = vec![];
+    for n in [8, 9] {
+        let mut a = afb(USDC_UNIT, n);
+        a.dispute_deadline = Some(RELEASE);
+        ctx(AGENT, 0, NOW);
+        ids.push(call_afb(&mut c, PAYER, &a));
+    }
+    ctx(PAYER, 0, RELEASE - 1);
+    c.open_dispute(ids[0].clone(), RAZON.into());
+    assert_eq!(
+        c.get_payment(ids[0].clone()).unwrap().status,
+        PaymentStatus::Disputed
+    );
+    ctx(PAYER, 0, RELEASE);
+    expect_panic("ARRAS_E61", || c.open_dispute(ids[1].clone(), RAZON.into()));
+    assert_invariante(&c, &TODAS);
+}
+
+/// P3-2 (declarado, sin cambio de codigo): el ticket de presupuesto firma `(operator_id, owner, agent)` y `expiry`, sin
+/// monto ni nonce: vale para cualquier cantidad de depositos del par hasta `expiry` (tambien despues de `revoke_agent`),
+/// y en `expiry` ya no (`E54`). Los firmantes usan `expiry` corto.
+#[test]
+fn rarras6_p3_2_el_ticket_de_presupuesto_vale_hasta_expiry() {
+    let mut c = setup();
+    con_ticket(&mut c);
+    let expiry = NOW + DAY_NS;
+    let t = firmar_ticket(
+        crate::ticket::TicketSubject::Budget {
+            operator_id: OP,
+            owner: PAYER,
+            agent: AGENT,
+        },
+        expiry,
+    );
+    let mut m = budget_msg(AGENT, USDC_UNIT, 2 * USDC_UNIT);
+    m.operator_ticket = Some(crate::msg::OperatorTicket {
+        expiry: t.expiry.0,
+        sig: t.sig.clone(),
+    });
+    let json = m.to_canonical_json();
+    for vuelta in 0..3 {
+        assert_eq!(
+            ft_on_transfer_as(&mut c, USDC, PAYER, USDC_UNIT, &json),
+            0,
+            "vuelta {vuelta}"
+        );
+        ctx(PAYER, 0, NOW);
+        c.revoke_agent(acc(AGENT), OP.into());
+    }
+    ctx(USDC, 0, expiry);
+    assert_eq!(
+        call_ft_on_transfer(&mut c, PAYER, USDC_UNIT, &json),
+        USDC_UNIT
+    );
+    assert_eq!(logs(), vec!["arras:rechazo:E54_TICKET_VENCIDO".to_string()]);
     assert_invariante(&c, &TODAS);
 }
