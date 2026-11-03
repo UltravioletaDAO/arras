@@ -70,6 +70,18 @@ core llevo la build no reproducible de v1 de `b505ec3d...8211` (273.213 bytes) a
 (`git diff origin/main -- contracts/escrow-core contracts/escrow-v1` = 0 lineas) y lo que v2 suma vive en su crate.
 Cualquier cambio futuro al core es un cambio a la wasm de v1 y necesita su refutacion.
 
+## Testnet
+
+- `arras-v2-1103.testnet` (faucet, sin llaves): wasm reproducible de `c416989`, sha256 `8ef765f9...d66a` (dos builds
+  iguales). Recorrido completo con USDC de Circle (`scripts/testnet-v2.sh 8`-`13`): el contrato termino en 0. Tablas
+  de transacciones y saldos en el README, "Arras v2 on testnet".
+- Es el despliegue previo a la refutacion de c0der (H-10). Respecto del HEAD del PR, el codigo del contrato difiere en un
+  solo texto: `E57` decia "30 dias" con el tope ya en 60. Como en v1, el commit refutado va a una cuenta nueva y sin
+  llaves despues del MERGEABLE (pasos 1-7 de `scripts/testnet-v2.sh` con otro `ARRAS_V2_CONTRATO`).
+- La llave de tickets del operador `emt` vive en `~/.arras-testnet/v2-arras-v2-1103.testnet-ticket.pem` de la Mac (modo
+  600, fuera del repo). Las sub-cuentas `capturer`, `arbiter` y `agent` de `arras-v2-1103.testnet` tienen sus llaves en
+  el llavero de near-cli-rs; el capturer y el agente, solo function-call keys.
+
 ## Para despues del merge (no lo hace este worker)
 
 - SDK TS y py: firmar el ticket del operador con T-1/T-2 (`docs/vectores.json` -> `v2.operator_ticket`) y los helpers
