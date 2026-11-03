@@ -96,6 +96,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "arras-registry-v1"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arras-escrow-core",
+ "near-sdk",
+ "near-workspaces",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "arras-test-escrow"
+version = "0.1.0"
+dependencies = [
+ "near-sdk",
+]
+
+[[package]]
 name = "arras-test-ft"
 version = "0.1.0"
 dependencies = [
