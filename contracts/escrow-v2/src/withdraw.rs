@@ -85,6 +85,10 @@ impl Arras {
         let mut liberado = antes.saturating_sub(env::storage_usage());
         if p.dispute.is_none() {
             liberado += DISPUTE_RESERVE_BYTES;
+            self.dispute_reserve_total = sub(
+                self.dispute_reserve_total,
+                bytes_cost(DISPUTE_RESERVE_BYTES),
+            );
         }
         let devuelto = bytes_cost(liberado).min(p.storage_charged.0);
         self.refund_storage(&p.operator_id, &p.payer, p.sponsored, devuelto);

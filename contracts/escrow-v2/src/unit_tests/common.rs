@@ -305,6 +305,12 @@ pub fn assert_invariante(c: &Arras, cuentas: &[&str]) {
         budgets, c.budgets_total,
         "budgets_total == sum(presupuestos)"
     );
+    let sin_disputa = c.payments.values().filter(|p| p.dispute.is_none()).count() as u128;
+    assert_eq!(
+        c.dispute_reserve_total,
+        sin_disputa * bytes_cost(DISPUTE_RESERVE_BYTES),
+        "dispute_reserve_total == pagos sin disputa x 86 bytes"
+    );
     assert_eq!(
         en_escrow + claim + c.in_flight + budgets,
         c.tvl_global,

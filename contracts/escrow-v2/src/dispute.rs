@@ -50,6 +50,11 @@ impl Arras {
         let amount = p.live_amount();
         let resolve_by = now.saturating_add(p.arbiter_window_ns.0);
         p.status = PaymentStatus::Disputed;
+        // La reserva ya cobrada pasa a estar en uso (el `Payment` crece ahora).
+        self.dispute_reserve_total = sub(
+            self.dispute_reserve_total,
+            bytes_cost(DISPUTE_RESERVE_BYTES),
+        );
         p.dispute = Some(Dispute {
             opened_by: party,
             reason_hash: reason_hash.clone(),

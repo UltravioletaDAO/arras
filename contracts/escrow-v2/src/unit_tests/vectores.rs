@@ -175,6 +175,7 @@ fn vectores_v2_del_json() {
         E::E54TicketVencido,
         E::E55AgenteInvalido,
         E::E56TopesPresupuesto,
+        E::E57PlazoPresupuesto,
         E::E60NoEsParte,
         E::E61FueraDePlazoDisputa,
         E::E62NoEsArbitro,

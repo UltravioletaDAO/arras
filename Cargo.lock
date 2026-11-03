@@ -85,6 +85,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arras-escrow-core",
+ "curve25519-dalek",
  "ed25519-dalek",
  "near-contract-standards",
  "near-sdk",

@@ -22,6 +22,7 @@ pub enum ArrasErrorV2 {
     E54TicketVencido,
     E55AgenteInvalido,
     E56TopesPresupuesto,
+    E57PlazoPresupuesto,
     E60NoEsParte,
     E61FueraDePlazoDisputa,
     E62NoEsArbitro,
@@ -51,6 +52,7 @@ impl ArrasErrorV2 {
             Self::E54TicketVencido => "E54_TICKET_VENCIDO",
             Self::E55AgenteInvalido => "E55_AGENTE_INVALIDO",
             Self::E56TopesPresupuesto => "E56_TOPES_PRESUPUESTO",
+            Self::E57PlazoPresupuesto => "E57_PLAZO_PRESUPUESTO",
             Self::E60NoEsParte => "E60_NO_ES_PARTE",
             Self::E61FueraDePlazoDisputa => "E61_FUERA_DE_PLAZO_DISPUTA",
             Self::E62NoEsArbitro => "E62_NO_ES_ARBITRO",
@@ -80,6 +82,9 @@ impl ArrasErrorV2 {
             Self::E54TicketVencido => "operator_ticket vencido".into(),
             Self::E55AgenteInvalido => "agente invalido".into(),
             Self::E56TopesPresupuesto => "topes del presupuesto invalidos (tienen que ser > 0)".into(),
+            Self::E57PlazoPresupuesto => {
+                "reclaim_after de un pago del presupuesto a mas de 30 dias".into()
+            }
             Self::E60NoEsParte => "solo el payer o el receiver".into(),
             Self::E61FueraDePlazoDisputa => "dispute_deadline vencido".into(),
             Self::E62NoEsArbitro => "solo el arbitro del operador".into(),
@@ -110,7 +115,7 @@ impl ArrasErrorV2 {
 mod tests {
     use super::*;
 
-    const NUEVOS: [ArrasErrorV2; 16] = [
+    const NUEVOS: [ArrasErrorV2; 17] = [
         ArrasErrorV2::E47VentanaArbitro,
         ArrasErrorV2::E48TicketPubkey,
         ArrasErrorV2::E50SinPresupuesto,
@@ -120,6 +125,7 @@ mod tests {
         ArrasErrorV2::E54TicketVencido,
         ArrasErrorV2::E55AgenteInvalido,
         ArrasErrorV2::E56TopesPresupuesto,
+        ArrasErrorV2::E57PlazoPresupuesto,
         ArrasErrorV2::E60NoEsParte,
         ArrasErrorV2::E61FueraDePlazoDisputa,
         ArrasErrorV2::E62NoEsArbitro,

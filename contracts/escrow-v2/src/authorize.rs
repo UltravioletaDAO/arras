@@ -376,6 +376,10 @@ impl Arras {
         } = plan;
         let cost = payment.storage_charged.0;
         self.pay_storage(&payment.payer, &tvl_key, cost, sponsor);
+        self.dispute_reserve_total = add(
+            self.dispute_reserve_total,
+            bytes_cost(DISPUTE_RESERVE_BYTES),
+        );
         let operator = self
             .operators
             .get_mut(&payment.operator_id)

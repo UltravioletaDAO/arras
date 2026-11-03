@@ -63,6 +63,9 @@ pub const DAY_NS: u64 = 86_400 * 1_000_000_000;
 pub const MIN_ARBITER_WINDOW_NS: u64 = 60 * 1_000_000_000;
 /// Maximo de `arbiter_window_ns`: 30 dias (acota cuanto puede quedar trabada una disputa sin arbitro).
 pub const MAX_ARBITER_WINDOW_NS: u64 = 30 * DAY_NS;
+/// Horizonte de un pago del presupuesto: `reclaim_after <= now + 30 dias` (`E57`). Lo pone el contrato porque los plazos
+/// los elige el agente por el owner (refutacion de v2, P1-1).
+pub const MAX_PLAZO_PRESUPUESTO_NS: u64 = 30 * DAY_NS;
 /// Lo que crece un `Payment` al abrir y resolver su disputa: `Some(Dispute)` con `resolved_at` (87 bytes) menos
 /// `None` (1). Se cobra al autorizar (quien abre la disputa no adjunta deposito) y se devuelve al compactar si la
 /// disputa nunca se abrio.
@@ -322,6 +325,9 @@ pub struct Arras {
     storage_available_total: u128,
     /// Suma de los `saldo` de todos los presupuestos.
     budgets_total: u128,
+    /// Yocto de la reserva de disputa ya cobrada y todavia sin usar (pagos sin disputa y sin compactar):
+    /// `get_storage_health` no la cuenta como libre (refutacion de v2, P3-5).
+    dispute_reserve_total: u128,
     operators: IterableMap<OperatorId, Operator>,
     payments: IterableMap<PaymentId, Payment>,
     payments_by_operator: LookupMap<OperatorId, Vector<PaymentId>>,
@@ -389,6 +395,7 @@ impl Arras {
             in_flight: 0,
             storage_available_total: 0,
             budgets_total: 0,
+            dispute_reserve_total: 0,
             operators: IterableMap::new(prefix::OPERATORS),
             payments: IterableMap::new(prefix::PAYMENTS),
             payments_by_operator: LookupMap::new(prefix::PAYMENTS_BY_OPERATOR),

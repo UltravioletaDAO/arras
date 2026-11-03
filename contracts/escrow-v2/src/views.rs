@@ -44,7 +44,8 @@ pub struct ConfigView {
     pub operators: u32,
 }
 
-/// Reserva libre = saldo - storage ocupado - `available` de NEP-145 - `sponsor_pool` de los operadores.
+/// Reserva libre = saldo - storage ocupado - `available` de NEP-145 - `sponsor_pool` de los operadores - la reserva de
+/// disputa cobrada y sin usar.
 #[near(serializers = [json])]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageHealth {
@@ -53,6 +54,8 @@ pub struct StorageHealth {
     pub storage_cost: U128,
     pub nep145_available: U128,
     pub sponsor_pools: U128,
+    /// Reserva de disputa cobrada y sin usar: es de los pagos, no del contrato.
+    pub dispute_reserve: U128,
     pub free_reserve: U128,
     /// 0,2 NEAR.
     pub min_free_reserve: U128,
@@ -102,13 +105,15 @@ impl Arras {
         let free_reserve = balance
             .saturating_sub(storage_cost)
             .saturating_sub(self.storage_available_total)
-            .saturating_sub(sponsor_pools);
+            .saturating_sub(sponsor_pools)
+            .saturating_sub(self.dispute_reserve_total);
         StorageHealth {
             balance: U128(balance),
             storage_usage: U64(storage_usage),
             storage_cost: U128(storage_cost),
             nep145_available: U128(self.storage_available_total),
             sponsor_pools: U128(sponsor_pools),
+            dispute_reserve: U128(self.dispute_reserve_total),
             free_reserve: U128(free_reserve),
             min_free_reserve: U128(MIN_FREE_RESERVE.as_yoctonear()),
             ok: free_reserve >= MIN_FREE_RESERVE.as_yoctonear(),

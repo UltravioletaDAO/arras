@@ -8,12 +8,14 @@
 //!
 //! 1. el tope por pago del presupuesto (`E52`) y el global del contrato (`E06`);
 //! 2. el tope de la ventana diaria (dia UTC, `E51`) y el saldo (`E50`);
-//! 3. el pago queda en escrow: el agente no lo libera. Lo libera el capturer del operador al receiver, y un refund o
+//! 3. el horizonte: `reclaim_after <= now + 30 dias` (`E57`), asi el owner siempre recupera lo que el agente autorizo
+//!    y nadie libero;
+//! 4. el pago queda en escrow: el agente no lo libera. Lo libera el capturer del operador al receiver, y un refund o
 //!    un reclaim vuelve al **owner** (el payer del pago), nunca al agente ni al presupuesto.
 //!
 //! | Metodo | Quien | Guardas | En pausa |
 //! |---|---|---|---|
-//! | `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after, dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)` | el agente | E02 -> E03 -> E04 -> E50 (no hay presupuesto) -> E15 (receiver = contrato, owner o agente) -> E05 -> E06 -> E52 -> E51 -> E50 (saldo) -> E11 -> E12 -> E13 -> E53/E54 -> E14 | no |
+//! | `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after, dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)` | el agente | E02 -> E03 -> E04 -> E50 (no hay presupuesto) -> E15 (receiver = contrato, owner o agente) -> E24 (monto 0) -> E05 -> E06 -> E52 -> E51 -> E50 (saldo) -> E57 (`reclaim_after` a mas de 30 dias) -> E11 -> E12 -> E13 -> E53/E54 -> E14 | no |
 //! | `withdraw_budget(agent, operator_id)` | el owner | E50 -> E30 | si |
 //! | `revoke_agent(agent, operator_id)` | el owner | E50 | si |
 //! | `set_budget_caps(agent, operator_id, tope_por_pago, tope_diario)` | el owner, 1 yocto | E50 -> E56 | si |
@@ -202,6 +204,11 @@ impl Arras {
         if m.receiver == env::current_account_id() || &m.receiver == owner || &m.receiver == agent {
             return Err(ArrasError::E15ReceiverInvalido.into());
         }
+        // Un pago de 0 no pasa por el token (aca no hay `ft_transfer_call`): con `min_amount = 0` el agente crearia pagos
+        // vacios que gastan el storage del owner (refutacion de v2, P3-2).
+        if amount == 0 {
+            return Err(ArrasError::E24Monto.into());
+        }
         if amount < operator.min_amount.0 {
             return Err(ArrasError::E05DebajoDelMinimo.into());
         }
@@ -221,6 +228,12 @@ impl Arras {
         )?;
         if amount > b.saldo.0 {
             return Err(ArrasErrorV2::E50SinPresupuesto);
+        }
+        // El agente elige los plazos por el owner: sin horizonte, un `reclaim_after` lejano trabaria la plata del owner
+        // para siempre (refutacion de v2, P1-1). Con el horizonte, el owner la recupera con `reclaim` a lo sumo
+        // `MAX_PLAZO_PRESUPUESTO_NS` despues de autorizada (mas el plazo del arbitro si el receiver la disputa).
+        if m.reclaim_after > env::block_timestamp().saturating_add(MAX_PLAZO_PRESUPUESTO_NS) {
+            return Err(ArrasErrorV2::E57PlazoPresupuesto);
         }
         let (payment_id, payment) =
             self.build_payment(m, owner, amount, dispute_deadline, operator)?;
