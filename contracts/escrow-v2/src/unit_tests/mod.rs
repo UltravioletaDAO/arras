@@ -13,3 +13,4 @@ mod invariante;
 mod presupuesto;
 mod retiro;
 mod ticket;
+mod vectores;
