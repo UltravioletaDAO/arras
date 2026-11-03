@@ -51,6 +51,13 @@ comparada en cadena, `chain_id` del RPC, el llavero sale de la config de near-cl
 errores de aws visibles, `rm` comun, `sponsor_max_por_payer` en `operador_ok`, el mensaje de ARRAS_PADRE, la nota de v2
 en la lista del facilitador.
 
+## Ronda 1 (RARRAS-5, MERGEABLE CON RONDA, sin P1)
+
+P2-1: `secretos` en seco ya no imprime ninguna linea ejecutable (solo el inventario); en real no toca los archivos de
+una cuenta que no existe ni los de v1 mientras tenga llaves en cadena. P2-2: un test por cada campo de `config_ok` y
+`operador_ok` (T43, T44). P3-3 (decision de c0der): el capturer tiene que quedar con UNA sola llave, la FunctionCall de
+v1, en `capturer` y en `verificar` (T45-T47). Los otros P3 del informe quedan para c0der al correr el script.
+
 ## Trampas que encontre
 
 - `die` dentro de `$(...)` solo cierra la subshell: el script seguia con un valor vacio (un RPC caido daba la cuenta por

@@ -147,9 +147,11 @@ What the script refuses (each one has a test in `scripts/test_mainnet.sh`):
   code, a `get_config` other than the expected owner, guardian, token and caps;
 - a funding key whose public key is not the funding account, a funding account without 4.52 + 0.02 free, an existing
   parent with no FullAccess key from this keychain, a parent without the full budget (nothing is created);
-- deleting the capturer's FullAccess unless its FunctionCall key is on chain with exactly `release, refund,
-  withdraw_for`, the configured allowance, and its file in the keychain; a capturer that keeps a FullAccess key;
-- an operator whose `get_operator` differs from what was registered (capturer, fee, recipient, caps, sponsorship);
+- deleting the capturer's FullAccess unless its FunctionCall key for v1 (a FunctionCall key for another receiver does
+  not count) is on chain with exactly `release, refund, withdraw_for`, the configured allowance, and its file in the
+  keychain; a capturer left with any key but that one (checked at the end of `capturer` and again in `verificar`);
+- a `get_config` or a `get_operator` that differs from what was decided in any field it compares (version, owner,
+  guardian, token, both caps; capturer, fee, fee recipient, `min_amount`, both operator caps, sponsorship);
 - `sin-llaves` (also run alone) on a v1 whose code is not the pinned wasm or whose `get_config` is not the expected
   one: while v1 has a key, a bad deploy can still be undone with `delete-account`; a v1 that still lists any key after
   `sin-llaves`;
@@ -162,11 +164,14 @@ disk, never uploaded.
 
 ### Keys to AWS
 
-`secretos` (the end of `todo`) prints **one line per live key**: `aws ssm put-parameter --type SecureString --key-id
+`secretos` in a dry run prints only the inventory (which key files are on disk and the name each would get), never a
+command. In a real run (the end of `todo`) it prints **one line per live key**: `aws ssm put-parameter --type SecureString --key-id
 $ARRAS_KMS_KEY --value file://<key file>` with the name of section 2 `&&` a check that compares the sha256 of the
 stored value and of the file without showing either `&&` `rm` of the file (and of near-cli's `<account>.json` copy when
 it holds the same key). If the upload or the check fails, nothing is deleted. Keys already deleted on chain are only
-removed. Plain `rm`: on APFS overwriting guarantees nothing (`rm -P` is a no-op on current macOS); FileVault protects
+removed. The files of an account that does not exist on chain are not touched, and v1's files are removed only when v1
+exists and `view_access_key_list` is empty (after a failure half-way, v1's key must stay on disk to finish
+`sin-llaves`). Plain `rm`: on APFS overwriting guarantees nothing (`rm -P` is a no-op on current macOS); FileVault protects
 the disk. `ARRAS_SECRETOS=secretsmanager` prints Secrets Manager commands instead (the owner's rule since 2026-10-16 and
 2026-10-30 is SSM).
 

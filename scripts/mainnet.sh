@@ -683,6 +683,15 @@ llave_fc() {
   llaves_json "$CAPT" | jq -r --arg c "$C1" '[.[] | select((.access_key.permission | objects | .FunctionCall.receiver_id) == $c)][0].public_key // empty'
 }
 
+# El capturer libera y reembolsa en mainnet: tiene que quedar con UNA sola llave, la FunctionCall de v1 con release,
+# refund y withdraw_for (ni una FullAccess ni otra FunctionCall de mas).
+capturer_ok() {
+  local l
+  l=$(llaves_json "$CAPT")
+  jq -e --arg c "$C1" 'length == 1 and ((.[0].access_key.permission | objects | .FunctionCall) as $f | $f != null and $f.receiver_id == $c and ($f.method_names | sort) == ["refund","release","withdraw_for"])' >/dev/null <<<"$l" ||
+    die "$CAPT tiene que quedar con UNA sola llave, la FunctionCall de $C1 (release, refund, withdraw_for); tiene: $(jq -c '[.[] | {public_key, permission: (.access_key.permission | if type == "object" then {receiver: .FunctionCall.receiver_id, methods: .FunctionCall.method_names} else . end)}]' <<<"$l")"
+}
+
 paso_capturer() {
   local fc full k
   fc=""
@@ -705,6 +714,7 @@ paso_capturer() {
       tx "capturer: borra FullAccess $k" account delete-keys "$CAPT" public-keys "$k" network-config "$NET" "$SIGN" send
     done
     [ -z "$(llaves_full "$CAPT")" ] || die "$CAPT todavia tiene una FullAccess"
+    capturer_ok
     echo "OK: $CAPT solo tiene la FunctionCall key $fc (release, refund, withdraw_for en $C1, allowance $ALLOWANCE)"
   else
     tx "capturer: borra FullAccess" account delete-keys "$CAPT" public-keys '<la FullAccess de creacion>' network-config "$NET" "$SIGN" send
@@ -748,6 +758,8 @@ paso_verificar() {
   echo "llaves de $C1: $n"
   config_ok
   echo "get_operator $OP: $(operador_ok)"
+  capturer_ok
+  echo "capturer $CAPT: una sola llave, la FunctionCall de $C1"
   echo "get_storage_health: $(vista "$C1" get_storage_health '{}')"
   [ "$h" = "$WASM_SHA" ] && [ "$n" = 0 ] || die "$C1 no esta listo (codigo o llaves)"
 }
@@ -870,41 +882,65 @@ paso_secretos() {
   kms=${ARRAS_KMS_KEY:-<ARRAS_KMS_KEY: la llave KMS propia de Arras (decision 230)>}
   region=$REGION
   case "$modo" in ssm | secretsmanager) ;; *) die "ARRAS_SECRETOS tiene que ser ssm o secretsmanager" ;; esac
+  local rol cuenta f pk nombre vivas estado copia pk_copia copia_hecha subir verificar borrar
+  if ! real; then
+    # En seco no sale NINGUNA linea ejecutable: sin la cadena no se sabe que llave sigue viva, y un rm pegado despues
+    # de un fallo a mitad (v1 con su llave todavia en cadena) no tiene vuelta atras.
+    echo "EN SECO: solo las llaves que hay en $CRED/$NET/ y el nombre que llevarian en $modo; ningun comando."
+    echo "Los comandos (subir, comparar, borrar) los da el modo real, que mira cada llave en cadena: scripts/mainnet.sh --$RED-ok secretos"
+    while read -r rol cuenta; do
+      [ -n "$rol" ] || continue
+      if [ "$rol" = em-fees ] && [ "$FEES_NUEVA" != 1 ]; then continue; fi
+      nombre=$prefijo/$rol
+      [ "$rol" = em-capturer ] && nombre=$prefijo/em-capturer-v1
+      [ "$rol" = v1 ] && nombre="(ninguno: se borran en cadena en sin-llaves)"
+      for f in "$CRED/$NET/$cuenta"/ed25519_*.json "$CRED/$NET/$cuenta.json"; do
+        [ -f "$f" ] || continue
+        echo "  $rol ($cuenta): $(jq -r '.public_key // empty' "$f") en $f; nombre: $nombre"
+      done
+    done <<ROLES
+padre $P
+owner $OWNER
+guardian $GUARD
+v2-reserva $C2
+em-capturer $CAPT
+em-fees $FEES
+v1 $C1
+ROLES
+    return 0
+  fi
   echo "Comandos para c0der (este script NO los corre y nunca imprime una llave). Cada llave VIVA es UNA linea:"
   echo "sube a $modo por NOMBRE && compara sha256 sin mostrar nada && recien entonces borra el archivo (y la copia"
   echo "<cuenta>.json de near-cli si es la misma llave). Si la subida o la comparacion fallan, no se borra nada."
   echo "Una llave que ya no esta en cadena (la FullAccess de creacion del capturer, las de v1) solo se borra."
-  real || echo "EN SECO: sin consultar la cadena no se sabe que llave sigue viva; la lista buena la da el modo real."
-  local rol cuenta f pk nombre vivas estado copia pk_copia copia_hecha subir verificar
   while read -r rol cuenta; do
     [ -n "$rol" ] || continue
     if [ "$rol" = em-fees ] && [ "$FEES_NUEVA" != 1 ]; then continue; fi
     nombre=$prefijo/$rol
     [ "$rol" = em-capturer ] && nombre=$prefijo/em-capturer-v1
-    vivas=""
-    if real && existe "$cuenta"; then
-      vivas=$(llaves_json "$cuenta" | jq -r '.[].public_key')
+    if ! existe "$cuenta"; then
+      echo
+      echo "# $rol: $cuenta no existe en cadena: sus archivos no se tocan"
+      continue
     fi
+    vivas=$(llaves_json "$cuenta" | jq -r '.[].public_key')
     copia=$CRED/$NET/$cuenta.json
     pk_copia=""
     [ -f "$copia" ] && pk_copia=$(jq -r '.public_key // empty' "$copia")
     copia_hecha=0
     for f in "$CRED/$NET/$cuenta"/ed25519_*.json; do
       if [ ! -f "$f" ]; then
-        f="$CRED/$NET/$cuenta/ed25519_<llave publica>.json"
-        pk="<llave publica>"
-        estado="todavia sin llave en $CRED/$NET/$cuenta/"
-      else
-        pk=$(jq -r '.public_key // empty' "$f")
-        if ! real; then
-          estado="sin verificar en cadena"
-        elif printf '%s\n' "$vivas" | grep -qxF -- "$pk"; then
-          estado=viva
-        else
-          estado=muerta
-        fi
+        echo
+        echo "# $rol: $cuenta, sin llave en $CRED/$NET/$cuenta/"
+        continue
       fi
-      local borrar="'$f'"
+      pk=$(jq -r '.public_key // empty' "$f")
+      if printf '%s\n' "$vivas" | grep -qxF -- "$pk"; then
+        estado=viva
+      else
+        estado=muerta
+      fi
+      borrar="'$f'"
       if [ -n "$pk_copia" ] && [ "$pk_copia" = "$pk" ]; then
         borrar="$borrar '$copia'"
         copia_hecha=1
@@ -925,10 +961,10 @@ paso_secretos() {
       echo "$subir && $verificar && rm $borrar && echo 'OK $rol en $nombre'"
     done
     if [ -n "$pk_copia" ] && [ "$copia_hecha" = 0 ]; then
-      if real && ! printf '%s\n' "$vivas" | grep -qxF -- "$pk_copia"; then
+      if ! printf '%s\n' "$vivas" | grep -qxF -- "$pk_copia"; then
         echo "rm '$copia'   # copia de near-cli con la llave $pk_copia, que ya no esta en cadena"
       else
-        echo "# $copia tiene la llave $pk_copia, que no esta en $CRED/$NET/$cuenta/: revisarla a mano antes de borrarla"
+        echo "# $copia tiene la llave $pk_copia, viva y sin archivo en $CRED/$NET/$cuenta/: revisarla a mano antes de borrarla"
       fi
     fi
   done <<ROLES
@@ -940,10 +976,13 @@ em-capturer $CAPT
 em-fees $FEES
 ROLES
   echo
-  echo "# v1 ($C1): sus llaves se borraron en cadena (paso sin-llaves); los archivos solo se borran del disco."
+  # v1: sus archivos se borran solo si v1 existe y ya no tiene ninguna llave en cadena.
   if real && existe "$C1" && [ "$(n_llaves "$C1")" != 0 ]; then
-    echo "# OJO: $C1 todavia tiene llaves en cadena: corre el paso sin-llaves antes de borrar estos archivos."
+    echo "# OJO: $C1 todavia tiene llaves en cadena: corre el paso sin-llaves; sus archivos no se tocan."
+  elif ! existe "$C1"; then
+    echo "# v1: $C1 no existe en cadena: sus archivos no se tocan."
   else
+    echo "# v1 ($C1): sus llaves se borraron en cadena (view_access_key_list vacio); los archivos solo se borran del disco."
     for f in "$CRED/$NET/$C1"/ed25519_*.json "$CRED/$NET/$C1.json"; do
       if [ -f "$f" ]; then
         echo "rm '$f'"

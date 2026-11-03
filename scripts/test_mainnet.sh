@@ -283,14 +283,27 @@ if grep -q "STUBTX" "$STUB/home/.arras-despliegue/testnet/$P_TEST/txs.tsv" 2>/de
 # T14b si el RPC falla en una lectura, aborta: no da la cuenta por registrada ni sigue con un valor vacio.
 nuevo t14b; ARGS=(--testnet-ok usdc); correr ARRAS_RED=testnet ARRAS_PADRE=$P_TEST
 sale_mal; sin_near_tx; dice "la vista storage_balance_of"; no_dice "ya registrada en USDC"
-# T15 secretos: comandos por NOMBRE con file://, nunca el contenido de la llave.
+# T15 secretos en seco: solo que llaves hay y su nombre; NINGUNA linea ejecutable (ni subir ni borrar) y nunca el
+# contenido de la llave.
 nuevo t15; d="$STUB/home/.near-credentials/mainnet/owner.$P_MAIN"; mkdir -p "$d"
 printf '{"public_key":"ed25519:PUBOWNER","private_key":"%s"}' "$PRIV_FALSA" >"$d/ed25519_PUBOWNER.json"
 ARGS=(secretos); correr
-sale 0; sin_red; no_dice "$PRIV_FALSA"; dice "--name '/arras/mainnet/owner' --type SecureString"; dice "file://$d/ed25519_PUBOWNER.json"
-dice "ed25519:PUBOWNER"; dice "/arras/mainnet/em-capturer-v1"
-dice "&& rm '$d/ed25519_PUBOWNER.json' && echo 'OK owner en /arras/mainnet/owner'"; no_dice "rm -P"
-nuevo t15b; ARGS=(secretos); correr ARRAS_SECRETOS=secretsmanager
+sale 0; sin_red; no_dice "$PRIV_FALSA"; dice "owner (owner.$P_MAIN): ed25519:PUBOWNER en $d/ed25519_PUBOWNER.json; nombre: /arras/mainnet/owner"
+dice "scripts/mainnet.sh --mainnet-ok secretos"; no_dice "put-parameter"; no_dice "rm '"; no_dice "rm -P"
+# T15e en real, una llave viva es UNA linea: subir && comparar && borrar (el archivo y su copia <cuenta>.json).
+nuevo t15e; d="$STUB/home/.near-credentials/mainnet/owner.$P_MAIN"; mkdir -p "$d"
+printf '{"public_key":"ed25519:PUBOWNER","private_key":"%s"}' "$PRIV_FALSA" >"$d/ed25519_PUBOWNER.json"
+cp "$d/ed25519_PUBOWNER.json" "$STUB/home/.near-credentials/mainnet/owner.$P_MAIN.json"
+echo '{"amount":"1","storage_usage":182,"code_hash":"11111111111111111111111111111111"}' >"$STUB/rpc/view_account.owner.$P_MAIN"
+echo '{"keys":[{"public_key":"ed25519:PUBOWNER","access_key":{"nonce":1,"permission":"FullAccess"}}]}' >"$STUB/rpc/view_access_key_list.owner.$P_MAIN"
+ARGS=(--mainnet-ok secretos); correr
+sale 0; no_dice "$PRIV_FALSA"; dice "--name '/arras/mainnet/owner' --type SecureString --key-id 'alias/arras-test' --value 'file://$d/ed25519_PUBOWNER.json'"
+dice "&& rm '$d/ed25519_PUBOWNER.json' '$STUB/home/.near-credentials/mainnet/owner.$P_MAIN.json' && echo 'OK owner en /arras/mainnet/owner'"
+dice "# guardian: guardian.$P_MAIN no existe en cadena: sus archivos no se tocan"
+nuevo t15b; d="$STUB/home/.near-credentials/mainnet/owner.$P_MAIN"; mkdir -p "$d"; echo '{"public_key":"ed25519:PUBOWNER"}' >"$d/ed25519_PUBOWNER.json"
+echo '{"amount":"1","storage_usage":182,"code_hash":"11111111111111111111111111111111"}' >"$STUB/rpc/view_account.owner.$P_MAIN"
+echo '{"keys":[{"public_key":"ed25519:PUBOWNER","access_key":{"nonce":1,"permission":"FullAccess"}}]}' >"$STUB/rpc/view_access_key_list.owner.$P_MAIN"
+ARGS=(--mainnet-ok secretos); correr ARRAS_SECRETOS=secretsmanager
 sale 0; dice "aws secretsmanager create-secret"; no_dice "aws ssm put-parameter"
 nuevo t15c; ARGS=(secretos); correr ARRAS_SECRETOS=vault
 sale_mal
@@ -579,7 +592,93 @@ nuevo t41; c="$STUB/home/Library/Application Support/near-cli"; mkdir -p "$c" "$
 printf 'version = "5"\ncredentials_home_dir = "%s"\n' "$STUB/llavero" >"$c/config.toml"
 echo '{"public_key":"ed25519:OWNERX"}' >"$STUB/llavero/mainnet/owner.$P_MAIN/ed25519_OWNERX.json"
 ARGS=(secretos); correr
-sale 0; dice "file://$STUB/llavero/mainnet/owner.$P_MAIN/ed25519_OWNERX.json"
+sale 0; dice "ed25519:OWNERX en $STUB/llavero/mainnet/owner.$P_MAIN/ed25519_OWNERX.json"
+
+# --- RONDA1 de c0der (RARRAS-5) ---------------------------------------------------------------------------------------
+# T42 (P2-1 a, c) secretos y todo en seco con llaves de v1 y del capturer (FULL y FC) en el llavero: ningun rm, ningun
+# put-parameter, y nada de "se borraron en cadena".
+nuevo t42; d1="$STUB/home/.near-credentials/mainnet/v1.$P_MAIN"; dc="$STUB/home/.near-credentials/mainnet/em-capturer.$P_MAIN"
+mkdir -p "$d1" "$dc"; echo '{"public_key":"ed25519:V1VIVA"}' >"$d1/ed25519_V1VIVA.json"; cp "$d1/ed25519_V1VIVA.json" "$STUB/home/.near-credentials/mainnet/v1.$P_MAIN.json"
+echo '{"public_key":"ed25519:FULL"}' >"$dc/ed25519_FULL.json"; echo '{"public_key":"ed25519:FC"}' >"$dc/ed25519_FC.json"
+ARGS=(secretos); correr
+sale 0; sin_red; no_dice "rm '"; no_dice "put-parameter"; no_dice "se borraron en cadena"; dice "v1 (v1.$P_MAIN): ed25519:V1VIVA"
+cp -R "$STUB/home" "$STUB/home-secretos"
+nuevo t42b; cp -R "$TMP/c-t42/home-secretos/." "$STUB/home/"; ARGS=(todo); correr
+sale 0; sin_red; no_dice "rm '"; no_dice "put-parameter"; no_dice "se borraron en cadena"
+# T42c (P2-1 b) en real, v1 con una llave todavia en cadena: OJO y ningun rm de v1.
+nuevo t42c; d1="$STUB/home/.near-credentials/mainnet/v1.$P_MAIN"; mkdir -p "$d1"; echo '{"public_key":"ed25519:V1VIVA"}' >"$d1/ed25519_V1VIVA.json"
+echo '{"amount":"1","storage_usage":1,"code_hash":"11111111111111111111111111111111"}' >"$STUB/rpc/view_account.v1.$P_MAIN"
+echo '{"keys":[{"public_key":"ed25519:V1VIVA","access_key":{"nonce":1,"permission":"FullAccess"}}]}' >"$STUB/rpc/view_access_key_list.v1.$P_MAIN"
+ARGS=(--mainnet-ok secretos); correr
+sale 0; dice "OJO: v1.$P_MAIN todavia tiene llaves en cadena"; no_dice "rm '$d1"; no_dice "se borraron en cadena"
+# T42d ...y si v1 no existe en cadena, tampoco.
+nuevo t42d; d1="$STUB/home/.near-credentials/mainnet/v1.$P_MAIN"; mkdir -p "$d1"; echo '{"public_key":"ed25519:V1VIVA"}' >"$d1/ed25519_V1VIVA.json"
+ARGS=(--mainnet-ok secretos); correr
+sale 0; dice "v1.$P_MAIN no existe en cadena: sus archivos no se tocan"; no_dice "rm '$d1"
+# T42e ...y con v1 sin llaves en cadena, si: sus archivos se borran.
+nuevo t42e; d1="$STUB/home/.near-credentials/mainnet/v1.$P_MAIN"; mkdir -p "$d1"; echo '{"public_key":"ed25519:V1MUERTA"}' >"$d1/ed25519_V1MUERTA.json"
+echo '{"amount":"1","storage_usage":1,"code_hash":"11111111111111111111111111111111"}' >"$STUB/rpc/view_account.v1.$P_MAIN"
+echo '{"keys":[]}' >"$STUB/rpc/view_access_key_list.v1.$P_MAIN"
+ARGS=(--mainnet-ok secretos); correr
+sale 0; dice "sus llaves se borraron en cadena"; dice "rm '$d1/ed25519_V1MUERTA.json'"
+# T43 (P2-2) get_config distinto en UN solo campo (el resto como config_falsa): tope_por_pago y version.
+for caso in "tope_por_pago 20000000" "version arras-v2"; do
+  set -- $caso
+  nuevo "t43-$1"; wasm_falsa "$STUB/w.wasm"; h=$(shasum -a 256 "$STUB/w.wasm" | cut -c1-64)
+  printf '{"amount":"1","storage_usage":1,"code_hash":"%s"}' "$(b58 "$h")" >"$STUB/rpc/view_account.v1.$P_MAIN"
+  config_falsa "owner.$P_MAIN" "guardian.$P_MAIN" 1000000000 | jq -c --arg k "$1" --arg v "$2" '.[$k] = $v' >"$STUB/rpc/call_function.v1.$P_MAIN.get_config"
+  ARGS=(--mainnet-ok deploy); correr ARRAS_WASM="$STUB/w.wasm" ARRAS_WASM_SHA256="$h"
+  sale_mal; dice "no es el esperado"
+done
+# T44 (P2-2) get_operator distinto en UN solo campo (el resto como op_json), despues del register: aborta antes del
+# fund_operator_storage.
+for caso in "tope_tvl_operador s 200000000" "tope_tvl_por_payer s 30000000" "fee_recipient s otro-fees.testnet" "fee_bps n 1800" "min_amount s 1"; do
+  set -- $caso
+  nuevo "t44-$1"
+  echo null >"$STUB/rpc/call_function.v1.$P_TEST.get_operator.1"
+  if [ "$2" = n ]; then
+    op_json "em-capturer.$P_TEST" 0 | jq -c --arg k "$1" --argjson v "$3" '.[$k] = $v' >"$STUB/rpc/call_function.v1.$P_TEST.get_operator"
+  else
+    op_json "em-capturer.$P_TEST" 0 | jq -c --arg k "$1" --arg v "$3" '.[$k] = $v' >"$STUB/rpc/call_function.v1.$P_TEST.get_operator"
+  fi
+  ARGS=(--testnet-ok operador); correr ARRAS_RED=testnet ARRAS_PADRE=$P_TEST
+  sale_mal; dice "no es el esperado"; near_hizo "register_operator"
+  if grep -q fund_operator_storage "$STUB/near.log"; then mal "fondeo un operador con $1 distinto"; else ok; fi
+done
+# T45 (MR4) una FunctionCall key de OTRO receiver no es la del capturer: igual agrega la de v1 (y como no aparece, para
+# sin borrar la FullAccess).
+nuevo t45
+jq -nc '{keys:[{public_key:"ed25519:FULL",access_key:{nonce:1,permission:"FullAccess"}},{public_key:"ed25519:OTRA",access_key:{nonce:1,permission:{FunctionCall:{allowance:"500000000000000000000000",receiver_id:"v1.otro.testnet",method_names:["release","refund","withdraw_for"]}}}}]}' >"$STUB/rpc/view_access_key_list.em-capturer.$P_TEST"
+d="$STUB/home/.near-credentials/testnet/em-capturer.$P_TEST"; mkdir -p "$d"; echo '{}' >"$d/ed25519_OTRA.json"
+ARGS=(--testnet-ok capturer); correr ARRAS_RED=testnet ARRAS_PADRE=$P_TEST
+sale_mal; near_hizo "grant-function-call-access --allowance 0.5 NEAR --contract-account-id v1.$P_TEST"; no_dice "ya tiene FunctionCall key"
+if grep -q "delete-keys" "$STUB/near.log"; then mal "borro la FullAccess con una FunctionCall de otro receiver"; else ok; fi
+# T46 (P3-3) despues de borrar la FullAccess, el capturer tiene que quedar con UNA sola llave: con otra FunctionCall de
+# mas, aborta.
+nuevo t46; d="$STUB/home/.near-credentials/testnet/em-capturer.$P_TEST"; mkdir -p "$d"; echo '{}' >"$d/ed25519_FC.json"
+fc_v1='{public_key:"ed25519:FC",access_key:{nonce:1,permission:{FunctionCall:{allowance:"500000000000000000000000",receiver_id:"v1.arras-ensayo.testnet",method_names:["release","refund","withdraw_for"]}}}}'
+fc_otra='{public_key:"ed25519:OTRA",access_key:{nonce:1,permission:{FunctionCall:{allowance:"500000000000000000000000",receiver_id:"v1.otro.testnet",method_names:["release"]}}}}'
+jq -nc "{keys:[{public_key:\"ed25519:FULL\",access_key:{nonce:1,permission:\"FullAccess\"}},$fc_v1,$fc_otra]}" >"$STUB/rpc/view_access_key_list.em-capturer.$P_TEST"
+for i in 6 7 8 9; do jq -nc "{keys:[$fc_v1,$fc_otra]}" >"$STUB/rpc/view_access_key_list.em-capturer.$P_TEST.$i"; done
+ARGS=(--testnet-ok capturer); correr ARRAS_RED=testnet ARRAS_PADRE=$P_TEST
+sale_mal; near_hizo "account delete-keys em-capturer.$P_TEST public-keys ed25519:FULL"; dice "tiene que quedar con UNA sola llave"
+# T47 (P3-3) verificar: el capturer con una llave de mas aborta; con solo la FunctionCall de v1, pasa.
+verificar_stubs() {
+  wasm_falsa "$STUB/w.wasm"; h=$(shasum -a 256 "$STUB/w.wasm" | cut -c1-64)
+  printf '{"amount":"1","storage_usage":1,"code_hash":"%s"}' "$(b58 "$h")" >"$STUB/rpc/view_account.v1.$P_TEST"
+  echo '{"keys":[]}' >"$STUB/rpc/view_access_key_list.v1.$P_TEST"
+  jq -nc --arg o "owner.$P_TEST" --arg g "guardian.$P_TEST" --arg t "$USDC_TEST" '{version:"arras-v1",owner:$o,guardian:$g,token:$t,tope_por_pago:"10000000",tope_tvl_global:"1000000000"}' >"$STUB/rpc/call_function.v1.$P_TEST.get_config"
+  op_json "em-capturer.$P_TEST" 500000000000000000000000 >"$STUB/rpc/call_function.v1.$P_TEST.get_operator"
+  echo '{"ok":true}' >"$STUB/rpc/call_function.v1.$P_TEST.get_storage_health"
+}
+nuevo t47; verificar_stubs
+jq -nc "{keys:[$fc_v1,$fc_otra]}" >"$STUB/rpc/view_access_key_list.em-capturer.$P_TEST"
+ARGS=(--testnet-ok verificar); correr ARRAS_RED=testnet ARRAS_PADRE=$P_TEST ARRAS_WASM="$STUB/w.wasm" ARRAS_WASM_SHA256="$h"
+sale_mal; dice "tiene que quedar con UNA sola llave"
+nuevo t47b; verificar_stubs
+jq -nc "{keys:[$fc_v1]}" >"$STUB/rpc/view_access_key_list.em-capturer.$P_TEST"
+ARGS=(--testnet-ok verificar); correr ARRAS_RED=testnet ARRAS_PADRE=$P_TEST ARRAS_WASM="$STUB/w.wasm" ARRAS_WASM_SHA256="$h"
+sale 0; dice "una sola llave, la FunctionCall de v1.$P_TEST"; dice "llaves de v1.$P_TEST: 0"
 
 printf '\nscripts/test_mainnet.sh: %s asserts pasan, %s fallan\n' "$PASAN" "$FALLOS"
 [ "$FALLOS" -eq 0 ]
