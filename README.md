@@ -217,6 +217,58 @@ stays as it is (immutable, keyless); use the demo contract above.
 | capturer `em-capturer.arras-dev.testnet`: function-call key / its full-access key deleted | `3wSmCACjW7Me1AhEeAaGfMcMiiMteZEGrcpTHzYtgZXn` / `6VfeZ2zRbMKkjZbH2TJpeT8TUCxvGPuhxd9wjPjoZago` |
 | **all keys of `v1.arras-dev.testnet` deleted** | `CgaHtGKsBC3112THLTzBDpKK8QyXWPVhJ8fCy9435vQh` |
 
+## Arras v2 on testnet: `arras-v2-1103.testnet` (2026-11-03)
+
+The reproducible wasm of commit `c416989` (`env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path
+contracts/escrow-v2/Cargo.toml`, built twice, the second time from a clean clone: same hash), deployed with a private
+`new` in the same transaction to a top-level account funded by the testnet faucet. All its keys are deleted.
+
+| Check | Command | Result |
+|---|---|---|
+| code on chain = reproducible build | `near account view-account-summary arras-v2-1103.testnet network-config testnet now` | `Local Contract (SHA-256 checksum hex) 8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` (366,095 bytes) |
+| source commit (NEP-330) | `near contract call-function as-read-only arras-v2-1103.testnet contract_source_metadata json-args '{}' network-config testnet now` | `source_code_snapshot ...?rev=c41698900a78dc50b365e9cfeb761ddf40e7511b` |
+| no keys | `near account list-keys arras-v2-1103.testnet network-config testnet now` | empty table |
+| the agent has only a function-call key | `near account list-keys agent.arras-v2-1103.testnet network-config testnet now` | one key: `only do ["authorize_from_budget"] function calls on arras-v2-1103.testnet with an allowance of 0.25 NEAR` |
+| config | `near contract call-function as-read-only arras-v2-1103.testnet get_config json-args '{}' network-config testnet now` | `"version": "arras-v2"`, 10 USDC per payment, 1,000 USDC global TVL |
+| everything at once | `scripts/testnet-v2.sh verificar` | local wasm (commit, sha256) next to the code hash on chain, keys and config |
+
+Roles: owner `owner.arras-dev.testnet`, guardian `guardian.arras-dev.testnet`, fee recipient `em-fees.arras-dev.testnet`,
+payer (the human) `payer-demo.arras-dev.testnet`, worker `worker-demo.arras-dev.testnet` (the same as v1); capturer
+`capturer.arras-v2-1103.testnet`, arbiter `arbiter.arras-v2-1103.testnet` and agent `agent.arras-v2-1103.testnet`,
+sub-accounts created by the contract account before its keys were deleted. Two operators: `em` (no ticket) and `emt`
+(with a `ticket_pubkey` generated locally for the demo; its private key never left `~/.arras-testnet`). Both use the
+minimum arbiter window, 60 seconds, so the expired-dispute path can be shown live; a production operator would use
+days.
+
+| Step (`scripts/testnet-v2.sh <n>`) | Transaction |
+|---|---|
+| 1. `arras-v2-1103.testnet` from the faucet (10 NEAR) | `DW8fn7gg37mSChMohRSCHpVMVNTr7exSG8rhKzuirrwf` |
+| 2. capturer / arbiter / agent sub-accounts | `6eJSrG6zCD6JENk1PHd5zcS7FRiRiqfxd7PeJ1JiSXv4` / `B9XdgqWQi6qgYBm3pvdqxfxhXRPRuA8ALqaALpAcHj53` / `C85bKtZSvULkVmjLprRs95jr2y6hA1dKCydJLxqCHFKD` |
+| 3. USDC storage for the contract | `5288pPdAMCD3v9RqBpvgJkWNBqxkKKwBUJeSMQhZvygX` |
+| 4. deploy + private `new` | `E6xN7eKajKcXc7pXUTzN2YMhKcWdhtM5FcAdjKu7NADC` |
+| 5. operators `em` / `emt` (with ticket key); payer NEP-145 0.05 NEAR | `4HGQ7afZ1WN69BK9SvVXTtBZXT3Xp7xUpPevJgu4ouks` / `E1ghBMR8nWn9TaLBZjaG83VqY3mpHsuDyrEweoqE4y7q`; `9Kxvwq2y4MGMjfX6JkrZwcMqE2cX3XN1M9Qfd7paE7rG` |
+| 6. capturer: function-call key (`release, refund, withdraw_for`) / full-access key deleted | `5NtuFuVA95n9qEZyqY6pCpmeomfzgCRM2VK7MkGYhinx` / `3V88AoGeGPC1YJHPryEnEymRviEdnMYJfgMubLUEaTdQ` |
+| 6. agent: function-call key (`authorize_from_budget`) / full-access key deleted | `CUSj9SiAPnsSBfYbj1oL5ho5PtnheoAZhwYsSUHZzZqs` / `5mWTATiSaVdFkXnsmRhCbpa4gt3mmEpLd2aVYwjevavz` |
+| 7. **all keys of `arras-v2-1103.testnet` deleted** | `29wLJFBt8av41bEudrzmqB2KZ55bZ4zpDT9KsHv3h43o` |
+
+### The walkthrough with Circle's testnet USDC (2026-11-03, 00:48Z to 01:05Z)
+
+Everything below ran against the keyless contract. Balances (USDC) before: payer 17.0, worker 2.61, fee recipient
+0.13, contract 0.
+
+| Step | What happened | Transactions | Events |
+|---|---|---|---|
+| 8. budget | the human deposits 2 USDC for the agent (caps: 1 per payment, 2 per day) | `HRcu5ddCC5HzxUvta1rW3unDE814wHc32xhUT9AVnqqz` | `budget_deposited`; `tvl_global` = `budgets_total` = 2 |
+| 9. agent pays | the agent, signing with its function-call key, authorizes 1 USDC to the worker (`authorize_from_budget`); the capturer releases; `withdraw_for` worker and fee recipient | `A6VML6yHM94bmLgjvq37fYj7otyVd53MfszWC1pWUzGr`; `uNCnj5xGQrY6XgvB5Aabx6UdXpe72zWigSpFM1hzizS`; `83u7hRpiyHeAa871WXY6srvq7zCPV6MD8nnNBdWJByRV`, `27GBWqrhGL6QmmuAmvd6xku58kxCMFuBFbS6ZympxyXx` | `authorized` (payer = the human) + `budget_spent`; `released` 0.87 / 0.13; `withdrawn ok:true` x2 |
+| 10. dispute, arbiter | the human pays 0.5 USDC by `ft_transfer_call` (v2 `msg` with `dispute_deadline`), opens a dispute, the arbiter gives 0.2 to the worker and 0.3 back; withdrawals | `9zHVHSS8fu2PTAWvzYjtousunYDvKLunmKh1si5VuNpw`; `ACwULbvxfgVgT6aMkF47Vwa8GyYancKUAxGXs1z7PG2J`; `FGapXa3SHsQb4GJNvTfMRSEtSCeWGnt2n2EmzyLeaAX3`; `H7mqAso3Ak5Wray3JwfwPkKCtpPBuq6jsM258eJp9k54`, `E5KFYZXgeKtsvN4NCELKUhVZKGiqW3qhs1cNEoJ55U61`, `EAT7tovfRk8698WuCSq3kuJJ5E8eAcCKX9RtbpnhFt7Z` | `dispute_opened`; `dispute_resolved` (net 0.174, fee 0.026, to payer 0.3, `expired:false`) |
+| 11. dispute, expired | the agent authorizes 0.5 USDC; the human opens a dispute; the arbiter does not answer; 60 s later the human (anyone could) closes it and what was left goes to the worker, the party that did not open it | `EHsnaQPVdQ2CmqSVWPMKPcdrPJZVG7RBgN1HaFiZzqiZ`; `Cnckf48GTXtgcbPUcKLM5gD2QmwpvwdquzxUW24ZvN3Q`; `4n2V7cEJCkcfKtEMuWrqWBfrYi6tJRAfUx9ZWmh1pjRF`; `6bQCstaMYKnUwDee57KWAyXirs8QfbVb2TRAvMWVByJX`, `DcMXUiWMMDSkwxcP7nJFcjqYnoiiGFvBbw8PvdY8zKS6` | `dispute_resolved` (to receiver 0.5: net 0.435, fee 0.065, `expired:true`) |
+| 12. ticket | operator `emt`: 0.1 USDC without a ticket comes back whole; with the ticket signed over the bytes of `ticket_message_payment` it is authorized; the capturer refunds; withdrawal | `FZgVdueMkLPCPu1otU888iM29XgHTUS8EUKhsYhiwrga`; `4x6ZytxfoDmnQa7gsCPcrDoCT8pG4pBHfjuFKdcRqNY4`; `FtjM1rnxC79tcuu7hBMc7KZJSSrRXfeEJEGXW17jYQXw`; `tUn1vB8EjsmLB5f69PbsDGuoNCbAUbyS3t6sEaWJM6B` | log `arras:rechazo:E53_TICKET_INVALIDO` (refunded by the token); `authorized`; `refunded`; `withdrawn` |
+| 13. close | the human takes the rest of the budget back, revokes the agent and withdraws | `2eq7Gopj96uLn8ibGTKtMuYbT9PTzyVnQUpYvkTPmNoa`; `3ppCBse1WcRktZEUEjANevK38NSaNjaBAsKc2D7x392n`; `51DKxfopvSmCC1iwBFRUzuRASRbpBXB4U3M2VMJf9MXE` | `budget_withdrawn` 0.5; `agent_revoked`; `withdrawn` 0.5 |
+
+Balances after: payer 15.3 (-1.7), worker 4.089 (+1.479), fee recipient 0.351 (+0.221), contract **0**; `get_config`:
+`tvl_global` 0, `budgets_total` 0, `in_flight` 0. What went in through `ft_transfer_call` (2 + 0.5 + 0.1) equals what
+went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
+
 ## Security model
 
 - **Immutable and keyless:** no `migrate`; `new` is `#[private]` and runs in the deploy transaction; every access key
