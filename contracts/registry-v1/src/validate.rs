@@ -27,8 +27,8 @@ pub fn is_valid_uri(s: &str, max: usize) -> bool {
     let Some(colon) = b.iter().position(|&c| c == b':') else {
         return false;
     };
-    colon >= 1
-        && colon + 1 < b.len()
+    // `b[0]` letra implica `colon >= 1` (y que `b[1..colon]` sea un rango valido): va antes del slice.
+    colon + 1 < b.len()
         && b[0].is_ascii_alphabetic()
         && b[1..colon]
             .iter()

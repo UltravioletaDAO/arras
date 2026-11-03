@@ -344,6 +344,15 @@ impl Env {
             .await?)
     }
 
+    async fn payment(&self, id: &str) -> anyhow::Result<Value> {
+        Ok(self
+            .root
+            .view(self.arras.id(), "get_payment")
+            .args_json(json!({ "payment_id": id }))
+            .await?
+            .json()?)
+    }
+
     async fn view(&self, method: &str, args: Value) -> anyhow::Result<Value> {
         Ok(self
             .root
@@ -762,8 +771,8 @@ async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// WR-03: rechazos con Arras v1 real: pago inexistente, Authorized, Refunded, un tercero, la segunda calificacion y un
-/// escrow fuera de la lista.
+/// WR-03: rechazos con Arras v1 real: pago inexistente, Authorized, Refunded sin nada liberado, un tercero, la segunda
+/// calificacion, un escrow fuera de la lista y guardas de entrada; y un Refunded tras una liberacion parcial, que vale.
 #[tokio::test]
 async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
@@ -873,10 +882,30 @@ async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
         .await?;
     assert_falla(&r, "E17");
     assert_eq!(e.view("get_config", json!({})).await?["feedbacks"], 1);
+    // Refunded despues de una liberacion parcial: paso plata, vale para los dos (RESPUESTA de c0der, 23:30Z).
+    let parcial = e.authorize(2 * USDC, &e.msg(4)).await?;
+    e.capture("release", &parcial, Some(USDC / 2)).await?;
+    e.capture("refund", &parcial, None).await?;
+    let p = e.payment(&parcial).await?;
+    assert_eq!(p["status"], "Refunded");
+    assert_eq!(p["released"], (USDC / 2).to_string());
+    let m = e.give_medido(&e.payer, &e.pedido(&parcial)).await?;
+    assert_eq!(
+        m.r.clone().json::<Option<u32>>()?,
+        Some(1),
+        "{:?}",
+        m.r.logs()
+    );
+    m.registro_neutro();
+    let r = e.give(&e.worker, &e.pedido(&parcial)).await?;
+    assert_eq!(r.clone().json::<Option<u32>>()?, Some(2), "{:?}", r.logs());
+    let f = e.view("get_feedback", json!({ "feedback_id": 1 })).await?;
+    assert_eq!(f["released"], (USDC / 2).to_string());
     Ok(())
 }
 
-/// WR-04: `Reclaimed` sin plata liberada (con el reloj del sandbox adelantado).
+/// WR-04: `Reclaimed` sin plata liberada (E23) y despues de una liberacion parcial (vale), con el reloj del sandbox
+/// adelantado.
 #[tokio::test]
 async fn wr04_reclaimed() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
@@ -888,6 +917,14 @@ async fn wr04_reclaimed() -> anyhow::Result<()> {
         9,
     );
     let id = e.authorize(USDC, &msg).await?;
+    let msg2 = msg_for(
+        e.worker.id(),
+        e.now + 300 * 1_000_000_000,
+        e.now + 301 * 1_000_000_000,
+        10,
+    );
+    let parcial = e.authorize(2 * USDC, &msg2).await?;
+    e.capture("release", &parcial, Some(USDC / 4)).await?;
     let objetivo = e.now + 301 * 1_000_000_000;
     let mut bloques = 0u64;
     while e.w.view_block().await?.timestamp() <= objetivo {
@@ -895,25 +932,31 @@ async fn wr04_reclaimed() -> anyhow::Result<()> {
         e.w.fast_forward(5_000).await?;
         bloques += 5_000;
     }
-    call_ok(
-        &e.payer,
-        e.arras.id(),
-        "reclaim",
-        json!({ "payment_id": id }),
-        NearToken::from_yoctonear(0),
-    )
-    .await?;
-    let p: Value = e
-        .root
-        .view(e.arras.id(), "get_payment")
-        .args_json(json!({ "payment_id": id }))
-        .await?
-        .json()?;
-    assert_eq!(p["status"], "Reclaimed");
+    for pid in [&id, &parcial] {
+        call_ok(
+            &e.payer,
+            e.arras.id(),
+            "reclaim",
+            json!({ "payment_id": pid }),
+            NearToken::from_yoctonear(0),
+        )
+        .await?;
+        assert_eq!(e.payment(pid).await?["status"], "Reclaimed");
+    }
+    // Sin plata liberada: E23 para los dos.
     let m = e.give_medido(&e.payer, &e.pedido(&id)).await?;
     assert_rechazo(&e, &m, "E23_PAGO_SIN_LIBERAR");
     let m = e.give_medido(&e.worker, &e.pedido(&id)).await?;
     assert_rechazo(&e, &m, "E23_PAGO_SIN_LIBERAR");
+    // Reclaimed despues de una liberacion parcial: vale.
+    assert_eq!(
+        e.payment(&parcial).await?["released"],
+        (USDC / 4).to_string()
+    );
+    let r = e.give(&e.payer, &e.pedido(&parcial)).await?;
+    assert_eq!(r.clone().json::<Option<u32>>()?, Some(0), "{:?}", r.logs());
+    let r = e.give(&e.worker, &e.pedido(&parcial)).await?;
+    assert_eq!(r.clone().json::<Option<u32>>()?, Some(1), "{:?}", r.logs());
     Ok(())
 }
 
@@ -978,11 +1021,7 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
         format!("{{\"relleno\":\"{}\"}}", "x".repeat(9 * 1024)),
     )
     .await?;
-    cargar(
-        "resuelto",
-        pago(e.payer.id(), e.worker.id(), "Resolved", USDC),
-    )
-    .await?;
+    cargar("resuelto", pago(e.payer.id(), e.worker.id(), "Resolved", 0)).await?;
     cargar("v2", pago(e.payer.id(), e.worker.id(), "Released", USDC)).await?;
     for (pid, codigo) in [
         ("propio", "E25_AUTO_CALIFICACION"),

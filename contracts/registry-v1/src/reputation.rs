@@ -7,7 +7,7 @@
 //!
 //! `on_payment_checked` (nunca entra en panico): `E26` el candado ya no es de esta llamada -> `E20` get_payment fallo
 //! -> `E21` respuesta demasiado larga o que no deserializa -> `E22` `null` -> `E21` operator_id de mas de 64 -> `E23`
-//! sin plata liberada -> `E24` no es parte -> `E25` se califica a si mismo -> `E18` ya calificado. Un rechazo devuelve
+//! `released == 0` (no paso plata, cualquiera sea el estado) -> `E24` no es parte -> `E25` se califica a si mismo -> `E18` ya calificado. Un rechazo devuelve
 //! el deposito entero; una calificacion aceptada cobra el storage medido y devuelve el resto.
 
 use crate::events::{FeedbackGivenData, FeedbackRevokedData};
@@ -31,14 +31,16 @@ pub struct EscrowPayment {
     pub payer: AccountId,
     pub receiver: AccountId,
     pub released: U128,
-    /// `Authorized`, `PartiallyReleased`, `Released`, `Refunded`, `Reclaimed` (v2 suma `Disputed` y `Resolved`).
+    /// `Authorized`, `PartiallyReleased`, `Released`, `Refunded`, `Reclaimed` (v2 suma `Disputed` y `Resolved`). Se
+    /// exige que venga (un `Payment` sin `status` no es de Arras: `E21`) pero no decide nada.
     pub status: String,
 }
 
 impl EscrowPayment {
-    /// Hubo plata que paso: `Released`, o `PartiallyReleased`, y en los dos casos `released > 0`.
+    /// Hubo plata que paso: `released > 0`, cualquiera sea el estado (RESPUESTA de c0der del 2026-11-03 23:30Z: un
+    /// `Refunded` o `Reclaimed` despues de una liberacion parcial tambien es un trato real).
     pub fn has_released(&self) -> bool {
-        self.released.0 > 0 && (self.status == "Released" || self.status == "PartiallyReleased")
+        self.released.0 > 0
     }
 }
 

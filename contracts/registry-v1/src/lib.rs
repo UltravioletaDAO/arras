@@ -5,9 +5,9 @@
 //!   cuenta que llama con su `agent_uri` (la ficha, como el `tokenURI` de ERC-8004) y una `metadata` opcional;
 //!   `update` la reemplaza. Cada uno paga su storage con el deposito adjunto y recibe el sobrante.
 //! - **Reputacion**: `give_feedback` solo vale sobre un trato real de Arras. La verificacion es EN CADENA, en el
-//!   callback de una llamada cruzada a `escrow.get_payment(payment_id)`: el pago existe, esta `Released` o
-//!   `PartiallyReleased` con `released > 0`, quien califica es el payer o el receiver y la calificada es la otra
-//!   parte. Una sola calificacion por `(escrow, payment_id, rater)`, con candado mientras la llamada vuela. El escrow
+//!   callback de una llamada cruzada a `escrow.get_payment(payment_id)`: el pago existe, libero plata (`released >
+//!   0`, cualquiera sea su estado: tambien un `Refunded` o `Reclaimed` tras una liberacion parcial), quien califica es
+//!   el payer o el receiver y la calificada es la otra parte. Una sola calificacion por `(escrow, payment_id, rater)`, con candado mientras la llamada vuela. El escrow
 //!   tiene que estar en la lista fija de `new` (contratos, no personas).
 //!
 //! El callback nunca entra en panico: un rechazo devuelve el deposito entero, deja el log

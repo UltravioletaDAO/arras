@@ -104,9 +104,7 @@ impl RegistryError {
             Self::E20GetPaymentFallo => "get_payment del escrow fallo".into(),
             Self::E21RespuestaInvalida => "respuesta de get_payment invalida".into(),
             Self::E22PagoInexistente => "pago inexistente".into(),
-            Self::E23PagoSinLiberar => {
-                "el pago no esta Released ni PartiallyReleased con plata liberada".into()
-            }
+            Self::E23PagoSinLiberar => "el pago no libero plata (released == 0)".into(),
             Self::E24NoEsParte => "quien califica no es el payer ni el receiver".into(),
             Self::E25AutoCalificacion => "no se puede calificar a si mismo".into(),
             Self::E26Reemplazado => "otra calificacion del mismo pago reemplazo a esta".into(),

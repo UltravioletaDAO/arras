@@ -321,27 +321,75 @@ fn pago_inexistente_es_e22() {
 
 #[test]
 fn pago_sin_plata_liberada_es_e23() {
-    for (status, released) in [
-        ("Authorized", 0),
-        ("Refunded", 0),
-        ("Reclaimed", 0),
-        // Punto 2 del diseno: solo Released o PartiallyReleased (un Refunded tras una liberacion parcial no vale).
-        ("Refunded", 400_000),
-        ("Reclaimed", 400_000),
-        ("Authorized", 1),
-        ("Released", 0),
-        ("PartiallyReleased", 0),
-        ("Disputed", 400_000),
-        ("Resolved", 400_000),
-        ("released", 1_000_000),
-        ("RELEASED", 1_000_000),
-        (" Released", 1_000_000),
-        ("", 1_000_000),
+    // RESPUESTA de c0der (2026-11-03 23:30Z): lo unico que decide es `released`; con 0 no paso plata, en cualquier
+    // estado (tambien uno que no existe).
+    for status in [
+        "Authorized",
+        "PartiallyReleased",
+        "Released",
+        "Refunded",
+        "Reclaimed",
+        "Disputed",
+        "Resolved",
+        "released",
+        "",
     ] {
-        let pago = payment_v1(PAYER, WORKER, status, released).to_string();
+        let pago = payment_v1(PAYER, WORKER, status, 0).to_string();
         rechazo_pago(PAYER, &pago, RegistryError::E23PagoSinLiberar);
         rechazo_pago(WORKER, &pago, RegistryError::E23PagoSinLiberar);
     }
+}
+
+#[test]
+fn con_plata_liberada_vale_en_cualquier_estado() {
+    // Una entrega parcial que despues se devolvio (Refunded) o se reclamo (Reclaimed) es un trato real. Un contrato y
+    // un payment_id por caso (el storage del mock sobrevive entre contratos del mismo test).
+    let mut c = new_contract();
+    let mut id = 0;
+    for (n, (status, released)) in [
+        ("Refunded", 400_000),
+        ("Reclaimed", 400_000),
+        ("Refunded", 1),
+        ("Released", 1_000_000),
+        ("PartiallyReleased", 1),
+        ("Disputed", 400_000),
+        ("Resolved", 400_000),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let pago = payment_v1(PAYER, WORKER, status, released).to_string();
+        let p = Pedido {
+            payment_id: format!("pago-{n}"),
+            ..Default::default()
+        };
+        assert_eq!(
+            rate(&mut c, PAYER, &p, &pago),
+            Some(id),
+            "{status} {released}: {:?}",
+            logs()
+        );
+        assert_eq!(c.get_feedback(id).unwrap().released, U128(released));
+        assert_eq!(c.get_feedback(id).unwrap().ratee, acc(WORKER));
+        assert_eq!(
+            rate(&mut c, WORKER, &p, &pago),
+            Some(id + 1),
+            "{status} {released}"
+        );
+        assert_eq!(c.get_feedback(id + 1).unwrap().ratee, acc(PAYER));
+        id += 2;
+    }
+}
+
+#[test]
+fn un_payment_sin_status_es_e21() {
+    let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
+    pago.as_object_mut().unwrap().remove("status");
+    rechazo_pago(
+        PAYER,
+        &pago.to_string(),
+        RegistryError::E21RespuestaInvalida,
+    );
 }
 
 #[test]

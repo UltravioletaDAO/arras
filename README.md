@@ -110,6 +110,24 @@ Money invariant of v2 (property-tested over 10,000 random sequences with budgets
 withdrawals): `sum(in escrow, disputed included) + sum(claimable) + in_flight + sum(budgets) == tvl_global <=
 ft_balance_of(contract)`, and what came in through `ft_transfer_call` equals what went out plus what the contract holds.
 
+## Agent registry: identity and reputation on NEAR (`contracts/registry-v1`)
+
+The shape of ERC-8004 (Identity Registry + Reputation Registry) on NEAR, with reputation tied to Arras payments.
+
+- **Identity is the NEAR account itself** (no NFT, no ids): `register(agent_uri, metadata?)` and `update(...)` for the
+  calling account, each paying its own storage (measured; the rest of the deposit comes back).
+- **A rating needs a real deal.** `give_feedback(escrow, payment_id, score 0..100, tag1?, tag2?, feedback_uri?,
+  feedback_hash?)` is checked on chain, in the callback of a cross-contract call to `escrow.get_payment`: the payment
+  exists and released money (`released > 0`, in any state), the caller is its payer or receiver, and the rated account
+  is the other party. One rating per `(escrow, payment_id, rater)`, locked while the call is in flight. `escrow` must
+  be in the contract list fixed in `new` (`v1.arras-escrow.near` on mainnet): a list of contracts, not of people.
+- The callback never panics: a rejection refunds the whole deposit, logs `arras-registry:rechazo:<CODE>` and returns
+  `null`. The rater can revoke its own rating (kept, marked). Views: ratings received (paginated) and a summary
+  (count, average, last; also split by role). NEP-297 events `arras-registry` 1.0.0.
+- No upgrade path: deployed with a private `new` in the same transaction and then left without keys, like v1.
+
+Interface, events, measured gas and the exact deployment commands: `docs/handoffs/registry-v1.md`.
+
 ## Try it
 
 | Do | See |
@@ -120,6 +138,8 @@ ft_balance_of(contract)`, and what came in through `ft_transfer_call` equals wha
 | `scripts/mainnet.sh plan` / `scripts/mainnet.sh todo` | the mainnet deployment as a dry run: accounts, amounts, caps, the pinned wasm and every command, with no network call |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
+| `cargo test -p arras-registry-v1` | the registry: 101 unit tests (every guard, the callback with each `get_payment` result, the lock, exact storage of the worst case) and 10 sandbox tests (WR-00..WR-09) against real Arras v1 payments, a mock escrow and an allowlisted account without code |
+| `cargo test -p arras-registry-v1 --test workspaces -- --nocapture` | the registry `MEDIDA` lines: gas per receipt of `give_feedback`, worst-case callback, storage per rating |
 | `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; checked out at commit `8da7174` (the demo contract) it has sha256 `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` |
 | `near account list-keys arras-v1b-1101.testnet network-config testnet now` | an empty table: nobody can redeploy or touch the contract account |
 | `near account view-account-summary arras-v1b-1101.testnet network-config testnet now` | contract sha256 `7058319d...0eada`, "Account is locked (no access keys)" |
@@ -329,6 +349,8 @@ went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 | `contracts/escrow-v1` | the v1 contract; `src/unit_tests/` (U-*), `tests/workspaces.rs` (W-*, U-24), `tests/fixtures/` |
 | `contracts/escrow-v2` | the v2 contract (v1 + budgets, disputes, tickets); `src/unit_tests/`, `tests/workspaces.rs` (W2-*, U-24). It uses `escrow-core` without changing it: any change to the core changes v1's wasm even if v1 does not use it (measured), so v2's additions live in its own crate |
 | `contracts/test-ft` | near-contract-standards fungible token, only for the sandbox tests |
+| `contracts/registry-v1` | the agent registry (identity + reputation tied to Arras payments); `src/unit_tests/`, `tests/workspaces.rs` (WR-*) |
+| `contracts/test-escrow` | a mock escrow whose `get_payment` returns raw JSON, only for the registry's sandbox tests |
 | `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7; section `v2`: v2 `msg`s, VB-1, tickets T-1/T-2 |
 | `scripts/testnet.sh` | the v1 testnet sequence |
 | `scripts/testnet-v2.sh` | the v2 testnet walkthrough |
