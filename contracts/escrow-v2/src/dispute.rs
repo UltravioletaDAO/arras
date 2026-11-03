@@ -50,11 +50,10 @@ impl Arras {
         let amount = p.live_amount();
         let resolve_by = now.saturating_add(p.arbiter_window_ns.0);
         p.status = PaymentStatus::Disputed;
-        // La reserva ya cobrada pasa a estar en uso (el `Payment` crece ahora).
-        self.dispute_reserve_total = sub(
-            self.dispute_reserve_total,
-            bytes_cost(DISPUTE_RESERVE_BYTES),
-        );
+        // Esa parte de la reserva ya cobrada pasa a estar en uso (el `Payment` crece ahora 78 bytes; los otros 8, al
+        // resolver).
+        self.dispute_reserve_total =
+            sub(self.dispute_reserve_total, bytes_cost(DISPUTE_OPEN_BYTES));
         p.dispute = Some(Dispute {
             opened_by: party,
             reason_hash: reason_hash.clone(),
@@ -146,6 +145,10 @@ impl Arras {
         p.status = PaymentStatus::Resolved;
         if let Some(d) = p.dispute.as_mut() {
             d.resolved_at = Some(U64(env::block_timestamp()));
+            self.dispute_reserve_total = sub(
+                self.dispute_reserve_total,
+                bytes_cost(DISPUTE_RESOLVE_BYTES),
+            );
         }
         self.credit(&p.receiver, split.net);
         self.credit(&p.fee_recipient, split.fee);

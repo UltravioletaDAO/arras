@@ -48,9 +48,9 @@ async fn wasm_ft() -> anyhow::Result<&'static [u8]> {
     Ok(w.as_slice())
 }
 
-/// Llave de tickets de los tests (la de los vectores T-1/T-2: semilla `01` x 32).
+/// Llave de tickets de los tests: semilla `02` x 32 (la de los vectores, `01` x 32, el contrato la rechaza).
 fn ticket_key() -> SigningKey {
-    SigningKey::from_bytes(&[1; 32])
+    SigningKey::from_bytes(&[2; 32])
 }
 
 fn ticket_pubkey_str() -> String {

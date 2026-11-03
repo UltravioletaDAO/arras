@@ -234,13 +234,17 @@ fn p3_5_storage_health_resta_la_reserva_de_disputa() {
     );
     ctx(PAYER, 0, NOW);
     c.open_dispute(id, "ab".repeat(32));
-    assert_eq!(c.get_storage_health().dispute_reserve, U128(reserva));
+    assert_eq!(
+        c.get_storage_health().dispute_reserve,
+        U128(reserva + bytes_cost(DISPUTE_RESOLVE_BYTES))
+    );
     ctx(CAPTURER, 0, NOW);
     c.refund(id2.clone());
     ctx(OTHER, 0, RECLAIM + RETENTION_NS);
     c.compact(id2);
     let h = c.get_storage_health();
-    assert_eq!(h.dispute_reserve, U128(0));
+    // Queda la parte de la disputa abierta que todavia no se uso (los 8 bytes de `resolved_at`).
+    assert_eq!(h.dispute_reserve, U128(bytes_cost(DISPUTE_RESOLVE_BYTES)));
     assert_eq!(
         h.free_reserve.0,
         h.balance
@@ -270,5 +274,70 @@ fn m24_borde_del_saldo() {
     call_afb(&mut c, PAYER, &afb(1_500_000, 1));
     assert_eq!(c.budget_of(PAYER, AGENT, OP).unwrap().saldo.0, 0);
     afb_falla(&mut c, AGENT, NOW, PAYER, &afb(MIN_AMOUNT, 2), "ARRAS_E50");
+    assert_invariante(&c, &TODAS);
+}
+
+/// Ronda 2, P3-N2: la llave publica de los vectores (semilla publicada) nunca es una `ticket_pubkey` (`E48`).
+#[test]
+fn r2_n2_la_llave_de_los_vectores_no_es_ticket_pubkey() {
+    let vectores = ed25519_dalek::SigningKey::from_bytes(&[1; 32])
+        .verifying_key()
+        .to_bytes();
+    assert_eq!(vectores, crate::admin::LLAVE_DE_LOS_VECTORES);
+    let pk = PublicKey::from_parts(near_sdk::CurveType::ED25519, vectores.to_vec()).unwrap();
+    let mut c = setup();
+    ctx(OWNER, 1, NOW);
+    let mut i = operator_input();
+    i.ticket_pubkey = Some(pk.clone());
+    expect_panic("ARRAS_E48", || c.register_operator("kk".into(), i));
+    expect_panic("ARRAS_E48", || {
+        c.update_operator(
+            OP.into(),
+            OperatorPatch {
+                ticket_pubkey: Some(pk),
+                ..Default::default()
+            },
+        )
+    });
+}
+
+/// Ronda 2, P2-N1: una tarea de EM de 30 dias (`reclaim_after = deadline + 7 d de revision + 7 d de reembolso`,
+/// `now + 44 dias`) entra por el presupuesto; el horizonte es 60 dias.
+#[test]
+fn r2_n1_una_tarea_de_em_de_30_dias_entra_por_el_presupuesto() {
+    let mut c = setup();
+    deposit(
+        &mut c,
+        PAYER,
+        AGENT,
+        5 * USDC_UNIT,
+        (2 * USDC_UNIT, 3 * USDC_UNIT),
+    );
+    let semana = 7 * DAY_NS;
+    let deadline = NOW + 30 * DAY_NS;
+    let mut a = afb(USDC_UNIT, 1);
+    a.release_deadline = deadline + semana;
+    a.reclaim_after = deadline + 2 * semana;
+    ctx(AGENT, 0, NOW);
+    let id = call_afb(&mut c, PAYER, &a);
+    assert_eq!(
+        c.get_payment(id).unwrap().reclaim_after,
+        U64(NOW + 44 * DAY_NS)
+    );
+    const { assert!(44 * DAY_NS < MAX_PLAZO_PRESUPUESTO_NS) };
+}
+
+/// Ronda 2, P3-N1: la reserva baja 78 bytes al abrir la disputa y 8 al resolverla (lo que crece el `Payment` en cada
+/// paso), asi `free_reserve` no cuenta de mas mientras la disputa esta abierta.
+#[test]
+fn r2_n3_reserva_exacta_con_la_disputa_abierta() {
+    let mut c = setup();
+    let id = authorize(&mut c, PAYER, USDC_UNIT, &msg_salt(1));
+    ctx(PAYER, 0, NOW);
+    c.open_dispute(id.clone(), "ab".repeat(32));
+    assert_eq!(c.dispute_reserve_total, bytes_cost(DISPUTE_RESOLVE_BYTES));
+    ctx(ARBITER, 0, NOW);
+    c.resolve_dispute(id, U128(USDC_UNIT), U128(0));
+    assert_eq!(c.dispute_reserve_total, 0);
     assert_invariante(&c, &TODAS);
 }

@@ -305,11 +305,18 @@ pub fn assert_invariante(c: &Arras, cuentas: &[&str]) {
         budgets, c.budgets_total,
         "budgets_total == sum(presupuestos)"
     );
-    let sin_disputa = c.payments.values().filter(|p| p.dispute.is_none()).count() as u128;
+    let reserva: u128 = c
+        .payments
+        .values()
+        .map(|p| match &p.dispute {
+            None => bytes_cost(DISPUTE_RESERVE_BYTES),
+            Some(d) if d.resolved_at.is_none() => bytes_cost(DISPUTE_RESOLVE_BYTES),
+            Some(_) => 0,
+        })
+        .sum();
     assert_eq!(
-        c.dispute_reserve_total,
-        sin_disputa * bytes_cost(DISPUTE_RESERVE_BYTES),
-        "dispute_reserve_total == pagos sin disputa x 86 bytes"
+        c.dispute_reserve_total, reserva,
+        "dispute_reserve_total == 86 bytes por pago sin disputa + 8 por disputa abierta"
     );
     assert_eq!(
         en_escrow + claim + c.in_flight + budgets,
@@ -454,9 +461,10 @@ pub fn afb_id(owner: &str, a: &Afb) -> PaymentId {
     .1
 }
 
-/// Llave de tickets de los tests: la de los vectores T-1/T-2 (semilla `01` x 32).
+/// Llave de tickets de los tests de contrato: semilla `02` x 32 (la de los vectores, `01` x 32, el contrato la rechaza
+/// como `ticket_pubkey` porque su semilla esta publicada).
 pub fn ticket_signing_key() -> ed25519_dalek::SigningKey {
-    ed25519_dalek::SigningKey::from_bytes(&[1; 32])
+    ed25519_dalek::SigningKey::from_bytes(&[2; 32])
 }
 
 /// `ticket_pubkey` de la llave de los tests.

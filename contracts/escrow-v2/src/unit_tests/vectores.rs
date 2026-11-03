@@ -154,10 +154,7 @@ fn vectores_v2_del_json() {
         s(&v2["disputa"]["plazo_del_arbitro_ns"]["max"]),
         crate::MAX_ARBITER_WINDOW_NS.to_string()
     );
-    assert_eq!(
-        s(&t["mensaje"]).contains(crate::ticket::TICKET_DOMAIN),
-        true
-    );
+    assert!(s(&t["mensaje"]).contains(crate::ticket::TICKET_DOMAIN));
     let codigos: Vec<&str> = v2["codigos_nuevos"]
         .as_array()
         .unwrap()

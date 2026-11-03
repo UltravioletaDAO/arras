@@ -62,11 +62,19 @@ pub(crate) fn es_de_orden_chico(k: &[u8]) -> bool {
             .any(|c| c[..31] == k[..31] && c[31] == (k[31] & 0x7f))
 }
 
-/// Solo ed25519 (`E48`), y nunca un punto de orden chico.
+/// La llave publica de los vectores T-1/T-2 (semilla `01` x 32, publicada en `docs/vectores.json`): cualquiera firma
+/// con ella, asi que nunca es una `ticket_pubkey` (ronda 2, P3-N2).
+pub(crate) const LLAVE_DE_LOS_VECTORES: [u8; 32] = [
+    0x8a, 0x88, 0xe3, 0xdd, 0x74, 0x09, 0xf1, 0x95, 0xfd, 0x52, 0xdb, 0x2d, 0x3c, 0xba, 0x5d, 0x72,
+    0xca, 0x67, 0x09, 0xbf, 0x1d, 0x94, 0x12, 0x1b, 0xf3, 0x74, 0x88, 0x01, 0xb4, 0x0f, 0x6f, 0x5c,
+];
+
+/// Solo ed25519 (`E48`), y nunca un punto de orden chico ni la llave publicada de los vectores.
 fn check_ticket_pubkey(pk: &PublicKey) {
     if pk.curve_type() != CurveType::ED25519
         || pk.as_bytes().len() != 33
         || es_de_orden_chico(&pk.as_bytes()[1..])
+        || pk.as_bytes()[1..] == LLAVE_DE_LOS_VECTORES
     {
         ArrasErrorV2::E48TicketPubkey.panic();
     }

@@ -63,13 +63,21 @@ pub const DAY_NS: u64 = 86_400 * 1_000_000_000;
 pub const MIN_ARBITER_WINDOW_NS: u64 = 60 * 1_000_000_000;
 /// Maximo de `arbiter_window_ns`: 30 dias (acota cuanto puede quedar trabada una disputa sin arbitro).
 pub const MAX_ARBITER_WINDOW_NS: u64 = 30 * DAY_NS;
-/// Horizonte de un pago del presupuesto: `reclaim_after <= now + 30 dias` (`E57`). Lo pone el contrato porque los plazos
-/// los elige el agente por el owner (refutacion de v2, P1-1).
-pub const MAX_PLAZO_PRESUPUESTO_NS: u64 = 30 * DAY_NS;
+/// Horizonte de un pago del presupuesto: `reclaim_after <= now + 60 dias` (`E57`). Lo pone el contrato porque los plazos
+/// los elige el agente por el owner (refutacion de v2, P1-1). 60 y no 30 (ronda 2, P2-N1): EM arma
+/// `reclaim_after = max(now, deadline) + 7 d de revision + 7 d de reembolso` con tareas de hasta 30 dias, o sea hasta
+/// `now + 44 dias` (`execution-market:mcp_server/integrations/x402/near_escrow.py:_deadlines` y
+/// `uvd_x402_sdk.escrow_signing.REVIEW_WINDOW_SEC`/`REFUND_WINDOW_SEC`). Peor caso para el owner: 60 dias mas el plazo
+/// del arbitro (30) si el receiver disputa al final.
+pub const MAX_PLAZO_PRESUPUESTO_NS: u64 = 60 * DAY_NS;
 /// Lo que crece un `Payment` al abrir y resolver su disputa: `Some(Dispute)` con `resolved_at` (87 bytes) menos
 /// `None` (1). Se cobra al autorizar (quien abre la disputa no adjunta deposito) y se devuelve al compactar si la
 /// disputa nunca se abrio.
-pub const DISPUTE_RESERVE_BYTES: u64 = 86;
+pub const DISPUTE_RESERVE_BYTES: u64 = DISPUTE_OPEN_BYTES + DISPUTE_RESOLVE_BYTES;
+/// Lo que crece el `Payment` al abrir la disputa: `Some(Dispute)` con `resolved_at: None` (79) menos `None` (1).
+pub const DISPUTE_OPEN_BYTES: u64 = 78;
+/// Lo que crece al resolverla: `resolved_at` pasa de `None` (1) a `Some(u64)` (9).
+pub const DISPUTE_RESOLVE_BYTES: u64 = 8;
 
 /// `operator_id`: `[a-z0-9_-]{1,32}`.
 pub type OperatorId = String;
@@ -325,8 +333,8 @@ pub struct Arras {
     storage_available_total: u128,
     /// Suma de los `saldo` de todos los presupuestos.
     budgets_total: u128,
-    /// Yocto de la reserva de disputa ya cobrada y todavia sin usar (pagos sin disputa y sin compactar):
-    /// `get_storage_health` no la cuenta como libre (refutacion de v2, P3-5).
+    /// Yocto de la reserva de disputa ya cobrada y todavia sin usar: 86 bytes por pago sin disputa, 8 por pago con la
+    /// disputa abierta (ronda 2, P3-N1), 0 si ya se resolvio. `get_storage_health` no la cuenta como libre (P3-5).
     dispute_reserve_total: u128,
     operators: IterableMap<OperatorId, Operator>,
     payments: IterableMap<PaymentId, Payment>,

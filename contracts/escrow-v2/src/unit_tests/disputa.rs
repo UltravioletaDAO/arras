@@ -466,6 +466,15 @@ fn dispute_reserve_bytes_es_el_borsh_real() {
     let n = near_sdk::borsh::to_vec(&none).unwrap().len();
     let m = near_sdk::borsh::to_vec(&max).unwrap().len();
     assert_eq!((m - n) as u64, DISPUTE_RESERVE_BYTES);
+    let abierta = Some(Dispute {
+        opened_by: Party::Payer,
+        reason_hash: RAZON.into(),
+        opened_at: U64(1),
+        resolved_at: None,
+    });
+    let a = near_sdk::borsh::to_vec(&abierta).unwrap().len();
+    assert_eq!((a - n) as u64, DISPUTE_OPEN_BYTES);
+    assert_eq!((m - a) as u64, DISPUTE_RESOLVE_BYTES);
 }
 
 /// La retencion de `compact` cuenta desde la resolucion si fue despues de `reclaim_after`.

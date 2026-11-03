@@ -192,7 +192,7 @@ fn deposito_guardas() {
     rechazo_deposito(&mut c, USDC, OTHER, USDC_UNIT, &m, "E14_SIN_STORAGE");
     // El tope por pago global (E06) no aplica al deposito: el deposito no es un pago.
     deposit(&mut c, PAYER, AGENT, TOPE_TVL_POR_PAYER, TOPES);
-    assert!(TOPE_TVL_POR_PAYER > TOPE_POR_PAGO);
+    const { assert!(TOPE_TVL_POR_PAYER > TOPE_POR_PAGO) };
     assert_invariante(&c, &TODAS);
 }
 
@@ -348,7 +348,7 @@ fn authorize_from_budget_topes_y_ventana_diaria() {
         AGENT,
         NOW + 20,
         PAYER,
-        &afb(1 * MIN_AMOUNT, 3),
+        &afb(MIN_AMOUNT, 3),
         "ARRAS_E51",
     );
     // Al dia UTC siguiente la ventana se reinicia (saldo: 5 - 3 = 2).

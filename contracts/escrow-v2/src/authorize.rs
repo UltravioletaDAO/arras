@@ -70,9 +70,9 @@ pub(crate) struct BudgetDepositPlan {
 }
 
 pub(crate) enum FtPlan {
-    /// En una caja: el plan de un pago es mucho mas grande que el de un deposito (clippy `large_enum_variant`).
+    /// Los dos en una caja: los planes son grandes y de tamanos distintos (clippy `large_enum_variant`).
     Authorize(Box<AuthorizePlan>),
-    Budget(BudgetDepositPlan),
+    Budget(Box<BudgetDepositPlan>),
 }
 
 fn rechazo_si(cond: bool, e: impl Into<ArrasErrorV2>) -> R<()> {
@@ -102,7 +102,7 @@ impl FungibleTokenReceiver for Arras {
                 PromiseOrValue::Value(U128(0))
             }
             Ok(FtPlan::Budget(plan)) => {
-                self.apply_budget_deposit(plan);
+                self.apply_budget_deposit(*plan);
                 PromiseOrValue::Value(U128(0))
             }
             Err(e) => {
@@ -127,7 +127,7 @@ impl Arras {
                 .map(|p| FtPlan::Authorize(Box::new(p))),
             FtMsg::Budget(m) => self
                 .plan_budget_deposit(sender, amount, &m)
-                .map(FtPlan::Budget),
+                .map(|p| FtPlan::Budget(Box::new(p))),
         }
     }
 
