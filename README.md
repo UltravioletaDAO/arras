@@ -11,7 +11,8 @@ immutable (no `migrate`, no upgrade path) and its account has **no access keys**
 > code was written from 2026-11-01 on, starting at commit `3a2ebdf`. Details in [HACKATHON.md](HACKATHON.md).
 
 Status: v1 contract, unit tests, near-workspaces tests and testnet deployment (hackathon days 1-3); v2 (agent budgets,
-disputes, operator tickets) with its tests and a testnet deployment (day 3). **Unaudited.**
+disputes, operator tickets) with its tests and a testnet deployment (day 3). The v1 mainnet deployment is prepared and
+rehearsed on testnet, not yet run: [docs/MAINNET.md](docs/MAINNET.md). **Unaudited.**
 
 ## The problem
 
@@ -107,8 +108,10 @@ ft_balance_of(contract)`, and what came in through `ft_transfer_call` equals wha
 
 | Do | See |
 |---|---|
-| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached) | v1: 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests, 3 more `ignored` because they need network; v2: its unit tests incl. its own U-16 (10,000 sequences) and the vectors read from `docs/vectores.json`, and 11 sandbox tests (W2-01..W2-10, U-24) |
+| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached, or with `NEAR_SANDBOX_BIN_PATH` pointing at a `near-sandbox` 2.13.4 binary) | v1: 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests, 3 more `ignored` because they need network; v2: its unit tests incl. its own U-16 (10,000 sequences) and the vectors read from `docs/vectores.json`, and 11 sandbox tests (W2-01..W2-10, U-24) |
 | `cargo test -p arras-escrow-v2 --test workspaces -- --nocapture` | the v2 `MEDIDA` lines: gas per method (W2-09), minimum callback gas (W2-06) |
+| `scripts/test_mainnet.sh` (offline: `near` and the RPC are test doubles) | the guards of `scripts/mainnet.sh`, under every `bash` installed (macOS 3.2 and 5.x) |
+| `scripts/mainnet.sh plan` / `scripts/mainnet.sh todo` | the mainnet deployment as a dry run: accounts, amounts, caps, the pinned wasm and every command, with no network call |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
 | `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; checked out at commit `8da7174` (the demo contract) it has sha256 `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` |
@@ -319,6 +322,8 @@ went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 | `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7; section `v2`: v2 `msg`s, VB-1, tickets T-1/T-2 |
 | `scripts/testnet.sh` | the v1 testnet sequence |
 | `scripts/testnet-v2.sh` | the v2 testnet walkthrough |
+| `scripts/mainnet.sh`, `scripts/test_mainnet.sh` | the mainnet deployment (dry run by default; the same script rehearsed on testnet) and its offline tests |
+| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal |
 | `docs/handoffs/` | handoffs between workers (decisions and what is left) |
 | `HACKATHON.md` | what existed before the hackathon and what was built during it |
 
