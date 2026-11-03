@@ -10,8 +10,9 @@ immutable (no `migrate`, no upgrade path) and its account has **no access keys**
 > In English: the design and the test vectors were written before the hackathon in a private repo (2026-10-26); all
 > code was written from 2026-11-01 on, starting at commit `3a2ebdf`. Details in [HACKATHON.md](HACKATHON.md).
 
-Status: v1 contract, unit tests, near-workspaces tests and testnet deployment (hackathon days 1-3). The mainnet
-deployment is prepared and rehearsed on testnet, not yet run: [docs/MAINNET.md](docs/MAINNET.md). **Unaudited.**
+Status: v1 contract, unit tests, near-workspaces tests and testnet deployment (hackathon days 1-3); v2 (agent budgets,
+disputes, operator tickets) with its tests and a testnet deployment (day 3). The v1 mainnet deployment is prepared and
+rehearsed on testnet, not yet run: [docs/MAINNET.md](docs/MAINNET.md). **Unaudited.**
 
 ## The problem
 
@@ -50,11 +51,71 @@ Money invariant (property-tested over 10,000 random sequences):
 Storage is paid by the payer through NEP-145 (`storage_deposit` on Arras), or, if the payer has none, by the
 operator's sponsorship pool up to a per-payer cap. There are no allow-lists of accounts.
 
+## Arras v2: agent budgets, disputes and operator tickets
+
+`contracts/escrow-v2` is v1 (same money rules, same events, same `payment_id`) plus three things. It is a separate,
+immutable contract in its own account; `arras-escrow-core` and v1 are not touched (see "Repository").
+
+**Agent budget (the AI-security path).** A human deposits USDC for one agent account with the same `ft_transfer_call`,
+`msg` `{"v":1,"action":"budget","operator_id":"em","agent":"<account>","tope_por_pago":"2000000","tope_diario":"10000000"}`.
+The agent then calls `authorize_from_budget(owner, operator_id, receiver, amount, release_deadline, reclaim_after,
+dispute_deadline?, fee_bps_max, terms_hash, salt, operator_ticket?)`. That method takes no deposit, so the agent signs
+it with a **function-call access key limited to this contract and this method, with no full-access key at all**. What
+a leaked agent key can do is bounded by the contract, not by the agent:
+
+| Limit | Enforced by |
+|---|---|
+| per payment: the budget's cap (`E52`) and the contract's 10 USDC (`E06`) | `authorize_from_budget` |
+| per day (UTC day window): the budget's daily cap (`E51`), and the balance (`E50`); no zero-amount payments (`E24`) | `authorize_from_budget` |
+| horizon: `reclaim_after` at most 60 days ahead (`E57`; an Execution Market task of up to 30 days needs 44), so the human gets back, with `reclaim`, whatever the agent locked and nobody released, as long as the human does not open a dispute, or opens it at or after `release_deadline` (see Disputes) | `authorize_from_budget` |
+| the agent cannot shorten the human's dispute window: `dispute_deadline` no earlier than `release_deadline` (`E67`) | `authorize_from_budget` |
+| the money stays in escrow: only the operator's capturer releases it to the receiver; a refund or reclaim goes back to the **human** (the payment's payer), never to the agent | the v1 lifecycle |
+| receiver cannot be the contract, the human or the agent (`E15`) | `authorize_from_budget` |
+| raising caps needs the human's full-access key (`set_budget_caps`, 1 yoctoNEAR); a re-deposit only lowers them | `set_budget_caps`, the `budget` msg |
+| the human takes the rest back at any time, even while paused: `withdraw_budget`, or `revoke_agent` (also deletes the budget and refunds its storage) | owner-only methods |
+
+The agent's payment has `payer = owner`, and its `payment_id` is the v1 formula with the owner as payer
+(`compute_budget_payment_id`; vector VB-1).
+
+**Disputes.** The payer or the receiver can `open_dispute(payment_id, reason_hash)` while the payment still holds money
+and before its `dispute_deadline` (an optional field of the authorize `msg`; it defaults to `reclaim_after`, so a v1
+`msg` is a valid v2 `msg` with the same `payment_id`; if given, it cannot be earlier than `release_deadline`, `E67`). The money left in the payment is frozen: release, refund and
+reclaim answer `E22`. Only the operator's arbiter splits it with `resolve_dispute(payment_id, to_receiver, to_payer)`
+(the sum must be exactly what is left; the frozen fee is charged on `to_receiver`), within the arbiter window frozen in
+the payment at authorization (`[1 minute, 30 days]`). If the arbiter does not answer in time, anyone calls
+`resolve_expired_dispute`: what was released stays released and what is left goes to **the party that did not open the
+dispute**, so opening one to block a finished job (or a refund) is not free. One exception, the last agreed state: if
+the payer opened it at or after `release_deadline`, when the capturer could no longer release, what is left goes back to
+the payer. So with a leaked agent key the human waits for `reclaim`, asks the capturer for a refund, or disputes from
+`release_deadline` on, never before. The storage a dispute adds (86 bytes) is charged when the payment is authorized
+and refunded on `compact` if no dispute was opened.
+
+**Operator ticket.** If the operator registers a `ticket_pubkey` (ed25519; never a small-order point, nor the published test key of the vectors), every payment and every budget deposit in
+that operator needs its signature: `operator_ticket: {"expiry":"<ns>","sig":"<base58>"}` over
+`borsh("arras:v2:operator_ticket", contract account, subject, expiry)`, where the subject is the `payment_id` or the
+`(operator_id, owner, agent)` of a budget. Throwaway accounts can no longer fill the TVL caps or drain the sponsorship
+pool. The views `ticket_message_payment` and `ticket_message_budget` return the exact bytes to sign; vectors T-1 and T-2
+in `docs/vectores.json`. A payment ticket is single-use in practice (a `payment_id` never repeats, `E13`); a budget
+ticket signs no amount and no nonce, so it admits any number of deposits for that `(owner, agent)` pair until `expiry`,
+also after `revoke_agent`: operators sign budget tickets with a short `expiry`.
+
+New errors: `E47` arbiter window, `E48` ticket key (ed25519 only, no small-order point), `E50` no budget or balance,
+`E51` daily cap, `E52` budget per-payment cap, `E53` missing or invalid ticket, `E54` expired ticket, `E55` invalid
+agent, `E56` zero caps, `E57` budget payment beyond the 60-day horizon, `E60` not a party, `E61` dispute deadline
+passed, `E62` not the arbiter, `E63` split does not add up, `E64` arbiter still in time, `E65` arbiter window passed,
+`E66` invalid `reason_hash`, `E67` `dispute_deadline` before `release_deadline`. New events: `budget_deposited`, `budget_spent`, `budget_withdrawn`, `budget_caps_set`,
+`agent_revoked`, `dispute_opened`, `dispute_resolved`.
+
+Money invariant of v2 (property-tested over 10,000 random sequences with budgets, disputes and interleaved
+withdrawals): `sum(in escrow, disputed included) + sum(claimable) + in_flight + sum(budgets) == tvl_global <=
+ft_balance_of(contract)`, and what came in through `ft_transfer_call` equals what went out plus what the contract holds.
+
 ## Try it
 
 | Do | See |
 |---|---|
-| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached, or with `NEAR_SANDBOX_BIN_PATH` pointing at a `near-sandbox` 2.13.4 binary) | 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests; 3 more are `ignored` because they need network |
+| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached, or with `NEAR_SANDBOX_BIN_PATH` pointing at a `near-sandbox` 2.13.4 binary) | v1: 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests, 3 more `ignored` because they need network; v2: its unit tests incl. its own U-16 (10,000 sequences) and the vectors read from `docs/vectores.json`, and 11 sandbox tests (W2-01..W2-10, U-24) |
+| `cargo test -p arras-escrow-v2 --test workspaces -- --nocapture` | the v2 `MEDIDA` lines: gas per method (W2-09), minimum callback gas (W2-06) |
 | `scripts/test_mainnet.sh` (offline: `near` and the RPC are test doubles) | the guards of `scripts/mainnet.sh`, under every `bash` installed (macOS 3.2 and 5.x) |
 | `scripts/mainnet.sh plan` / `scripts/mainnet.sh todo` | the mainnet deployment as a dry run: accounts, amounts, caps, the pinned wasm and every command, with no network call |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
@@ -165,6 +226,66 @@ stays as it is (immutable, keyless); use the demo contract above.
 | capturer `em-capturer.arras-dev.testnet`: function-call key / its full-access key deleted | `3wSmCACjW7Me1AhEeAaGfMcMiiMteZEGrcpTHzYtgZXn` / `6VfeZ2zRbMKkjZbH2TJpeT8TUCxvGPuhxd9wjPjoZago` |
 | **all keys of `v1.arras-dev.testnet` deleted** | `CgaHtGKsBC3112THLTzBDpKK8QyXWPVhJ8fCy9435vQh` |
 
+## Arras v2 on testnet: `arras-v2-1103.testnet` (2026-11-03)
+
+The reproducible wasm of commit `c416989` (`env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path
+contracts/escrow-v2/Cargo.toml`, built twice, the second time from a clean clone: same hash), deployed with a private
+`new` in the same transaction to a top-level account funded by the testnet faucet. All its keys are deleted.
+
+This is the pre-review deployment. The contract code after `c416989` (`git diff c416989 HEAD -- contracts/escrow-v2/src`
+shows it, plus tests) changes three things: the text of `E57` said "30 dias" while the limit was already 60 days; a
+dispute the payer opens at or after `release_deadline` now goes back to the payer when it expires (the money review's
+P2-1); and `dispute_deadline` cannot be earlier than `release_deadline` (`E67`). The walkthrough below would end the
+same on the new code: the expired dispute (step 11) was opened before `release_deadline`, and the `msg` of step 10 sets
+`dispute_deadline` equal to `release_deadline`. As with v1, the reviewed commit is deployed to a new keyless account
+after the money review.
+
+| Check | Command | Result |
+|---|---|---|
+| code on chain = reproducible build | `near account view-account-summary arras-v2-1103.testnet network-config testnet now` | `Local Contract (SHA-256 checksum hex) 8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` (366,095 bytes) |
+| source commit (NEP-330) | `near contract call-function as-read-only arras-v2-1103.testnet contract_source_metadata json-args '{}' network-config testnet now` | `source_code_snapshot ...?rev=c41698900a78dc50b365e9cfeb761ddf40e7511b` |
+| no keys | `near account list-keys arras-v2-1103.testnet network-config testnet now` | empty table |
+| the agent has only a function-call key | `near account list-keys agent.arras-v2-1103.testnet network-config testnet now` | one key: `only do ["authorize_from_budget"] function calls on arras-v2-1103.testnet with an allowance of 0.25 NEAR` |
+| config | `near contract call-function as-read-only arras-v2-1103.testnet get_config json-args '{}' network-config testnet now` | `"version": "arras-v2"`, 10 USDC per payment, 1,000 USDC global TVL |
+| everything at once | `scripts/testnet-v2.sh verificar` | local wasm (commit, sha256) next to the code hash on chain, keys and config |
+
+Roles: owner `owner.arras-dev.testnet`, guardian `guardian.arras-dev.testnet`, fee recipient `em-fees.arras-dev.testnet`,
+payer (the human) `payer-demo.arras-dev.testnet`, worker `worker-demo.arras-dev.testnet` (the same as v1); capturer
+`capturer.arras-v2-1103.testnet`, arbiter `arbiter.arras-v2-1103.testnet` and agent `agent.arras-v2-1103.testnet`,
+sub-accounts created by the contract account before its keys were deleted. Two operators: `em` (no ticket) and `emt`
+(with a `ticket_pubkey` generated locally for the demo; its private key never left `~/.arras-testnet`). Both use the
+minimum arbiter window, 60 seconds, so the expired-dispute path can be shown live; a production operator would use
+days.
+
+| Step (`scripts/testnet-v2.sh <n>`) | Transaction |
+|---|---|
+| 1. `arras-v2-1103.testnet` from the faucet (10 NEAR) | `DW8fn7gg37mSChMohRSCHpVMVNTr7exSG8rhKzuirrwf` |
+| 2. capturer / arbiter / agent sub-accounts | `6eJSrG6zCD6JENk1PHd5zcS7FRiRiqfxd7PeJ1JiSXv4` / `B9XdgqWQi6qgYBm3pvdqxfxhXRPRuA8ALqaALpAcHj53` / `C85bKtZSvULkVmjLprRs95jr2y6hA1dKCydJLxqCHFKD` |
+| 3. USDC storage for the contract | `5288pPdAMCD3v9RqBpvgJkWNBqxkKKwBUJeSMQhZvygX` |
+| 4. deploy + private `new` | `E6xN7eKajKcXc7pXUTzN2YMhKcWdhtM5FcAdjKu7NADC` |
+| 5. operators `em` / `emt` (with ticket key); payer NEP-145 0.05 NEAR | `4HGQ7afZ1WN69BK9SvVXTtBZXT3Xp7xUpPevJgu4ouks` / `E1ghBMR8nWn9TaLBZjaG83VqY3mpHsuDyrEweoqE4y7q`; `9Kxvwq2y4MGMjfX6JkrZwcMqE2cX3XN1M9Qfd7paE7rG` |
+| 6. capturer: function-call key (`release, refund, withdraw_for`) / full-access key deleted | `5NtuFuVA95n9qEZyqY6pCpmeomfzgCRM2VK7MkGYhinx` / `3V88AoGeGPC1YJHPryEnEymRviEdnMYJfgMubLUEaTdQ` |
+| 6. agent: function-call key (`authorize_from_budget`) / full-access key deleted | `CUSj9SiAPnsSBfYbj1oL5ho5PtnheoAZhwYsSUHZzZqs` / `5mWTATiSaVdFkXnsmRhCbpa4gt3mmEpLd2aVYwjevavz` |
+| 7. **all keys of `arras-v2-1103.testnet` deleted** | `29wLJFBt8av41bEudrzmqB2KZ55bZ4zpDT9KsHv3h43o` |
+
+### The walkthrough with Circle's testnet USDC (2026-11-03, 00:48Z to 01:05Z)
+
+Everything below ran against the keyless contract. Balances (USDC) before: payer 17.0, worker 2.61, fee recipient
+0.13, contract 0.
+
+| Step | What happened | Transactions | Events |
+|---|---|---|---|
+| 8. budget | the human deposits 2 USDC for the agent (caps: 1 per payment, 2 per day) | `HRcu5ddCC5HzxUvta1rW3unDE814wHc32xhUT9AVnqqz` | `budget_deposited`; `tvl_global` = `budgets_total` = 2 |
+| 9. agent pays | the agent, signing with its function-call key, authorizes 1 USDC to the worker (`authorize_from_budget`); the capturer releases; `withdraw_for` worker and fee recipient | `A6VML6yHM94bmLgjvq37fYj7otyVd53MfszWC1pWUzGr`; `uNCnj5xGQrY6XgvB5Aabx6UdXpe72zWigSpFM1hzizS`; `83u7hRpiyHeAa871WXY6srvq7zCPV6MD8nnNBdWJByRV`, `27GBWqrhGL6QmmuAmvd6xku58kxCMFuBFbS6ZympxyXx` | `authorized` (payer = the human) + `budget_spent`; `released` 0.87 / 0.13; `withdrawn ok:true` x2 |
+| 10. dispute, arbiter | the human pays 0.5 USDC by `ft_transfer_call` (v2 `msg` with `dispute_deadline`), opens a dispute, the arbiter gives 0.2 to the worker and 0.3 back; withdrawals | `9zHVHSS8fu2PTAWvzYjtousunYDvKLunmKh1si5VuNpw`; `ACwULbvxfgVgT6aMkF47Vwa8GyYancKUAxGXs1z7PG2J`; `FGapXa3SHsQb4GJNvTfMRSEtSCeWGnt2n2EmzyLeaAX3`; `H7mqAso3Ak5Wray3JwfwPkKCtpPBuq6jsM258eJp9k54`, `E5KFYZXgeKtsvN4NCELKUhVZKGiqW3qhs1cNEoJ55U61`, `EAT7tovfRk8698WuCSq3kuJJ5E8eAcCKX9RtbpnhFt7Z` | `dispute_opened`; `dispute_resolved` (net 0.174, fee 0.026, to payer 0.3, `expired:false`) |
+| 11. dispute, expired | the agent authorizes 0.5 USDC; the human opens a dispute; the arbiter does not answer; 60 s later the human (anyone could) closes it and what was left goes to the worker, the party that did not open it | `EHsnaQPVdQ2CmqSVWPMKPcdrPJZVG7RBgN1HaFiZzqiZ`; `Cnckf48GTXtgcbPUcKLM5gD2QmwpvwdquzxUW24ZvN3Q`; `4n2V7cEJCkcfKtEMuWrqWBfrYi6tJRAfUx9ZWmh1pjRF`; `6bQCstaMYKnUwDee57KWAyXirs8QfbVb2TRAvMWVByJX`, `DcMXUiWMMDSkwxcP7nJFcjqYnoiiGFvBbw8PvdY8zKS6` | `dispute_resolved` (to receiver 0.5: net 0.435, fee 0.065, `expired:true`) |
+| 12. ticket | operator `emt`: 0.1 USDC without a ticket comes back whole; with the ticket signed over the bytes of `ticket_message_payment` it is authorized; the capturer refunds; withdrawal | `FZgVdueMkLPCPu1otU888iM29XgHTUS8EUKhsYhiwrga`; `4x6ZytxfoDmnQa7gsCPcrDoCT8pG4pBHfjuFKdcRqNY4`; `FtjM1rnxC79tcuu7hBMc7KZJSSrRXfeEJEGXW17jYQXw`; `tUn1vB8EjsmLB5f69PbsDGuoNCbAUbyS3t6sEaWJM6B` | log `arras:rechazo:E53_TICKET_INVALIDO` (refunded by the token); `authorized`; `refunded`; `withdrawn` |
+| 13. close | the human takes the rest of the budget back, revokes the agent and withdraws | `2eq7Gopj96uLn8ibGTKtMuYbT9PTzyVnQUpYvkTPmNoa`; `3ppCBse1WcRktZEUEjANevK38NSaNjaBAsKc2D7x392n`; `51DKxfopvSmCC1iwBFRUzuRASRbpBXB4U3M2VMJf9MXE` | `budget_withdrawn` 0.5; `agent_revoked`; `withdrawn` 0.5 |
+
+Balances after: payer 15.3 (-1.7), worker 4.089 (+1.479), fee recipient 0.351 (+0.221), contract **0**; `get_config`:
+`tvl_global` 0, `budgets_total` 0, `in_flight` 0. What went in through `ft_transfer_call` (2 + 0.5 + 0.1) equals what
+went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
+
 ## Security model
 
 - **Immutable and keyless:** no `migrate`; `new` is `#[private]` and runs in the deploy transaction; every access key
@@ -206,11 +327,14 @@ stays as it is (immutable, keyless); use the demo contract above.
 |---|---|
 | `contracts/escrow-core` | `payment_id`, canonical `msg`, fees, error codes and events (no contract state) |
 | `contracts/escrow-v1` | the v1 contract; `src/unit_tests/` (U-*), `tests/workspaces.rs` (W-*, U-24), `tests/fixtures/` |
+| `contracts/escrow-v2` | the v2 contract (v1 + budgets, disputes, tickets); `src/unit_tests/`, `tests/workspaces.rs` (W2-*, U-24). It uses `escrow-core` without changing it: any change to the core changes v1's wasm even if v1 does not use it (measured), so v2's additions live in its own crate |
 | `contracts/test-ft` | near-contract-standards fungible token, only for the sandbox tests |
-| `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7 |
-| `scripts/testnet.sh` | the testnet sequence |
+| `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7; section `v2`: v2 `msg`s, VB-1, tickets T-1/T-2 |
+| `scripts/testnet.sh` | the v1 testnet sequence |
+| `scripts/testnet-v2.sh` | the v2 testnet walkthrough |
 | `scripts/mainnet.sh`, `scripts/test_mainnet.sh` | the mainnet deployment (dry run by default; the same script rehearsed on testnet) and its offline tests |
 | `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal |
+| `docs/handoffs/` | handoffs between workers (decisions and what is left) |
 | `HACKATHON.md` | what existed before the hackathon and what was built during it |
 
 Pinned: near-sdk and near-contract-standards `=5.29.1`, near-workspaces `=0.23.0`, cargo-near 0.22.0, near-cli-rs

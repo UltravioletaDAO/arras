@@ -23,8 +23,8 @@
 
 ## What was built from 2026-11-01 on (this repo)
 
-Everything after the start SHA: the `arras-escrow-core` and `arras-escrow-v1` crates, their unit tests, the
-near-workspaces tests, the reproducible build and `scripts/testnet.sh`. `git log --format='%h %aI %s' 3a2ebdf..HEAD`
+Everything after the start SHA: the `arras-escrow-core`, `arras-escrow-v1` and `arras-escrow-v2` crates, their unit
+tests, the near-workspaces tests, the reproducible builds, `scripts/testnet.sh` and `scripts/testnet-v2.sh`. `git log --format='%h %aI %s' 3a2ebdf..HEAD`
 lists each commit with its timestamp.
 
 ## Deployed during the hackathon (testnet)
@@ -33,14 +33,20 @@ lists each commit with its timestamp.
 |---|---|---|---|
 | `arras-v1b-1101.testnet` | `8da7174` (in `main`) | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` | **demo contract**, keyless, deployed 2026-11-01 after the money review |
 | `v1.arras-dev.testnet` | `0fb7929` | `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` | first deployment, keyless, before the self-review fixes |
+| `arras-v2-1103.testnet` | `c416989` | `8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` | **v2** (agent budgets, disputes, operator tickets), keyless, deployed 2026-11-03 |
 
-Both wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
+All three wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
 NEP-330 metadata (`contract_source_metadata`). Transactions and checks: README, "Testnet deployments".
 
 On 2026-11-01 both payment paths ran on the demo contract with Circle's testnet USDC, 1 USDC each:
 authorize -> release -> withdraw (0.87 USDC to the worker, 0.13 to the fee recipient) and authorize -> refund ->
 withdraw (the 1 USDC back to the payer). The contract ended with 0 USDC and `tvl_global` 0. Transactions, events and
 balances: README, "Payments with Circle's testnet USDC".
+
+On 2026-11-03 the v2 walkthrough ran on `arras-v2-1103.testnet` with Circle's testnet USDC: an agent with only a
+function-call key paid from a human's budget, one dispute was split by the arbiter, another expired in favour of the
+worker, and a payment without the operator's ticket was refused. The contract ended with 0 USDC and `tvl_global` 0.
+Transactions, events and balances: README, "Arras v2 on testnet".
 
 ## License
 
