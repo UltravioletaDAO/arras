@@ -67,7 +67,8 @@ a leaked agent key can do is bounded by the contract, not by the agent:
 |---|---|
 | per payment: the budget's cap (`E52`) and the contract's 10 USDC (`E06`) | `authorize_from_budget` |
 | per day (UTC day window): the budget's daily cap (`E51`), and the balance (`E50`); no zero-amount payments (`E24`) | `authorize_from_budget` |
-| horizon: `reclaim_after` at most 60 days ahead (`E57`; an Execution Market task of up to 30 days needs 44), so the human always gets back, with `reclaim`, whatever the agent locked and nobody released | `authorize_from_budget` |
+| horizon: `reclaim_after` at most 60 days ahead (`E57`; an Execution Market task of up to 30 days needs 44), so the human gets back, with `reclaim`, whatever the agent locked and nobody released, as long as the human does not open a dispute, or opens it at or after `release_deadline` (see Disputes) | `authorize_from_budget` |
+| the agent cannot shorten the human's dispute window: `dispute_deadline` no earlier than `release_deadline` (`E67`) | `authorize_from_budget` |
 | the money stays in escrow: only the operator's capturer releases it to the receiver; a refund or reclaim goes back to the **human** (the payment's payer), never to the agent | the v1 lifecycle |
 | receiver cannot be the contract, the human or the agent (`E15`) | `authorize_from_budget` |
 | raising caps needs the human's full-access key (`set_budget_caps`, 1 yoctoNEAR); a re-deposit only lowers them | `set_budget_caps`, the `budget` msg |
@@ -78,26 +79,31 @@ The agent's payment has `payer = owner`, and its `payment_id` is the v1 formula 
 
 **Disputes.** The payer or the receiver can `open_dispute(payment_id, reason_hash)` while the payment still holds money
 and before its `dispute_deadline` (an optional field of the authorize `msg`; it defaults to `reclaim_after`, so a v1
-`msg` is a valid v2 `msg` with the same `payment_id`). The money left in the payment is frozen: release, refund and
+`msg` is a valid v2 `msg` with the same `payment_id`; if given, it cannot be earlier than `release_deadline`, `E67`). The money left in the payment is frozen: release, refund and
 reclaim answer `E22`. Only the operator's arbiter splits it with `resolve_dispute(payment_id, to_receiver, to_payer)`
 (the sum must be exactly what is left; the frozen fee is charged on `to_receiver`), within the arbiter window frozen in
 the payment at authorization (`[1 minute, 30 days]`). If the arbiter does not answer in time, anyone calls
 `resolve_expired_dispute`: what was released stays released and what is left goes to **the party that did not open the
-dispute**, so opening one to block a finished job (or a refund) is not free. The storage a dispute adds (86 bytes) is
-charged when the payment is authorized and refunded on `compact` if no dispute was opened.
+dispute**, so opening one to block a finished job (or a refund) is not free. One exception, the last agreed state: if
+the payer opened it at or after `release_deadline`, when the capturer could no longer release, what is left goes back to
+the payer. So with a leaked agent key the human waits for `reclaim`, asks the capturer for a refund, or disputes from
+`release_deadline` on, never before. The storage a dispute adds (86 bytes) is charged when the payment is authorized
+and refunded on `compact` if no dispute was opened.
 
 **Operator ticket.** If the operator registers a `ticket_pubkey` (ed25519; never a small-order point, nor the published test key of the vectors), every payment and every budget deposit in
 that operator needs its signature: `operator_ticket: {"expiry":"<ns>","sig":"<base58>"}` over
 `borsh("arras:v2:operator_ticket", contract account, subject, expiry)`, where the subject is the `payment_id` or the
 `(operator_id, owner, agent)` of a budget. Throwaway accounts can no longer fill the TVL caps or drain the sponsorship
 pool. The views `ticket_message_payment` and `ticket_message_budget` return the exact bytes to sign; vectors T-1 and T-2
-in `docs/vectores.json`.
+in `docs/vectores.json`. A payment ticket is single-use in practice (a `payment_id` never repeats, `E13`); a budget
+ticket signs no amount and no nonce, so it admits any number of deposits for that `(owner, agent)` pair until `expiry`,
+also after `revoke_agent`: operators sign budget tickets with a short `expiry`.
 
 New errors: `E47` arbiter window, `E48` ticket key (ed25519 only, no small-order point), `E50` no budget or balance,
 `E51` daily cap, `E52` budget per-payment cap, `E53` missing or invalid ticket, `E54` expired ticket, `E55` invalid
 agent, `E56` zero caps, `E57` budget payment beyond the 60-day horizon, `E60` not a party, `E61` dispute deadline
 passed, `E62` not the arbiter, `E63` split does not add up, `E64` arbiter still in time, `E65` arbiter window passed,
-`E66` invalid `reason_hash`. New events: `budget_deposited`, `budget_spent`, `budget_withdrawn`, `budget_caps_set`,
+`E66` invalid `reason_hash`, `E67` `dispute_deadline` before `release_deadline`. New events: `budget_deposited`, `budget_spent`, `budget_withdrawn`, `budget_caps_set`,
 `agent_revoked`, `dispute_opened`, `dispute_resolved`.
 
 Money invariant of v2 (property-tested over 10,000 random sequences with budgets, disputes and interleaved
@@ -226,9 +232,13 @@ The reproducible wasm of commit `c416989` (`env -u CARGO_TARGET_DIR cargo near b
 contracts/escrow-v2/Cargo.toml`, built twice, the second time from a clean clone: same hash), deployed with a private
 `new` in the same transaction to a top-level account funded by the testnet faucet. All its keys are deleted.
 
-This is the pre-review deployment. The contract code after `c416989` differs in one string only: the text of `E57` said
-"30 dias" while the limit was already 60 days (`git diff c416989 HEAD -- contracts/escrow-v2/src` shows it, plus tests).
-As with v1, the reviewed commit is deployed to a new keyless account after the money review.
+This is the pre-review deployment. The contract code after `c416989` (`git diff c416989 HEAD -- contracts/escrow-v2/src`
+shows it, plus tests) changes three things: the text of `E57` said "30 dias" while the limit was already 60 days; a
+dispute the payer opens at or after `release_deadline` now goes back to the payer when it expires (the money review's
+P2-1); and `dispute_deadline` cannot be earlier than `release_deadline` (`E67`). The walkthrough below would end the
+same on the new code: the expired dispute (step 11) was opened before `release_deadline`, and the `msg` of step 10 sets
+`dispute_deadline` equal to `release_deadline`. As with v1, the reviewed commit is deployed to a new keyless account
+after the money review.
 
 | Check | Command | Result |
 |---|---|---|
