@@ -436,3 +436,16 @@ fn revoke_all_sin_un_yocto() {
     ctx(ALICE, 0);
     c.nft_revoke_all("0".into());
 }
+
+#[test]
+fn resolve_que_lo_devuelve_limpia_la_wallet_que_puso_el_receptor() {
+    let mut c = new_contract();
+    let (a, pagado) = transfer_call(&mut c);
+    // Mientras lo tuvo, MARKET (dueno) se puso como agentWallet.
+    ctx(MARKET, 1);
+    assert!(c.set_agent_wallet("0".into(), acc(MARKET), NOW.to_string()));
+    ctx_callback(PromiseResult::Successful(b"true".to_vec()));
+    assert!(!c.nft_resolve_transfer(acc(ALICE), acc(MARKET), "0".into(), a, U128(pagado)));
+    assert_eq!(c.get_agent_wallet("0".into()), None);
+    assert_eq!(events()[0].2["metadata_value"], "");
+}

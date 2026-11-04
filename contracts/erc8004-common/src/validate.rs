@@ -230,6 +230,18 @@ mod tests {
     }
 
     #[test]
+    fn is_canonical_uint_directo() {
+        for ok in ["0", "7", "10", "18446744073709551616"] {
+            assert!(is_canonical_uint(ok), "{ok}");
+        }
+        for bad in [
+            "", "01", "00", "1e3", "0x1", "a", "1a", "+1", "-1", " 1", "1.0",
+        ] {
+            assert!(!is_canonical_uint(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
     fn enteros_canonicos() {
         assert_eq!(parse_u64("0"), Some(0));
         assert_eq!(parse_u64("17"), Some(17));
