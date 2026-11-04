@@ -1096,6 +1096,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "erc8004-common"
+version = "0.1.0"
+dependencies = [
+ "near-sdk",
+]
+
+[[package]]
+name = "erc8004-identity"
+version = "0.1.0"
+dependencies = [
+ "erc8004-common",
+ "near-sdk",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

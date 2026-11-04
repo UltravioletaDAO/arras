@@ -4,6 +4,8 @@ resolver = "3"
 # contracts/test-ft: FT de prueba, solo para el sandbox de near-workspaces.
 # contracts/registry-v1: identidad y reputacion de agentes (la forma de ERC-8004), atada a pagos liberados de Arras.
 # contracts/test-escrow: escrow de mentira, solo para el sandbox del registro (respuestas de get_payment a medida).
+# contracts/erc8004-*: el port fiel de ERC-8004 a NEAR (docs/plans/erc8004-near-port.md), en crates nuevos: common (sin
+# estado), identity, reputation, arras-verifier y validation (BORRADOR, no se despliega todavia).
 members = [
     "contracts/escrow-core",
     "contracts/escrow-v1",
@@ -11,6 +13,8 @@ members = [
     "contracts/test-ft",
     "contracts/registry-v1",
     "contracts/test-escrow",
+    "contracts/erc8004-common",
+    "contracts/erc8004-identity",
 ]
 
 [workspace.lints.rust.unexpected_cfgs]
