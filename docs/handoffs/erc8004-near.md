@@ -1,7 +1,7 @@
 # Handoff: c0-arras-erc8004, el port fiel de ERC-8004 a NEAR (Identity, Reputation y Validation Registry)
 
 Rama `0xultravioleta/c0-arras-erc8004`, desde `origin/main` 8cec4e6. Worker de la Mac, 2026-11-04 (encargo de c0der con
-el CONTEXTO 1 y las RESPUESTAS 1 y 2). El plan (tabla EVM -> NEAR completa, fuentes en commit fijo, cada desviacion con
+el CONTEXTO 1, las RESPUESTAS 1 y 2 y la RONDA 1 sobre la refutacion de RARRAS-8). El plan (tabla EVM -> NEAR completa, fuentes en commit fijo, cada desviacion con
 su porque) es `docs/plans/erc8004-near-port.md`; este documento es lo que quedo, la interfaz para los SDK y EM, el plan
 de deploy y lo que corri. **Nada se desplego** (ni testnet ni mainnet). `contracts/registry-v1` y
 `registry.arras-escrow.near` no se tocaron: EM y los SDK siguen ahi hasta que esto pase el golden flow en mainnet.
@@ -10,9 +10,9 @@ de deploy y lo que corri. **Nada se desplego** (ni testnet ni mainnet). `contrac
 
 | Crate | Cuenta | Que es | Tests |
 |---|---|---|---|
-| `contracts/erc8004-common` | - | sin estado: validaciones (URIs de RFC 3986, claves, tags, hashes, enteros canonicos, `value`), el resumen de `getSummary` en 256 bits, el sobre NEP-297, y los esquemas estrictos de las llamadas cruzadas (`AgentCheck`, `FeedbackProof`) | 19 |
-| `contracts/erc8004-identity` | `identity-registry.erc-8004.near` | ERC-8004 Identity: cada agente es un NFT (NEP-171/177/178/181), `agent_id` = `token_id` desde `"0"`, `agentURI` = `metadata.reference`, metadata clave -> bytes, `agentWallet` | 95 |
-| `contracts/erc8004-reputation` | `reputation-registry.erc-8004.near` | ERC-8004 Reputation fiel, con la guarda de identidad por llamada cruzada que falla cerrado; con el feature `feedback-proofs` (por defecto), `give_feedback_with_proof` | 90 (65 sin el feature) + 13 del sandbox |
+| `contracts/erc8004-common` | - | sin estado: validaciones (URIs de RFC 3986, claves, tags, hashes, enteros canonicos, `value`), el resumen de `getSummary` en 256 bits, el sobre NEP-297, y los esquemas estrictos de las llamadas cruzadas (`AgentCheck`, `FeedbackProof`) | 21 |
+| `contracts/erc8004-identity` | `identity-registry.erc-8004.near` | ERC-8004 Identity: cada agente es un NFT (NEP-171/177/178/181), `agent_id` = `token_id` desde `"0"`, `agentURI` = `metadata.reference`, metadata clave -> bytes, `agentWallet` | 102 |
+| `contracts/erc8004-reputation` | `reputation-registry.erc-8004.near` | ERC-8004 Reputation fiel, con la guarda de identidad por llamada cruzada que falla cerrado; con el feature `feedback-proofs` (por defecto), `give_feedback_with_proof` | 90 (65 sin el feature) + 14 del sandbox |
 | `contracts/erc8004-arras-verifier` | `erc8004-verifier.arras-escrow.near` | el verificador de pruebas de Arras: un escrow fijo en `new`, espejo estricto del `Payment` de v1 | 19 |
 | `contracts/erc8004-validation` | `validation-registry.erc-8004.near` (ya existe) | **BORRADOR, no desplegable**: el equipo de ERC-8004 no cerro la seccion | 27 |
 | `contracts/test-nft-receiver` | - | receptor de NFT de mentira, solo para el sandbox | - |
@@ -34,9 +34,13 @@ de deploy y lo que corri. **Nada se desplego** (ni testnet ni mainnet). `contrac
   worker firma su alta"): salen con `register` + `nft_transfer` y con `register`; no se agrego ningun metodo (medido
   abajo).
 - **`agentRegistry` = `near:mainnet:identity-registry.erc-8004.near`** sin registrar el namespace (el dueno, RESPUESTA 2).
+- **Ronda 1 de c0der (refutacion de RARRAS-8):** una revocacion (`nft_revoke`, `nft_revoke_all`) cancela la
+  `agentWallet` pendiente, opcion (a), con el evento `agent_wallet_pending` (I-9); cada wasm declara sus estandares en
+  NEP-330 (identity `nep171`/`nep177`/`nep178`/`nep181` y `erc8004`; reputation y verificador `erc8004`); **el deploy en
+  mainnet espera a que el repo este en `UltravioletaDAO/arras`** (paso 0c: el link NEP-330 queda grabado).
 - Mias, con su porque en el plan: `agentWallet` por confirmacion de la wallet (2.3), la reserva por token para que una
   transferencia de 1 yocto nunca haga crecer el storage del contrato sin pagar (2.4), sin `setApprovalForAll` (I-3),
-  `summary_value` exacto en 256 bits (R-4), topes (6.1).
+  `summary_value` exacto en 256 bits (R-4: un entero con signo de hasta 56 cifras), topes (6.1).
 
 ## Lo que los SDK (Python y TS) y EM tienen que llamar
 
@@ -44,6 +48,9 @@ Todo JSON. Enteros grandes como **string decimal canonico** (`agent_id`, `feedba
 sin signo `+`, sin ceros a la izquierda (`"01"` es un error), `"-0"` no vale. `value_decimals`, `response` y
 `summary_value_decimals` van como numero. Los hashes, 64 hex en minusculas sin `0x` (o `null`). Los depositos
 recomendados salen de `get_config` de cada contrato (no los hardcodeen: el contrato cobra lo medido y devuelve el resto).
+Las URIs (`agent_uri`, `endpoint`, `feedback_uri`, `response_uri`, `request_uri`) tienen que traer **esquema**
+(`https://...`, `ipfs://<cid>`, `data:...`) y solo caracteres de RFC 3986 (G-6): un CID pelado o un `endpoint` como
+`"GetPrice"` se rechazan; el SDK los normaliza antes de mandar.
 
 ### Identity Registry (`identity-registry.erc-8004.near`)
 
@@ -52,18 +59,18 @@ recomendados salen de `get_config` de cada contrato (no los hardcodeen: el contr
 | `register` | `{"agent_uri"?: str, "metadata"?: [{"metadata_key": str, "metadata_value": base64}]}` (hasta 4) | cualquiera (queda dueno y `agentWallet`) | `get_config.register_deposit` (peor caso, 0,13279 NEAR); se cobra lo medido + 77 bytes de reserva (~0,0055 NEAR con una URI corta) | 30 / 3,1 TGas | `agent_id` |
 | `set_agent_uri` | `{"agent_id", "new_uri"}` (`""` borra) | dueno o aprobado | >= 1 yocto + lo que crezca | 30 TGas | - |
 | `set_metadata` | `{"agent_id", "metadata_key", "metadata_value": base64}` (vacio borra) | dueno o aprobado | >= 1 yocto + lo que crezca | 30 TGas | - |
-| `set_agent_wallet` | `{"agent_id", "new_wallet", "deadline": ns}` con `now <= deadline <= now + 5 min` | dueno o aprobado | exactamente 1 yocto | 30 / 2,0 TGas | `true` si quedo puesta (la wallet es el que llama), `false` si quedo pendiente |
+| `set_agent_wallet` | `{"agent_id", "new_wallet", "deadline": ns}` con `now <= deadline <= now + 5 min` | dueno o aprobado | exactamente 1 yocto | 30 / 2,0 TGas | `true` si quedo puesta (la wallet es el que llama), `false` si quedo pendiente (evento `agent_wallet_pending`) |
 | `accept_agent_wallet` | `{"agent_id"}` | la wallet pendiente | exactamente 1 yocto | 30 TGas | - |
 | `unset_agent_wallet` | `{"agent_id"}` | dueno o aprobado | exactamente 1 yocto | 30 TGas | - |
 | `nft_transfer` | `{"receiver_id", "token_id", "approval_id"?, "memo"?}` | dueno o aprobado | exactamente 1 yocto | 30 / 2,8 TGas | - |
 | `nft_transfer_call` | `{... , "msg"}` | idem | exactamente 1 yocto | >= 50 / 7,7 TGas | `true` si quedo en el receptor |
 | `nft_approve` | `{"token_id", "account_id", "msg"?}` | solo el dueno | >= 1 yocto + lo que crezca | 30 TGas | promesa de `nft_on_approve` si hay `msg` |
-| `nft_revoke` / `nft_revoke_all` | `{"token_id", "account_id"}` / `{"token_id"}` | solo el dueno | exactamente 1 yocto | 30 TGas | - |
+| `nft_revoke` / `nft_revoke_all` | `{"token_id", "account_id"}` / `{"token_id"}` | solo el dueno | exactamente 1 yocto | 30 TGas | - ; **cancelan la `agentWallet` pendiente** (I-9), la haya propuesto quien sea |
 
 Vistas: `nft_token({"token_id"})`, `nft_tokens({"from_index"?: U128, "limit"?})`, `nft_supply_for_owner`,
 `nft_tokens_for_owner`, `nft_total_supply`, `nft_metadata`, `nft_is_approved`, `token_uri({"agent_id"})`,
 `get_metadata({"agent_id", "metadata_key"})` (base64 o `null`; con `agentWallet`, los bytes de la cuenta),
-`get_agent_wallet({"agent_id"})`, `get_pending_agent_wallet({"agent_id"})`,
+`get_agent_wallet({"agent_id"})`, `get_pending_agent_wallet({"agent_id"})` (`{"wallet","deadline"}` o `null`),
 `is_authorized_or_owner({"spender", "agent_id"})` (panic si no existe), `check_agent({"agent_id", "account_id"})`,
 `get_version` (`"2.0.0"`), `get_config`.
 
@@ -85,7 +92,9 @@ check_agent {"owner_id":"worker.near","agent_wallet":null,"authorized":false}
 | `append_response` | `{"agent_id", "client_address", "feedback_index", "response_uri", "response_hash"?}` | cualquiera | >= 1 yocto + lo que crezca (~0,005 NEAR el primero de cada respondedor) | 30 / 3,0 TGas | - |
 
 Vistas: `get_summary({"agent_id", "client_addresses": [..] (no vacia), "tag1"?, "tag2"?})` ->
-`{"count":"2","summary_value":"85","summary_value_decimals":0}`; `read_feedback({"agent_id", "client_address",
+`{"count":"2","summary_value":"85","summary_value_decimals":0}` (`summary_value` es un entero con signo de hasta 56
+cifras: no entra en `int128` ni en un numero JSON; `[(1e38, 0), (1, 1), (1, 1)]` da `"333333333333333333333333333333333333334"`
+con 1 decimal, donde EVM da vuelta el signo: R-4); `read_feedback({"agent_id", "client_address",
 "feedback_index"})` -> `{"value","value_decimals","tag1","tag2","is_revoked"}` o `null`;
 `read_all_feedback({"agent_id", "client_addresses"?, "tag1"?, "tag2"?, "include_revoked"?})` (los 7 arreglos de EVM);
 `get_response_count({"agent_id", "client_address"?, "feedback_index"?, "responders"?})`;
@@ -118,6 +127,8 @@ EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"metadata_set","data"
 EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"uri_updated","data":[{"agent_id":"0","new_uri":"ipfs://bafy","updated_by":"alice.near"}]}
 EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"metadata_set","data":[{"agent_id":"0","metadata_key":"agentWallet","metadata_value":""}]}
 EVENT_JSON:{"standard":"nep171","version":"1.0.0","event":"nft_transfer","data":[{"old_owner_id":"alice.near","new_owner_id":"bob.near","token_ids":["0"],"memo":"venta"}]}
+EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"agent_wallet_pending","data":[{"agent_id":"0","wallet":"wallet.near","deadline":"1793491500000000000"}]}
+EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"agent_wallet_pending","data":[{"agent_id":"0","wallet":null,"deadline":"0"}]}
 EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"new_feedback","data":[{"agent_id":"7","client_address":"cliente.near","feedback_index":"1","value":"87","value_decimals":0,"tag1":"starred","tag2":"","endpoint":"https://agente.example/mcp","feedback_uri":"ipfs://bafyfeedback","feedback_hash":"00ff...6c","proof":null}]}
 EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"new_feedback","data":[{..., "proof":{"verifier":"erc8004-verifier.arras-escrow.near","proof":"<payment_id>","counterparty":"worker.near","role":"receiver","context":"em","weight":"1000000"}}]}
 EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"feedback_revoked","data":[{"agent_id":"7","client_address":"cliente.near","feedback_index":"1"}]}
@@ -128,7 +139,11 @@ EVENT_JSON:{"standard":"erc8004","version":"1.0.0","event":"validation_response"
 
 `register` emite, en orden: `nft_mint`, `registered`, `metadata_set` (`agentWallet`) y un `metadata_set` por entrada.
 Una transferencia emite `metadata_set` (`agentWallet`, `""`) y despues `nft_transfer` (el orden de `_update` en EVM);
-la devolucion de un `nft_transfer_call` emite otro par. Como en registry-v1: un indexador cuenta solo los eventos de
+la devolucion de un `nft_transfer_call` emite otro par. `set_agent_wallet` que deja una pendiente emite
+`agent_wallet_pending` con la wallet y su `deadline` (ns); `nft_revoke`/`nft_revoke_all` que cancelan una emiten el
+mismo evento con `wallet` `null` (I-9). Para un indexador, una pendiente vale hasta su `deadline` salvo que la cancele
+un evento posterior del mismo agente: `metadata_set` de `agentWallet`, `nft_transfer` u otro `agent_wallet_pending`.
+Como en registry-v1: un indexador cuenta solo los eventos de
 recibos cuyo `executor_id` es el contrato y cuyo resultado final es exito (cualquiera puede emitir el mismo
 `EVENT_JSON` desde su propio contrato).
 
@@ -138,7 +153,7 @@ Panic (la tx falla, el runtime devuelve el deposito): Identity `ERC8004_ID_E01` 
 `E03` mas de 4 entradas, `E04` `agentWallet` es reservada, `E05` valor de metadata largo, `E06` deposito corto (dice
 cuanto), `E07` sin yocto, `E10` agent_id no canonico, `E11` agente inexistente, `E12` `Not authorized`, `E13` deadline
 no canonico, `E14` `expired`, `E15` `deadline too far`, `E16` no hay wallet pendiente, `E17` no es la wallet pendiente,
-`E18` memo largo, `E19` approval_id, `E20` el receptor ya es el dueno, `E21` gas de `nft_transfer_call`, `E22` solo el
+`E18` memo largo, `E19` approval_id, `E20` el receptor ya es el dueno (I-10: en EVM transferirse a si mismo pasa), `E21` gas de `nft_transfer_call`, `E22` solo el
 dueno, `E23` mas de 8 aprobaciones. Reputation `ERC8004_REP_E01` agent_id, `E02` value, `E03` `value too large`,
 `E04` `too many decimals`, `E05` tag, `E06` endpoint, `E07` feedback_uri, `E08` hash, `E09` deposito corto, `E10` gas,
 `E11` feedback_index no canonico, `E12` `index must be > 0`, `E13` `index out of bounds`, `E14` `Already revoked`,
@@ -204,6 +219,16 @@ mainnet, EM sigue con `registry.arras-escrow.near` (registry-v1) como hoy.
   distintos.
 - La identidad es el NFT: quien lo tenga (tambien un comprador) hereda la reputacion recibida. La transferencia limpia
   `agentWallet` y las aprobaciones; no borra el historial.
+- **La prueba ata al dueno o la `agentWallet` actual, no al agente** (plan, 3.3): el verificador devuelve la otra parte
+  del pago y el registro exige que sea el dueno o la `agentWallet` que tiene el agente cuando corre el callback; la
+  unicidad es `(verificador, payment_id, cliente)`, sin el agente. Con un dueno de varios agentes, el cliente elige a
+  cual le suma un pago (una vez); despues de una transferencia, los pagos viejos del dueno nuevo cuentan para ese
+  agente. Para EM (un agente por worker, el worker es el dueno) no cambia nada; quien muestre la reputacion verificada
+  de un agente que cambio de manos lo ve en los `nft_transfer`.
+- Una `agentWallet` pendiente no sobrevive a una revocacion (I-9) ni a una transferencia; la cancelacion queda en los
+  logs (`agent_wallet_pending` con `wallet` `null`).
+- Lo liberado vuelve al dueno actual (S-1), aunque lo haya pagado un dueno anterior o un aprobado; el contrato queda
+  solvente igual (solo devuelve storage que se libera).
 - `agent_uri`, los tags y las URIs de feedback aceptan lo que la spec permite (dentro de los topes): EM y los SDK
   sanean antes de mostrar (enlaces solo `https:`, `ipfs:`, `ar:`; los tags son UTF-8 sin caracteres de control y
   pueden traer bidi o ancho cero).
@@ -213,15 +238,15 @@ near-cli-rs 0.30.1, firmando con el llavero legacy como `scripts/mainnet.sh`. Tr
 
 | Cuenta (mainnet) | Padre | Contrato | `new` | Fondeo |
 |---|---|---|---|---|
-| `identity-registry.erc-8004.near` | `erc-8004.near` (de c0der; 0,0729 NEAR a las 14:02Z) | `erc8004-identity` | `{}` | 2,7 NEAR |
+| `identity-registry.erc-8004.near` | `erc-8004.near` (de c0der; 0,0729 NEAR a las 14:02Z) | `erc8004-identity` | `{}` | 2,8 NEAR (era 2,7: la wasm de 9457b3a mide 1.305 bytes mas) |
 | `reputation-registry.erc-8004.near` | `erc-8004.near` | `erc8004-reputation` (con `feedback-proofs`) | `{"identity_registry":"identity-registry.erc-8004.near"}` | 2,9 NEAR |
 | `erc8004-verifier.arras-escrow.near` | `arras-escrow.near` (llave en SSM `/arras/mainnet/padre`; 0,1670 NEAR a las 15:00Z) | `erc8004-arras-verifier` | `{"escrow":"v1.arras-escrow.near"}` | 1,3 NEAR |
 | `validation-registry.erc-8004.near` | ya existe (0,02 NEAR, la llave del padre) | `erc8004-validation` | **no ahora** (BORRADOR) | - |
 
 El fondeo de cada cuenta es su storage medido (WE-11: wasm reproducible + los bytes de la cuenta y del estado de `new`,
-sin la llave: identity 258.935, reputation 274.097, verificador 119.287, con la wasm de f1e9a1b; con la llave son 82 bytes
-mas cada una) mas 0,1 NEAR, redondeado hacia arriba a la
-decena. El gas del deploy y del borrado de llaves lo paga la propia cuenta y es menos de 0,01 NEAR (desplegar ~270 KB
+sin la llave: identity 260.240, reputation 274.135, verificador 119.327, con la wasm reproducible de 9457b3a y los
+178 / 212 / 164 bytes de WE-11; con la llave son 82 bytes mas cada una) mas 0,1 NEAR, redondeado hacia arriba a la
+decena: 2,7024 -> 2,8, 2,84135 -> 2,9, 1,29327 -> 1,3. El gas del deploy y del borrado de llaves lo paga la propia cuenta y es menos de 0,01 NEAR (desplegar ~270 KB
 quema ~19 TGas); lo demas es margen para una wasm algo mas grande. Los usuarios pagan su propio storage (lo medido, con
 el sobrante de vuelta), asi que el contrato no necesita mas que eso.
 
@@ -242,8 +267,8 @@ for c in erc8004_identity erc8004_reputation erc8004_arras_verifier; do
   shasum -a 256 "$HOME"/arras-build/erc8004-"$REV"-{1,2}/target/near/$c/$c.wasm; wc -c < "$HOME/arras-build/erc8004-$REV-1/target/near/$c/$c.wasm"
 done
 #    -> cada par con el MISMO sha256 (si difieren, se para aca); ese sha256 es el code hash del paso 3. Los largos
-#       tienen que andar cerca de los de esta rama (258.757 / 273.885 / 119.123 bytes). Con el fondeo de la tabla y
-#       0,01 NEAR para el gas, la wasm entra hasta 268.740 / 288.706 / 128.754 bytes (sin olvidar los 82 bytes de la
+#       tienen que andar cerca de los de esta rama (260.062 / 273.923 / 119.163 bytes). Con el fondeo de la tabla y
+#       0,01 NEAR para el gas, la wasm entra hasta 278.740 / 288.706 / 128.754 bytes (sin olvidar los 82 bytes de la
 #       llave, que sigue puesta durante el deploy y el humo); si alguna mide mas, su fondeo
 #       sube a (wasm + 178 / 212 / 164 bytes) / 100.000 + 0,1 NEAR, redondeado hacia arriba a la decena.
 B="$HOME/arras-build/erc8004-$REV-1/target/near"
@@ -254,12 +279,19 @@ W_VER=$B/erc8004_arras_verifier/erc8004_arras_verifier.wasm
 # 0b. (CONTEXTO 1, punto 2) En mainnet: el dueno decide si espera la coordinacion con el equipo de ERC-8004
 #     (team@8004.org) antes de seguir. Testnet no la espera.
 
-# 1. Fondear los padres. erc-8004.near necesita 2,7 + 2,9 + 0,03 de gas; arras-escrow.near, 1,3 + 0,03.
+# 0c. (Ronda 1 de c0der) En mainnet: NO se sigue hasta que el repo este en UltravioletaDAO/arras. Cada wasm graba en
+#     NEP-330 el link https://github.com/UltravioletaDAO/arras/tree/<REV> (el `repository` del Cargo.toml) y un
+#     contrato inmutable no lo puede cambiar. c0der se lo pide al dueno. Testnet no lo espera.
+gh repo view UltravioletaDAO/arras --json nameWithOwner,visibility
+#    -> {"nameWithOwner":"UltravioletaDAO/arras",...}; si da "Could not resolve to a Repository", se para aca. Y el REV
+#       del paso 0 tiene que estar en ese repo: gh api repos/UltravioletaDAO/arras/commits/$REV --jq .sha
+
+# 1. Fondear los padres. erc-8004.near necesita 2,8 + 2,9 + 0,03 de gas; arras-escrow.near, 1,3 + 0,03.
 near account view-account-summary erc-8004.near network-config mainnet now
 near account view-account-summary arras-escrow.near network-config mainnet now
 
 # 2. Las cuentas (la llave nueva de cada una queda en el llavero legacy: la usan los pasos 3 y 6).
-near account create-account fund-myself identity-registry.erc-8004.near '2.7 NEAR' autogenerate-new-keypair \
+near account create-account fund-myself identity-registry.erc-8004.near '2.8 NEAR' autogenerate-new-keypair \
   save-to-legacy-keychain sign-as erc-8004.near network-config mainnet sign-with-legacy-keychain send
 near account create-account fund-myself reputation-registry.erc-8004.near '2.9 NEAR' autogenerate-new-keypair \
   save-to-legacy-keychain sign-as erc-8004.near network-config mainnet sign-with-legacy-keychain send
@@ -288,6 +320,9 @@ done
 #    -> identity: "contract": "erc8004-identity", "erc8004_version": "2.0.0", "total_agents": "0";
 #       reputation: "identity_registry": "identity-registry.erc-8004.near", "feedback_deposit": "5910000000000000000000",
 #       "feedback_proof_deposit": "14720000000000000000000"; verifier: "escrow": "v1.arras-escrow.near".
+#       contract_source_metadata: "link": "https://github.com/UltravioletaDAO/arras/tree/<REV>", "version": "0.1.0",
+#       build_info con la imagen por digest, y "standards": identity nep171, nep177, nep178, nep181 y erc8004 en
+#       "1.0.0" y nep330 "1.3.0"; reputation y verificador erc8004 "1.0.0" y nep330 "1.3.0" (los mira WE-11).
 
 # 5. Humo OBLIGATORIO antes de borrar llaves (las calificaciones quedan para siempre): el ciclo entero con el pago real
 #    de R679 (el mismo del paso 3b de registry-v1). Prueba que el espejo del verificador lee el `Payment` real de v1 y
@@ -341,7 +376,7 @@ done
 
 **Testnet (primero).** Lo mismo con `network-config testnet` y estas cuentas: padre `erc-8004.testnet` (NO EXISTE a las
 15:00Z: c0der la crea, p. ej. `near account create-account sponsor-by-faucet-service erc-8004.testnet
-autogenerate-new-keypair save-to-legacy-keychain network-config testnet create`, y la fondea con 5,7 NEAR),
+autogenerate-new-keypair save-to-legacy-keychain network-config testnet create`, y la fondea con 5,8 NEAR),
 hijas `identity-registry.erc-8004.testnet` y `reputation-registry.erc-8004.testnet`, y el verificador
 `erc8004-verifier.arras-dev.testnet` (padre `arras-dev.testnet`, 1,3352 NEAR a las 15:00Z: crear la cuenta con 1,3 le
 deja 0,035 para el gas, justo; conviene fondearlo con 0,1 NEAR mas antes) con
@@ -368,35 +403,37 @@ cambian nunca, y Reputation y Validation no pueden cambiar de Identity Registry 
 | `give_feedback` aceptada | 7,30 TGas en total: Reputation 2,21, `check_agent` 1,45, callback 2,42; 323 bytes | minimo 40 TGas (`check_agent` 5, callback 20); `feedback_deposit` 591 bytes (U-ST1 exacto) |
 | `give_feedback` rechazada (`E22`) | 6,49 TGas; 0 bytes; vuelve todo el deposito | |
 | `give_feedback` con el minimo justo (40 TGas) | pasa (7,28 quemados) | |
-| `give_feedback_with_proof` aceptada (v1 compilada / de mainnet) | 14,05 / 14,05 TGas: Reputation 2,87, `check_agent` 1,43, verificador 1,92, `get_payment` de v1 1,48 / 1,47, callback del verificador 1,22, callback de Reputation 3,26 | minimo 120 TGas (verificador 50, callback 30); `feedback_proof_deposit` 1.472 bytes (U-ST3 exacto) |
-| `give_feedback_with_proof` con el minimo justo (120 TGas) | pasa (13,84 quemados) | |
+| `give_feedback_with_proof` aceptada (v1 compilada / de mainnet) | 14,02 / 14,01 TGas: Reputation 2,87, `check_agent` 1,43, verificador 1,89, `get_payment` de v1 1,48 / 1,47, callback del verificador 1,21, callback de Reputation 3,27 | minimo 120 TGas (verificador 50, callback 30); `feedback_proof_deposit` 1.472 bytes (U-ST3 exacto) |
+| `give_feedback_with_proof` con el minimo justo (120 TGas) | pasa (13,81 quemados) | |
 | `append_response` (respondedor nuevo) | 3,04 TGas | lo medido |
 | `validation_request` (BORRADOR) | 7,48 TGas | `request_deposit` 574 bytes (exacto) |
 | 6 transferencias a 6 cuentas nuevas (WE-10) | el storage del Identity Registry sube 385 bytes (5 x 77) y su saldo libre no baja | la reserva por token |
+| el ciclo de duenos (WE-12): ALICE (1) -> BOB (1), despues BOB (2) -> NUEVA -> BOB seis veces | el saldo libre del Identity Registry sube 96.033.710.506.400.000.002 yocto por ciclo (el 30 % del gas de las dos transferencias y los 2 yocto); un contador son 770.000.000.000.000.000.000 | nada vuelve al dueno que se queda sin agentes |
 | peor caso de logs: `register` con todo al tope; `new_feedback` con tags de `"`/`\` y URIs al tope | < 16.384 bytes cada uno (U-ST1) | tope de NEAR por recibo |
-| cuentas recien desplegadas, sin llave (WE-11, con la wasm de `compile_project`) | identity 263.097 bytes (codigo 262.919 + 178), reputation 279.814 (279.602 + 212), verifier 120.349 (120.185 + 164), validation 199.033 (198.846 + 187) | el fondeo del plan: wasm reproducible + esos bytes + 0,1 NEAR |
-| wasm reproducible (`cargo near build reproducible-wasm`) | dos clones de 8961d49, cada par identico: identity 258.757 bytes, reputation 273.698, verifier 119.123; el codigo final (f1e9a1b): identity 258.757 (sha256 `03850174...6012d3e9`), reputation 273.885 (`c45b546b...b24cbbaa`), verifier 119.123 (`0fa406eb...2794c777`) | el merge commit da otro sha256 (NEP-330 embebe el commit) |
+| cuentas recien desplegadas, sin llave (WE-11, con la wasm de `compile_project`, 9457b3a) | identity 264.411 bytes (codigo 264.233 + 178), reputation 280.035 (279.823 + 212), verifier 120.389 (120.225 + 164), validation 199.033 (198.846 + 187); WE-11 mira ademas los `standards` de NEP-330 de cada una | el fondeo del plan: wasm reproducible + esos bytes + 0,1 NEAR |
+| wasm reproducible (`cargo near build reproducible-wasm`) | dos clones de 8961d49, cada par identico: identity 258.757 bytes, reputation 273.698, verifier 119.123; el codigo final (f1e9a1b): identity 258.757 (sha256 `03850174...6012d3e9`), reputation 273.885 (`c45b546b...b24cbbaa`), verifier 119.123 (`0fa406eb...2794c777`); con la ronda 1 de c0der (9457b3a), dos clones, cada par identico: identity 260.062 (`40638245...61639e3d`), reputation 273.923 (`c0463576...554150f0`), verifier 119.163 (`a07e3a8e...3e6c56c6`) | el merge commit da otro sha256 (NEP-330 embebe el commit) |
 
 ## Lo que corri
 
 Sin red de NEAR (`HTTPS_PROXY=http://127.0.0.1:9`, `--offline`), sin credenciales (`AWS_SHARED_CREDENTIALS_FILE=/dev/null`),
 `NEAR_SANDBOX_BIN_PATH` = near-sandbox 2.13.4, Rust 1.93.0 de `rust-toolchain.toml`. El repo no tiene
 `.github/workflows` ni `scripts/ci/preflight.sh`: no hay CI que reproducir. `origin/main` sigue en 8cec4e6 (re-medido
-con `git fetch` antes de la corrida final: la union es la rama misma).
+con `git fetch` antes de cada corrida final, la ultima a las 18:15Z: la union es la rama misma).
 
 | Paso (job) | Comando | Resultado |
 |---|---|---|
 | Linea base, `origin/main` 8cec4e6 (13:50Z-14:09Z) | `cargo test --workspace --offline --no-fail-fast -j 4` | escrow-core 12, escrow-v1 60 + 15 sandbox (+3 ignored, necesitan red), escrow-v2 130 + 11, registry-v1 115 + 14, test-escrow 0, test-ft 0. **Sin rojos** |
 | Union con `origin/main` (sin cambios: 8cec4e6), en f1e9a1b (16:03Z-16:20Z) | `cargo test --workspace --offline --no-fail-fast -j 4` | lo mismo que la base (12, 60 + 15 (+3), 130 + 11, 115 + 14) y ademas erc8004-common 19, erc8004-identity 95, erc8004-reputation 90 + **13 sandbox** (WE-00..WE-11, WE-05 contra v1 compilada y contra la wasm de mainnet), erc8004-arras-verifier 19, erc8004-validation 27, test-nft-receiver 0: **todo verde** (la misma suite en 2520dc5, antes del P1, tambien) |
-| El port puro (sin la extension) | `cargo test --offline -p erc8004-reputation --no-default-features --lib` | 65 en verde |
+| Ronda 1 de c0der: head y union (la misma: `origin/main` = 8cec4e6 es ancestro), con el codigo de 9457b3a (18:16:21Z-18:43:06Z) | `cargo test --workspace --offline --no-fail-fast -j 4`, red cerrada, `AWS_SHARED_CREDENTIALS_FILE=/dev/null`, `CI=true` | la base igual (12, 60 + 15 (+3 ignored), 130 + 11, 115 + 14) y erc8004-common **21**, erc8004-identity **102**, erc8004-reputation 90 + **14 sandbox** (WE-00..WE-12), erc8004-arras-verifier 19, erc8004-validation 27, test-nft-receiver 0: **todo verde**; la lista de tests contra la de la base: 0 rojos nuevos, 0 tests de la base que falten |
+| El port puro (sin la extension) | `cargo test --offline -p erc8004-reputation --no-default-features --lib` | 65 en verde (otra vez en la ronda 1 de c0der) |
 | Mediciones del sandbox | `cargo test -p erc8004-reputation --test workspaces -- --nocapture` | las lineas `MEDIDA` de la seccion "Gas y storage medidos" |
-| Formato | `cargo fmt --all -- --check` | limpio |
-| Lint | `cargo clippy --offline -p erc8004-common -p erc8004-identity -p erc8004-reputation -p erc8004-arras-verifier -p erc8004-validation -p arras-test-nft-receiver --all-targets -- -D warnings`, y `-p erc8004-reputation --no-default-features --all-targets` | limpio |
-| Mutaciones | el script del scratchpad (`timeout` por mutante, `git checkout` despues de cada una, arbol limpio entre una y otra) | 199: **197 muertas por un test que falla**, 2 equivalentes (V02, sacada del codigo, y C36) |
-| Build reproducible | `cargo near build reproducible-wasm` de los 3 crates desplegables, imagen `sourcescan/cargo-near` por digest `ccb22bb4...` | dos clones limpios de 8961d49: cada par con el mismo sha256 (identity 258.757 bytes, reputation 273.698, verifier 119.123); uno de f1e9a1b, el codigo final: identity 258.757 (`03850174...6012d3e9`), reputation 273.885 (`c45b546b...b24cbbaa`), verifier 119.123 (`0fa406eb...2794c777`) |
+| Formato | `cargo fmt --all -- --check` | limpio (tambien en 9457b3a) |
+| Lint | `cargo clippy --offline -p erc8004-common -p erc8004-identity -p erc8004-reputation -p erc8004-arras-verifier -p erc8004-validation -p arras-test-nft-receiver --all-targets -- -D warnings`, y `-p erc8004-reputation --no-default-features --all-targets` | limpio (tambien en 9457b3a) |
+| Mutaciones | el script del scratchpad (`timeout` por mutante, `git checkout` despues de cada una, arbol limpio entre una y otra) | 212 (199 + los 13 de la ronda 1 de c0der: O1, O1-ws, O2, O4, W1..W8, S1): **210 muertas por un test que falla**, 2 equivalentes (V02, sacada del codigo, y C36) |
+| Build reproducible | `cargo near build reproducible-wasm` de los 3 crates desplegables, imagen `sourcescan/cargo-near` por digest `ccb22bb4...` | dos clones limpios de 8961d49: cada par con el mismo sha256 (identity 258.757 bytes, reputation 273.698, verifier 119.123); uno de f1e9a1b, el codigo final: identity 258.757 (`03850174...6012d3e9`), reputation 273.885 (`c45b546b...b24cbbaa`), verifier 119.123 (`0fa406eb...2794c777`); ronda 1 de c0der, dos clones limpios de 9457b3a (17:54Z-18:15Z): cada par identico, identity 260.062 (`406382455fcf488b80d6f84a0825411585459b3c373f38c6318cf3ab61639e3d`), reputation 273.923 (`c0463576acd91692733d60ed4145832c0432d6e52f2ffba3da9cfa3e554150f0`), verifier 119.163 (`a07e3a8e70fdc21046ff654cd84eeb489402472a92e27ed795d8e1b13e6c56c6`); su `contract_source_metadata` trae `link` `.../UltravioletaDAO/arras/tree/9457b3a...`, la imagen por digest y los `standards` del plan (seccion 7) |
 | Pre-CI de c0der | `python3 ~/c0der-specs/hooks/preci.py --repo . --base origin/main --ejecutar` | verde por vacio ("ningun paso barato que correr": el repo no tiene workflows) |
-| Scripts de mainnet (no cambiaron) | `scripts/test_mainnet.sh` | 347 asserts pasan, 0 fallan, con `/bin/bash` 3.2 y `/opt/homebrew/bin/bash` 5.3.20 |
-| Secretos | `gitleaks git --log-opts=origin/main..HEAD` y `gitleaks dir docs/handoffs/erc8004-near.md` | sin hallazgos (12 commits) |
+| Scripts de mainnet (no cambiaron) | `scripts/test_mainnet.sh` | 347 asserts pasan, 0 fallan, con `/bin/bash` 3.2 y `/opt/homebrew/bin/bash` 5.3.20 (otra vez en la ronda 1 de c0der) |
+| Secretos | `gitleaks git --log-opts=origin/main..HEAD` y `gitleaks dir docs/handoffs/erc8004-near.md` | sin hallazgos (12 commits; en la ronda 1 de c0der, 18 commits) |
 | No se toco lo desplegado | `git diff origin/main...HEAD -- contracts/registry-v1 contracts/escrow-v1 contracts/escrow-v2 contracts/escrow-core` | vacio |
 | Mediciones de cadena (solo lectura) | RPC publica de NEAR y de Base (`view_account`, `view_access_key_list`, `get_config`, `getVersion`) | las de la seccion 0 del plan |
 
@@ -415,7 +452,11 @@ entradas, tags 64/65, endpoint 1.024, URIs 4.096, memo 256/257, 8/9 aprobaciones
 deadline `now`/`now + 5 min`/`+1`, `accept` en el deadline y uno despues, TTL del candado `at + 999`/`at + 1000`,
 deposito `need`/`need - 1`, gas minimo justo en el sandbox y menos 1, respuestas de 1.024 bytes justos y 1.025), el
 predecessor y no el signer (register, give_feedback, revoke_feedback), y cada forma en que un `Payment` puede no ser el
-de v1 (los casos de la RONDA 1 de registry-v1). Parsers: `serde_json` de near-sdk y `bs58` de near-sdk; no se usa
+de v1 (los casos de la RONDA 1 de registry-v1). De la ronda 1 de c0der: revocar a una cuenta que no estaba aprobada
+(cancela igual), revocar sin pendiente (no emite nada), la pendiente propuesta por el dueno y por un aprobado, la
+pendiente del receptor de un `nft_transfer_call` devuelto, una wallet de 64 bytes (el `Token` no cambia de largo), el
+ciclo de duenos de un solo agente, y productos de 256 bits con acarreo entre palabras (`a` desde 2^64 hasta 2^128 - 1,
+`b` = 10^k y `u64::MAX`). Parsers: `serde_json` de near-sdk y `bs58` de near-sdk; no se usa
 ningun parser de URL. Rutas: no hay (todo en cadena).
 
 **Mutaciones a mano** (cada una aplicada con un reemplazo de texto exacto, corrida con `timeout` (300 s, 900 s las del
@@ -429,8 +470,12 @@ receptor de un `nft_transfer_call` antes de que se lo devuelvan, ni de `is_canon
 que esa guarda se saco del codigo (8961d49). Tercera: P21 con su test nuevo y la guarda de largo del verificador
 reescrita (V01, V01b): 3 muertas. Cuarta, con el arreglo del P1 del refutador: C34 (volver al `Ord` derivado) y C35
 (comparar sin `rev`) muertas por el test nuevo; C36 (`>=` por `>` al elegir el signo) es equivalente (con las dos sumas
-iguales la magnitud es 0 y el signo no se imprime). **Total: 199 mutantes, 197 muertas por un test que falla y 2
-equivalentes (V02, cuya guarda redundante se saco del codigo, y C36).**
+iguales la magnitud es 0 y el signo no se imprime). Hasta ahi: 199 mutantes, 197 muertas y 2 equivalentes. Quinta,
+con la ronda 1 de c0der (sobre 9457b3a): los tres mutantes que el refutador de c0der encontro vivos (O1, O2, O4) con
+sus tests nuevos, O1 tambien en el sandbox (WE-12), ocho de la cancelacion de la pendiente (W1..W8) y uno de NEP-330
+(S1): 13 muertas; W1, W2, W4 y W5 caen ademas con solo los dos tests de la sonda (`tras_nft_revoke*`). **Total: 212
+mutantes, 210 muertas por un test que falla y 2 equivalentes (V02, cuya guarda redundante se saco del codigo, y
+C36).**
 
 | # | Mutacion (archivo: lo que habia -> lo que se puso) | Resultado | Un test que la mata |
 |---|---|---|---|
@@ -633,6 +678,19 @@ equivalentes (V02, cuya guarda redundante se saco del codigo, y C36).**
 | S07 | `erc8004-arras-verifier/src/lib.rs`: `#[private] pub fn on_payment(` -> `pub fn on_payment(` | muerta | `we07_callbacks_privados` |
 | S08 | `erc8004-validation/src/lib.rs`: `#[init] #[private] pub fn new(identity_registry` -> `#[init] pub fn new(identity_registry` | muerta | `we00_new_privado_una_vez_y_sin_llaves` |
 | S09 | `erc8004-validation/src/lib.rs`: `#[private] pub fn on_request_checked(` -> `pub fn on_request_checked(` | muerta | `we07_callbacks_privados` |
+| O1 | `erc8004-identity/src/nft.rs`: `let freed_bytes = before.saturating_sub(self.usage());` medido despues de `remove_from_owner`/`add_to_owner` en vez de antes | muerta | `unit_tests::storage::ust5_quedarse_sin_agentes_no_devuelve_el_contador` |
+| O1-ws | lo mismo, contra el sandbox | muerta | `we12_el_ciclo_de_duenos_no_baja_el_saldo_libre` |
+| O2 | `erc8004-identity/src/nft.rs`: el resolve que deshace sin `token.pending_wallet = FixedAccount::NONE; token.pending_deadline = 0;` | muerta | `unit_tests::nft::resolve_que_lo_devuelve_la_pendiente_del_receptor_no_acepta` |
+| O4 | `erc8004-common/src/summary.rs`: `let w2 = ((carry >> 64) + (hi >> 64)) as u64;` -> `let w2 = (hi >> 64) as u64;` | muerta | `summary::tests::mul_u128_u64_contra_python` |
+| W1 | `erc8004-identity/src/nft.rs`: `nft_revoke` sin `self.cancel_pending_wallet(id, token);` | muerta | `unit_tests::wallet::tras_nft_revoke_la_wallet_que_propuso_el_revocado_no_acepta` |
+| W2 | `erc8004-identity/src/nft.rs`: `nft_revoke_all` sin `self.cancel_pending_wallet(id, token);` | muerta | `unit_tests::wallet::tras_nft_revoke_all_la_wallet_que_propuso_el_revocado_no_acepta` |
+| W3 | `erc8004-identity/src/nft.rs`: `cancel_pending_wallet` sin `emit_agent_wallet_pending(id, None, 0);` | muerta | `unit_tests::wallet::revocar_cancela_tambien_la_del_dueno_y_aunque_la_cuenta_no_estuviera` |
+| W4 | `erc8004-identity/src/nft.rs`: `cancel_pending_wallet` sin `token.pending_wallet = FixedAccount::NONE;` | muerta | `unit_tests::wallet::tras_nft_revoke_la_wallet_que_propuso_el_revocado_no_acepta` |
+| W5 | `erc8004-identity/src/nft.rs`: `if token.pending_wallet.is_none() {` -> `if !token.pending_wallet.is_none() {` | muerta | `unit_tests::wallet::tras_nft_revoke_all_la_wallet_que_propuso_el_revocado_no_acepta` |
+| W6 | `erc8004-identity/src/nft.rs`: en `nft_revoke`, cancelar solo si la cuenta estaba aprobada (despues de los `return`) | muerta | `unit_tests::wallet::revocar_cancela_tambien_la_del_dueno_y_aunque_la_cuenta_no_estuviera` |
+| W7 | `erc8004-identity/src/registry.rs`: `set_agent_wallet` sin `emit_agent_wallet_pending(id, Some(&new_wallet), deadline);` | muerta | `unit_tests::wallet::otra_wallet_queda_pendiente_hasta_que_acepta` |
+| W8 | `erc8004-identity/src/registry.rs`: `emit_agent_wallet_pending(id, Some(&new_wallet), deadline);` -> `emit_agent_wallet_pending(id, Some(&new_wallet), 0);` | muerta | `unit_tests::wallet::otra_wallet_queda_pendiente_hasta_que_acepta` |
+| S1 | `erc8004-identity/src/lib.rs`: sin `standard(standard = "nep181", version = "1.0.0"),` | muerta | `we11_storage_de_cada_cuenta_recien_desplegada` |
 
 **Refutador** (un subagente opus/xhigh sobre el diff, el encargo, el CONTEXTO, las RESPUESTAS, el plan, este handoff y
 el borrador del PR; regla 5c). Ronda 1: **NO MERGEABLE por un P1**, sin P2.
@@ -656,6 +714,30 @@ C35 muerto y C36 equivalente, y que los P3 de la ronda 1 quedaron bien. Pidio tr
 aca: 65 tests (no 64) sin el feature, la tabla de lo que corri al dia con f1e9a1b, y el sha256 y el largo nuevos de la
 wasm de Reputation (f76f664 la cambia).
 
+**Refutador de c0der (RARRAS-8, ronda 1 de c0der, sobre 49bbcb4): MERGEABLE CON RONDA**, sin P1. Lo que pidio y lo que
+quedo (codigo y tests en 9457b3a, plan en e85d58d, este handoff despues):
+- **P2-1** (codigo): una `agentWallet` pendiente sobrevivia a la revocacion del aprobado que la propuso (en EVM
+  `setAgentWallet` es atomico). Con la opcion (a), que eligio c0der: `nft_revoke` y `nft_revoke_all` cancelan la
+  pendiente, y el evento `agent_wallet_pending` la deja en los logs al ponerla y al cancelarla (I-9). Busque otro
+  camino por el que un aprobado revocado deje una pendiente aceptable y no encontre ninguno: una aprobacion solo se va por
+  `nft_revoke`, `nft_revoke_all` o una transferencia (que ya la cancelaba, tambien el resolve que deshace), asi que no
+  hizo falta la (b). Tests: `revocar_al_aprobado_cancela_la_pendiente_que_propuso`, los dos `tras_nft_revoke*` (la
+  wallet acepta -> `E16`), `revocar_cancela_tambien_la_del_dueno_y_aunque_la_cuenta_no_estuviera`,
+  `revocar_no_cambia_el_storage_del_token`; mutantes W1..W8.
+- **P2-2** (tests): O1 con U-ST5 (ALICE (1) -> BOB (1) no le devuelve nada a ALICE; despues el ciclo BOB (2) -> cuenta
+  sin agentes -> BOB seis veces, con la cota de U-ST4 en cada paso) y WE-12 (el saldo libre de identity no baja en
+  ningun ciclo); O2 con el resolve que deshace con una pendiente del receptor (`get_pending_agent_wallet` = `null`, y
+  la wallet no acepta: `E16`); O4 con 80 vectores de `mul_u128_u64` (33 que acarrean de la palabra 1 a la 2) y 200
+  resumenes con `|value|` hasta 1e38 y decimales 0..18 (72 que el mutante cambia), calculados con los enteros de
+  Python (`contracts/erc8004-common/testdata/vectores_256.py`). Los cuatro mutantes, muertos.
+- **P3** 1 a 8: G-6 (URIs con esquema), I-10 a I-12 (`E20` de autotransferencia, hasta 8 aprobaciones, sin
+  `MetadataUpdate`), R-4 con el cambio de signo y las 56 cifras, la prueba atada al dueno o la `agentWallet` actual
+  (3.3 del plan y "Modelo de confianza"), S-1, los `standards` de NEP-330 en las tres wasm (decision de c0der), las
+  lineas 35, 37 y 128 del plan y V-2 a V-4 de Validation, y el paso 0c del deploy (mainnet despues de
+  `UltravioletaDAO/arras`).
+- Esta ronda no tuvo un refutador mio aparte: la regla del encargo es un subagente como mucho y ya lo use en las dos
+  rondas de arriba; la verificacion de esta ronda la hace el refutador de c0der.
+
 ## Trampas que encontre
 
 - `cargo near build` genera el ABI: todo tipo que un metodo recibe o devuelve necesita `JsonSchema`. Con
@@ -670,7 +752,7 @@ wasm de Reputation (f76f664 la cambia).
   `GasExceeded`); va en el sandbox (WE-09).
 - `nft_transfer` exige exactamente 1 yocto (NEP-171): una transferencia no puede cobrar storage, y aun asi puede crear
   el contador de un dueno nuevo. Por eso la reserva por token (seccion 2.4 del plan): el storage del contrato queda
-  siempre pagado (WE-10 y U-ST4 lo cubren).
+  siempre pagado (WE-10, WE-12, U-ST4 y U-ST5 lo cubren).
 - NEAR corta en 16.384 bytes de logs por recibo: con una URI de 8 KB y metadata al tope, `register` tiene que entrar
   ahi (U-ST1). Por eso las URIs son de RFC 3986 estricto (sin `"` ni `\`, que JSON escaparia al doble).
 - Sacar un caracter de un `payment_id` de 44 caracteres puede dar otro `payment_id` valido de 32 bytes: no hay largo fijo
@@ -679,6 +761,13 @@ wasm de Reputation (f76f664 la cambia).
   del resumen con calificaciones positivas y negativas de mas de 2^64 normalizadas (un `value` de 19 con 0 decimales ya
   pasa), y `get_summary` daba numeros de 58 cifras. Ahora `Ord` compara desde la palabra mas significativa, con tests de
   signos mezclados, uno diferencial de 2.000 casos contra la referencia en i128, y los mutantes C34 y C35.
+- **El orden en que se mide lo liberado importa** (refutador de c0der, O1): en una transferencia, lo que vuelve al
+  dueno anterior se mide sobre las aprobaciones **antes** de mover el indice por dueno. Medido despues, le devolveria
+  el contador de 77 bytes del dueno que se queda sin agentes, que es justo la reserva que va a necesitar el proximo
+  dueno nuevo. Ningun test lo fijaba (U-ST4 es al azar y casi nunca arma el ciclo); ahora U-ST5 y WE-12.
+- **Un diferencial contra i128 no ve el acarreo de 256 bits** (O4): la referencia en i128 nunca llega a productos de
+  mas de 2^128, y con `b = 10^k` el acarreo de la palabra 1 a la 2 de `mul_u128_u64` pasa en ~5 % de los `a` al azar.
+  Los vectores de `contracts/erc8004-common/testdata/vectores_256.py` (enteros de Python) lo buscan a proposito.
 - `nft_resolve_transfer` reserva 15 TGas fijos (peso 0), como la implementacion de referencia: un receptor que devuelva
   una respuesta enorme podria dejarlo sin gas; entonces el agente queda en el receptor (que eligio quien transfirio) y
   el storage de las aprobaciones queda en el contrato (el contrato no pierde saldo).
