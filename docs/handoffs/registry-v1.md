@@ -28,7 +28,8 @@ atada a pagos de Arras que de verdad liberaron plata.
   - Sin `migrate` ni owner: se despliega con `new` privado en la misma tx y se le borran las llaves.
 - `contracts/test-escrow` (crate `arras-test-escrow`): escrow de mentira **solo para el sandbox**: `get_payment`
   devuelve el JSON crudo que se le carga (para lo que v1 no puede dar: payer == receiver, JSON roto, mas de 8 KiB,
-  respuestas que no son exactamente un `Payment` de v1). No se despliega nunca.
+  respuestas que no son exactamente un `Payment` de v1); `emitir` deja un log y puede fallar despues (WR-10). No se
+  despliega nunca.
 - `contracts/registry-v1/tests/fixtures/escrow-v1-mainnet-7058319d.wasm` (RONDA 1): la wasm exacta de
   `v1.arras-escrow.near`, que c0der bajo de mainnet con `view_code` (268.839 bytes, sha256 `7058319d...0eada`, que en
   base58 es el code hash `8ZYfMJerz9r1mh4vZH55vyyJb1SLyX7qR2xqpYPxHr5X`). WR-02, WR-03 y WR-04 corren contra ella
@@ -139,10 +140,15 @@ Y en la RONDA 1 (2026-11-04 02:05Z, sobre el informe del refutador de RARRAS-7, 
   `operator_id == "em"`, pesando por `released` (asi 1e-6 USDC no pesa como un pago real) y por raters distintos
   (ERC-8004 le pide un filtro de clientes a `getSummary` justo por esto).
 - **Un indexador cuenta solo los eventos `feedback_given` y `feedback_revoked` de recibos cuyo `executor_id` (el
-  receiver del recibo) es `registry.arras-escrow.near`.** Los filtros de arriba son campos de `data`: cualquier
-  contrato puede emitir en su propio recibo el mismo
+  receiver del recibo) es `registry.arras-escrow.near` Y cuyo status final es de exito (`SuccessValue` o
+  `SuccessReceiptId`).** Los filtros de arriba son campos de `data`: cualquier contrato puede emitir en su propio
+  recibo el mismo
   `EVENT_JSON:{"standard":"arras-registry",...,"data":[{"escrow":"v1.arras-escrow.near","operator_id":"em",...}]}` con
-  datos inventados. Ante la duda, se relee la calificacion del contrato con `get_feedback(feedback_id)` (o
+  datos inventados. Y un recibo puede emitir su `EVENT_JSON` y fallar despues (un panic, o `LackBalanceForState` al
+  cerrar el storage): el estado se revierte pero el log queda en el outcome. Las dos cosas las muestra WR-10 en el
+  sandbox (un contrato ajeno emite el mismo `feedback_given` y sale bien; un recibo que lo emite y entra en panico, y
+  otro que lo emite y falla con `LackBalanceForState`, quedan con el log en su outcome fallido y el estado revertido).
+  Ante la duda, se relee la calificacion del contrato con `get_feedback(feedback_id)` (o
   `get_feedback_for_payment`).
 - **La ventana de calificacion la puede cerrar cualquiera, tambien la calificada.** `compact` de v1
   (`contracts/escrow-v1/src/withdraw.rs:60-66`) no tiene permisos: desde `reclaim_after + 7 dias` cualquiera borra el
@@ -333,7 +339,8 @@ Flujo en EM (payer = la cuenta NEAR del agente, receiver = la cuenta de cobro de
    calificada, para esquivar una nota tardia); despues `get_payment` da `null` y es `E22`. EM califica apenas se
    libera el pago.
 4. Para mostrar reputacion: `get_summary_by_operator(cuenta, "em")`, y para el detalle `list_feedback` (o el indexador
-   de `feedback_given`/`feedback_revoked`, contando solo los recibos que ejecuto `registry.arras-escrow.near`)
+   de `feedback_given`/`feedback_revoked`, contando solo los recibos que ejecuto `registry.arras-escrow.near` y que
+   terminaron en `SuccessValue` o `SuccessReceiptId`)
    filtrado por `escrow == "v1.arras-escrow.near"` y `operator_id == "em"`, pesado por `released` y por raters
    distintos; `get_summary` mezcla operadores y raters y sirve solo de referencia (ver "Modelo de confianza").
 

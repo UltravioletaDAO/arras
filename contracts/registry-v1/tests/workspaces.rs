@@ -1301,6 +1301,86 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// WR-10: lo que un indexador de `feedback_given` tiene que filtrar (RONDA 1, P2-2 y el MENSAJE de c0der de 02:28Z).
+/// Cualquier contrato emite el mismo `EVENT_JSON` que el registro (por eso cuenta solo el `executor_id` del registro),
+/// y un recibo que emite su `EVENT_JSON` y despues falla (un panic, o `LackBalanceForState` al cerrar el storage)
+/// revierte su estado pero el log queda en el outcome (por eso cuenta solo un recibo con status final de exito).
+#[tokio::test]
+async fn wr10_eventos_falsos_y_de_recibos_que_fallan() -> anyhow::Result<()> {
+    let _permiso = SANDBOXES.acquire().await?;
+    let e = setup().await?;
+    let falso = format!(
+        "EVENT_JSON:{}",
+        json!({
+            "standard": "arras-registry",
+            "version": "1.0.0",
+            "event": "feedback_given",
+            "data": [{
+                "feedback_id": 0, "rater": e.payer.id(), "ratee": e.worker.id(), "ratee_role": "receiver",
+                "escrow": "v1.arras-escrow.near", "payment_id": "inventado", "operator_id": "em",
+                "released": "1000000", "score": 0, "tag1": null, "tag2": null, "feedback_uri": null,
+                "feedback_hash": null, "created_at": "1",
+            }],
+        })
+    );
+    let emitir = |quien: &Account, contrato: &AccountId, relleno: u32, falla: bool| {
+        let (quien, contrato, falso) = (quien.clone(), contrato.clone(), falso.clone());
+        async move {
+            quien
+                .call(&contrato, "emitir")
+                .args_json(json!({ "log": falso, "relleno": relleno, "falla": falla }))
+                .gas(Gas::from_tgas(100))
+                .transact()
+                .await
+        }
+    };
+    let con_el_log = |r: &ExecutionFinalResult| -> Vec<(AccountId, bool)> {
+        r.outcomes()
+            .iter()
+            .filter(|o| o.logs.iter().any(|l| l == &falso))
+            .map(|o| (o.executor_id.clone(), o.is_success()))
+            .collect()
+    };
+    // 1. Otro contrato emite el mismo EVENT_JSON y sale bien: el filtro por `data` no alcanza.
+    let r = emitir(&e.tercero, e.mock.id(), 0, false).await?;
+    assert!(r.is_success(), "{:?}", r.clone().into_result());
+    assert_eq!(con_el_log(&r), vec![(e.mock.id().clone(), true)]);
+    assert_ne!(e.mock.id(), e.registry.id());
+    // 2. El recibo emite el log y despues entra en panico: falla, el log queda en su outcome.
+    let r = emitir(&e.tercero, e.mock.id(), 0, true).await?;
+    assert!(r.is_failure());
+    assert_eq!(con_el_log(&r), vec![(e.mock.id().clone(), false)]);
+    // 3. El recibo emite el log, escribe mas estado del que su saldo paga y falla al cerrar el storage
+    //    (`LackBalanceForState`): el log queda y el estado se revierte.
+    let mock_wasm = wasm(&WASM_MOCK, "../test-escrow").await?;
+    let pobre = sub(&e.root, "pobre", 2).await?;
+    let saldo = e.w.view_account(pobre.id()).await?.balance.as_yoctonear();
+    assert!(saldo < (mock_wasm.len() as u128 + 200_000) * BYTE);
+    assert!(pobre.deploy(mock_wasm).await?.is_success());
+    call_ok(
+        &pobre,
+        pobre.id(),
+        "new",
+        json!({}),
+        NearToken::from_yoctonear(0),
+    )
+    .await?;
+    let antes = e.w.view_account(pobre.id()).await?.storage_usage;
+    let r = emitir(&pobre, pobre.id(), 200_000, false).await?;
+    assert!(r.is_failure());
+    let err = format!("{:?}", r.clone().into_result().unwrap_err());
+    assert!(err.contains("LackBalanceForState"), "{err}");
+    assert_eq!(con_el_log(&r), vec![(pobre.id().clone(), false)]);
+    assert_eq!(
+        e.w.view_account(pobre.id()).await?.storage_usage,
+        antes,
+        "el estado se revirtio"
+    );
+    // Ninguno toco el registro.
+    assert_eq!(e.view("get_config", json!({})).await?["feedbacks"], 0);
+    Ok(())
+}
+
 /// WR-06: dos `give_feedback` del mismo rater y pago a la vez: pasa uno solo.
 #[tokio::test]
 async fn wr06_dos_a_la_vez() -> anyhow::Result<()> {

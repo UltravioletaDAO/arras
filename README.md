@@ -131,8 +131,9 @@ The shape of ERC-8004 (Identity Registry + Reputation Registry) on NEAR, with re
 - Trust: a rating is as good as the escrow's payments. In v1 the owner registers operators and each operator's
   capturer releases, so the global summary mixes operators: Execution Market must read
   `get_summary_by_operator(account, "em")` and weigh `list_feedback` by `released` and distinct raters. An indexer
-  counts only `feedback_given`/`feedback_revoked` events from receipts executed by the registry account itself: any
-  contract can log the same `EVENT_JSON` (the handoff spells out the model).
+  counts only `feedback_given`/`feedback_revoked` events from receipts executed by the registry account itself and
+  whose final status is a success: any contract can log the same `EVENT_JSON`, and a receipt that logs and then fails
+  keeps the log while its state is reverted (sandbox test WR-10; the handoff spells out the model).
 
 Interface, events, measured gas and the exact deployment commands: `docs/handoffs/registry-v1.md`.
 
@@ -146,7 +147,7 @@ Interface, events, measured gas and the exact deployment commands: `docs/handoff
 | `scripts/mainnet.sh plan` / `scripts/mainnet.sh todo` | the mainnet deployment as a dry run: accounts, amounts, caps, the pinned wasm and every command, with no network call |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
-| `cargo test -p arras-registry-v1` | the registry: 115 unit tests (every guard, the callback with each `get_payment` result and every way an answer can differ from v1's `Payment`, the lock, caller vs signer, storage of the worst case) and 13 sandbox tests (WR-00..WR-09; WR-02..WR-04 twice: against v1 built here and against the exact mainnet wasm of `v1.arras-escrow.near` in `contracts/registry-v1/tests/fixtures`, sha256-checked) with real Arras v1 payments, a mock escrow and an allowlisted account without code |
+| `cargo test -p arras-registry-v1` | the registry: 115 unit tests (every guard, the callback with each `get_payment` result and every way an answer can differ from v1's `Payment`, the lock, caller vs signer, storage of the worst case) and 14 sandbox tests (WR-00..WR-10; WR-02..WR-04 twice: against v1 built here and against the exact mainnet wasm of `v1.arras-escrow.near` in `contracts/registry-v1/tests/fixtures`, sha256-checked) with real Arras v1 payments, a mock escrow and an allowlisted account without code |
 | `cargo test -p arras-registry-v1 --test workspaces -- --nocapture` | the registry `MEDIDA` lines: gas per receipt of `give_feedback`, worst-case callback, storage per rating |
 | `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; checked out at commit `8da7174` (the demo contract) it has sha256 `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` |
 | `near account list-keys arras-v1b-1101.testnet network-config testnet now` | an empty table: nobody can redeploy or touch the contract account |
