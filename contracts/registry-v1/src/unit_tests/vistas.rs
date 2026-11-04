@@ -57,6 +57,7 @@ fn resumen_vacio() {
         s,
         SummaryView {
             account_id: acc(OTHER),
+            operator_id: None,
             count: 0,
             revoked: 0,
             score_sum: U64(0),
@@ -159,4 +160,109 @@ fn feedback_view_en_json() {
     assert_eq!(s["score_sum"], "90");
     assert_eq!(s["average_x100"], 9000);
     assert_eq!(s["last_at"], (NOW + 1_000_000_000).to_string());
+}
+
+fn pago_de(op: &str, payer: &str, receiver: &str) -> String {
+    let mut p = payment_v1(payer, receiver, "Released", 1_000);
+    p["operator_id"] = near_sdk::serde_json::json!(op);
+    p.to_string()
+}
+
+#[test]
+fn resumen_por_operador() {
+    let mut c = new_contract();
+    // WORKER: 90 como receiver por `em`, 10 como receiver por `otro`, 100 como payer por `em`.
+    let p1 = Pedido {
+        payment_id: pid(1),
+        score: 90,
+        ..Default::default()
+    };
+    assert_eq!(
+        rate(&mut c, PAYER, &p1, &pago_de("em", PAYER, WORKER)),
+        Some(0)
+    );
+    let p2 = Pedido {
+        payment_id: pid(2),
+        score: 10,
+        ..Default::default()
+    };
+    assert_eq!(
+        rate(&mut c, PAYER, &p2, &pago_de("otro", PAYER, WORKER)),
+        Some(1)
+    );
+    let p3 = Pedido {
+        payment_id: pid(3),
+        score: 100,
+        ..Default::default()
+    };
+    assert_eq!(
+        rate(&mut c, OTHER, &p3, &pago_de("em", WORKER, OTHER)),
+        Some(2)
+    );
+
+    let g = c.get_summary(acc(WORKER));
+    assert_eq!(g.operator_id, None);
+    assert_eq!(g.count, 3);
+    assert_eq!(g.score_sum, U64(200));
+    let em = c.get_summary_by_operator(acc(WORKER), "em".into());
+    assert_eq!(em.operator_id.as_deref(), Some("em"));
+    assert_eq!(em.count, 2);
+    assert_eq!(em.score_sum, U64(190));
+    assert_eq!(em.average_x100, Some(9500));
+    assert_eq!(em.as_receiver.count, 1);
+    assert_eq!(em.as_receiver.score_sum, U64(90));
+    assert_eq!(em.as_payer.count, 1);
+    assert_eq!(em.as_payer.score_sum, U64(100));
+    assert_eq!(em.last_feedback_id, Some(2));
+    let otro = c.get_summary_by_operator(acc(WORKER), "otro".into());
+    assert_eq!(otro.count, 1);
+    assert_eq!(otro.average_x100, Some(1000));
+    assert_eq!(otro.last_feedback_id, Some(1));
+    assert_eq!(otro.last_at, Some(U64(NOW + 1_000_000_000)));
+    let nada = c.get_summary_by_operator(acc(WORKER), "nada".into());
+    assert_eq!(nada.count, 0);
+    assert_eq!(nada.average_x100, None);
+    assert_eq!(nada.last_feedback_id, None);
+    assert_eq!(nada.operator_id.as_deref(), Some("nada"));
+    // El resumen es de la calificada: el rater no suma en ninguno.
+    assert_eq!(c.get_summary_by_operator(acc(PAYER), "em".into()).count, 0);
+    // Mayusculas: otro operador.
+    assert_eq!(c.get_summary_by_operator(acc(WORKER), "EM".into()).count, 0);
+
+    // Revocar la de `otro` descuenta solo ahi (y del global).
+    ctx_full(PAYER, 1, NOW + 9, HEIGHT + 3, Gas::from_tgas(300));
+    c.revoke_feedback(acc(ESCROW), pid(2));
+    let otro = c.get_summary_by_operator(acc(WORKER), "otro".into());
+    assert_eq!(otro.count, 0);
+    assert_eq!(otro.revoked, 1);
+    assert_eq!(otro.score_sum, U64(0));
+    assert_eq!(otro.as_receiver.revoked, 1);
+    assert_eq!(c.get_summary_by_operator(acc(WORKER), "em".into()).count, 2);
+    let g = c.get_summary(acc(WORKER));
+    assert_eq!(g.count, 2);
+    assert_eq!(g.revoked, 1);
+    // Revocar una de `em` como payer.
+    ctx_full(OTHER, 1, NOW + 9, HEIGHT + 3, Gas::from_tgas(300));
+    c.revoke_feedback(acc(ESCROW), pid(3));
+    let em = c.get_summary_by_operator(acc(WORKER), "em".into());
+    assert_eq!(em.as_payer.count, 0);
+    assert_eq!(em.as_payer.revoked, 1);
+    assert_eq!(em.as_payer.score_sum, U64(0));
+    assert_eq!(em.score_sum, U64(90));
+}
+
+#[test]
+fn resumen_por_operador_en_json() {
+    let mut c = new_contract();
+    rate(&mut c, PAYER, &Pedido::default(), &released_json()).unwrap();
+    let g = near_sdk::serde_json::to_value(c.get_summary(acc(WORKER))).unwrap();
+    assert!(
+        g.get("operator_id").is_none(),
+        "el global no lleva operator_id: {g}"
+    );
+    let o = near_sdk::serde_json::to_value(c.get_summary_by_operator(acc(WORKER), "em".into()))
+        .unwrap();
+    assert_eq!(o["operator_id"], "em");
+    assert_eq!(o["count"], 1);
+    assert_eq!(o["as_receiver"]["average_x100"], 9000);
 }

@@ -79,6 +79,8 @@ pub mod prefix {
     /// Los `Vector<u32>` de cada calificada: `i` + borsh(account_id) + `/`.
     pub const RECEIVED_INDEX: &[u8] = b"i";
     pub const SUMMARIES: &[u8] = b"s";
+    /// Resumen por `(ratee, operator_id)` (RESPUESTA de c0der del 2026-11-04 00:06Z).
+    pub const SUMMARIES_BY_OPERATOR: &[u8] = b"o";
     pub const PENDING: &[u8] = b"p";
 }
 
@@ -151,6 +153,23 @@ impl Summary {
             Role::Receiver => &mut self.as_receiver,
         }
     }
+
+    /// Suma una calificacion vigente y la marca como la ultima.
+    pub(crate) fn add(&mut self, role: Role, score: u8, id: u32, at: u64) {
+        let r = self.role_mut(role);
+        r.count = r.count.saturating_add(1);
+        r.score_sum = r.score_sum.saturating_add(u64::from(score));
+        self.last_feedback_id = id;
+        self.last_at = at;
+    }
+
+    /// Pasa una calificacion de vigente a revocada.
+    pub(crate) fn revoke(&mut self, role: Role, score: u8) {
+        let r = self.role_mut(role);
+        r.count = r.count.saturating_sub(1);
+        r.revoked = r.revoked.saturating_add(1);
+        r.score_sum = r.score_sum.saturating_sub(u64::from(score));
+    }
 }
 
 /// Contrato `Registry`.
@@ -167,6 +186,8 @@ pub struct Registry {
     /// Calificada -> sus `feedback_id`, en orden de llegada.
     received: LookupMap<AccountId, Vector<u32>>,
     summaries: LookupMap<AccountId, Summary>,
+    /// El mismo resumen, por `(ratee, operator_id)` del pago: EM consulta el suyo (`operator_id == "em"`).
+    summaries_by_operator: LookupMap<(AccountId, String), Summary>,
     /// Candado de `give_feedback` en vuelo: misma clave -> `block_height` del `give_feedback` (es el `nonce`).
     pending: LookupMap<[u8; 32], u64>,
 }
@@ -202,8 +223,8 @@ const fn opt_string_bytes(n: usize) -> u64 {
 }
 
 /// Peor caso de lo que escribe una calificacion aceptada: la `Feedback` con todo al tope, su entrada de
-/// `feedback_by_key`, la entrada nueva de `received` (el `Vector` de una calificada nueva), su elemento y el
-/// `Summary` nuevo. `feedback_deposit` = este numero por el costo del byte; el callback cobra lo medido y devuelve el
+/// `feedback_by_key`, la entrada nueva de `received` (el `Vector` de una calificada nueva), su elemento, el `Summary`
+/// nuevo y el `Summary` nuevo de `(ratee, operator_id)` con un `operator_id` de 64 (221 bytes). `feedback_deposit` = este numero por el costo del byte; el callback cobra lo medido y devuelve el
 /// resto. U-ST1 mide que el peor caso real es exactamente este.
 pub const FEEDBACK_MAX_BYTES: u64 = {
     let feedback_value = ACCOUNT_MAX * 3 // rater, ratee, escrow
@@ -223,7 +244,11 @@ pub const FEEDBACK_MAX_BYTES: u64 = {
     let received = record_bytes(1 + ACCOUNT_MAX, 4 + 4 + index_prefix);
     let received_elem = record_bytes(index_prefix + 4, 4);
     let summary = record_bytes(1 + ACCOUNT_MAX, 16 * 2 + 4 + 8);
-    feedback + by_key + received + received_elem + summary
+    let summary_by_operator = record_bytes(
+        1 + ACCOUNT_MAX + string_bytes(MAX_OPERATOR_ID_LEN),
+        16 * 2 + 4 + 8,
+    );
+    feedback + by_key + received + received_elem + summary + summary_by_operator
 };
 
 /// Peor caso de lo que escribe `register`: la clave en el `Vector` de `IterableMap` (`av` + u32 -> borsh(account)) y
@@ -273,6 +298,7 @@ impl Registry {
             feedback_by_key: LookupMap::new(prefix::FEEDBACK_BY_KEY),
             received: LookupMap::new(prefix::RECEIVED),
             summaries: LookupMap::new(prefix::SUMMARIES),
+            summaries_by_operator: LookupMap::new(prefix::SUMMARIES_BY_OPERATOR),
             pending: LookupMap::new(prefix::PENDING),
         }
     }
@@ -287,6 +313,7 @@ impl Registry {
         self.feedback_by_key.flush();
         self.received.flush();
         self.summaries.flush();
+        self.summaries_by_operator.flush();
         self.pending.flush();
     }
 

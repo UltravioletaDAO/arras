@@ -1,5 +1,5 @@
 //! Vistas: `get_config`, `get_agent`, `list_agents`, `get_feedback`, `get_feedback_for_payment`, `list_feedback`,
-//! `get_summary` e `is_feedback_pending`. Las paginadas recortan `limit` a 50 (y 50 si no viene).
+//! `get_summary`, `get_summary_by_operator` e `is_feedback_pending`. Las paginadas recortan `limit` a 50 (y 50 si no viene).
 
 use crate::validate::hex;
 use crate::*;
@@ -104,6 +104,9 @@ impl RoleSummaryView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SummaryView {
     pub account_id: AccountId,
+    /// Solo en `get_summary_by_operator` (en `get_summary` no aparece).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator_id: Option<String>,
     pub count: u32,
     pub revoked: u32,
     pub score_sum: U64,
@@ -150,6 +153,36 @@ fn page(from_index: Option<u32>, limit: Option<u32>, len: u32) -> std::ops::Rang
         .saturating_add(limit.unwrap_or(MAX_LIST_LIMIT).min(MAX_LIST_LIMIT))
         .min(len);
     from..end
+}
+
+fn summary_view(
+    account_id: AccountId,
+    operator_id: Option<String>,
+    s: Option<Summary>,
+) -> SummaryView {
+    let st = s.unwrap_or_default();
+
+    let total = RoleStats {
+        count: st.as_payer.count.saturating_add(st.as_receiver.count),
+        revoked: st.as_payer.revoked.saturating_add(st.as_receiver.revoked),
+        score_sum: st
+            .as_payer
+            .score_sum
+            .saturating_add(st.as_receiver.score_sum),
+    };
+    let t = RoleSummaryView::of(total);
+    SummaryView {
+        account_id,
+        operator_id,
+        count: t.count,
+        revoked: t.revoked,
+        score_sum: t.score_sum,
+        average_x100: t.average_x100,
+        as_payer: RoleSummaryView::of(st.as_payer),
+        as_receiver: RoleSummaryView::of(st.as_receiver),
+        last_feedback_id: s.map(|s| s.last_feedback_id),
+        last_at: s.map(|s| U64(s.last_at)),
+    }
 }
 
 #[near]
@@ -230,27 +263,20 @@ impl Registry {
 
     pub fn get_summary(&self, account_id: AccountId) -> SummaryView {
         let s = self.summaries.get(&account_id).copied();
-        let st = s.unwrap_or_default();
-        let total = RoleStats {
-            count: st.as_payer.count.saturating_add(st.as_receiver.count),
-            revoked: st.as_payer.revoked.saturating_add(st.as_receiver.revoked),
-            score_sum: st
-                .as_payer
-                .score_sum
-                .saturating_add(st.as_receiver.score_sum),
-        };
-        let t = RoleSummaryView::of(total);
-        SummaryView {
-            account_id,
-            count: t.count,
-            revoked: t.revoked,
-            score_sum: t.score_sum,
-            average_x100: t.average_x100,
-            as_payer: RoleSummaryView::of(st.as_payer),
-            as_receiver: RoleSummaryView::of(st.as_receiver),
-            last_feedback_id: s.map(|s| s.last_feedback_id),
-            last_at: s.map(|s| U64(s.last_at)),
-        }
+        summary_view(account_id, None, s)
+    }
+
+    /// El resumen de `account_id` contando solo los pagos de `operator_id` (p. ej. `"em"`).
+    pub fn get_summary_by_operator(
+        &self,
+        account_id: AccountId,
+        operator_id: String,
+    ) -> SummaryView {
+        let s = self
+            .summaries_by_operator
+            .get(&(account_id.clone(), operator_id.clone()))
+            .copied();
+        summary_view(account_id, Some(operator_id), s)
     }
 
     /// `true` si hay un `give_feedback` de `rater` sobre `(escrow, payment_id)` en vuelo (candado sin vencer).

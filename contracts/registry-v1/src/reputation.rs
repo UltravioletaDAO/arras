@@ -181,10 +181,13 @@ impl Registry {
         fb.revoked_at = env::block_timestamp();
         let fb = fb.clone();
         if let Some(s) = self.summaries.get_mut(&fb.ratee) {
-            let r = s.role_mut(fb.ratee_role);
-            r.count = r.count.saturating_sub(1);
-            r.revoked = r.revoked.saturating_add(1);
-            r.score_sum = r.score_sum.saturating_sub(u64::from(fb.score));
+            s.revoke(fb.ratee_role, fb.score);
+        }
+        if let Some(s) = self
+            .summaries_by_operator
+            .get_mut(&(fb.ratee.clone(), fb.operator_id.clone()))
+        {
+            s.revoke(fb.ratee_role, fb.score);
         }
         RegistryEvent::FeedbackRevoked(vec![FeedbackRevokedData {
             feedback_id: id,
@@ -273,12 +276,14 @@ impl Registry {
             .or_insert_with(|| Vector::new(received_prefix(&fb.ratee)));
         index.push(id);
         index.flush();
-        let s = self.summaries.entry(fb.ratee.clone()).or_default();
-        let r = s.role_mut(fb.ratee_role);
-        r.count = r.count.saturating_add(1);
-        r.score_sum = r.score_sum.saturating_add(u64::from(fb.score));
-        s.last_feedback_id = id;
-        s.last_at = now;
+        self.summaries
+            .entry(fb.ratee.clone())
+            .or_default()
+            .add(fb.ratee_role, fb.score, id, now);
+        self.summaries_by_operator
+            .entry((fb.ratee.clone(), fb.operator_id.clone()))
+            .or_default()
+            .add(fb.ratee_role, fb.score, id, now);
         self.flush_all();
         let after = env::storage_usage();
         let cost = bytes_cost(after.saturating_sub(before)).min(p.deposit.0);

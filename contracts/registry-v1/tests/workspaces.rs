@@ -679,7 +679,7 @@ async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
     assert_eq!(d["released"], USDC.to_string());
     assert_eq!(d["feedback_hash"], HASH);
     // Storage cobrado: lo que crecio el registro; el resto del deposito vuelve.
-    assert!(m.bytes > 0 && (m.bytes as u64) <= 1643);
+    assert!(m.bytes > 0 && (m.bytes as u64) <= 1864);
     let costo = m.bytes as u128 * BYTE;
     m.registro_neutro();
     assert!(m.gasto >= costo, "paga su storage");
@@ -740,6 +740,26 @@ async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
     assert_eq!(s["as_receiver"]["count"], 2);
     assert_eq!(s["average_x100"], 9000);
     assert_eq!(s["last_feedback_id"], 2);
+    assert!(s.get("operator_id").is_none());
+    // El de EM: los pagos de v1 son del operador `em`.
+    let em = e
+        .view(
+            "get_summary_by_operator",
+            json!({ "account_id": e.worker.id(), "operator_id": "em" }),
+        )
+        .await?;
+    assert_eq!(em["operator_id"], "em");
+    assert_eq!(em["count"], 2);
+    assert_eq!(em["average_x100"], 9000);
+    assert_eq!(em["last_feedback_id"], 2);
+    let otro = e
+        .view(
+            "get_summary_by_operator",
+            json!({ "account_id": e.worker.id(), "operator_id": "otro" }),
+        )
+        .await?;
+    assert_eq!(otro["count"], 0);
+    assert_eq!(otro["average_x100"], Value::Null);
     let s = e
         .view("get_summary", json!({ "account_id": e.payer.id() }))
         .await?;
@@ -1094,6 +1114,21 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
         cb < Gas::from_tgas(30),
         "el callback entra en su gas estatico"
     );
+    // El worker recibio una por `em` (del payer, "v2") y una por el operador de 64 (del tercero, "grande").
+    let g = e
+        .view("get_summary", json!({ "account_id": e.worker.id() }))
+        .await?;
+    assert_eq!(g["count"], 2);
+    for (op, score) in [("em".to_string(), 90), ("o".repeat(64), 100)] {
+        let s = e
+            .view(
+                "get_summary_by_operator",
+                json!({ "account_id": e.worker.id(), "operator_id": op }),
+            )
+            .await?;
+        assert_eq!(s["count"], 1, "{op}");
+        assert_eq!(s["score_sum"], score.to_string(), "{op}");
+    }
     Ok(())
 }
 
