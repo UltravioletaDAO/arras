@@ -2,7 +2,8 @@
 //! `accept_agent_wallet` y `unset_agent_wallet`. Quien actua es siempre el `predecessor`.
 
 use crate::events::{
-    NftMintData, RegisteredData, UriUpdatedData, emit_agent_wallet, emit_metadata_set,
+    NftMintData, RegisteredData, UriUpdatedData, emit_agent_wallet, emit_agent_wallet_pending,
+    emit_metadata_set,
 };
 use crate::*;
 use erc8004_common::events::{emit, emit_nep171};
@@ -159,7 +160,8 @@ impl IdentityRegistry {
 
     /// `setAgentWallet` sin firma (desviacion I-1): el dueno o un aprobado, con `now <= deadline <= now + 5 min`
     /// (nanosegundos). Si `new_wallet` es el que llama, queda puesta y devuelve `true`; si no, queda pendiente
-    /// (pisa la anterior) hasta que `new_wallet` llame `accept_agent_wallet`, y devuelve `false`. Exactamente 1 yocto.
+    /// (pisa la anterior, evento `agent_wallet_pending`) hasta que `new_wallet` llame `accept_agent_wallet`, y
+    /// devuelve `false`. Una revocacion la cancela (desviacion I-9). Exactamente 1 yocto.
     #[payable]
     pub fn set_agent_wallet(
         &mut self,
@@ -192,6 +194,8 @@ impl IdentityRegistry {
         self.tokens.insert(id, token);
         if set_now {
             emit_agent_wallet(id, Some(&new_wallet));
+        } else {
+            emit_agent_wallet_pending(id, Some(&new_wallet), deadline);
         }
         set_now
     }

@@ -195,3 +195,42 @@ fn ust4_el_storage_nunca_pasa_de_lo_cobrado() {
     }
     assert!(neto > 0);
 }
+
+/// U-ST5 (refutador, O1): quedarse sin agentes no le devuelve a nadie el contador del dueno (lo que se libera es la
+/// reserva que pago `register`, y la va a necesitar el proximo dueno nuevo). ALICE (1) -> BOB (1): nada vuelve a
+/// ALICE; despues el ciclo BOB (2) -> cuenta sin agentes -> BOB, varias veces, con la cota de U-ST4 en cada paso.
+#[test]
+fn ust5_quedarse_sin_agentes_no_devuelve_el_contador() {
+    let mut c = new_contract();
+    c.flush_all();
+    let base = env::storage_usage() as i128;
+    let mut neto: i128 = 0;
+    let cota = |c: &mut IdentityRegistry, neto: i128, paso: &str| {
+        c.flush_all();
+        let usado = env::storage_usage() as i128 - base;
+        assert!(
+            usado <= neto,
+            "{paso}: usa {usado} bytes y se cobraron {neto}"
+        );
+    };
+    for who in [ALICE, BOB] {
+        ctx(who, NEAR);
+        c.register(None, None);
+        neto += ((NEAR - refunded_to(who)) / BYTE) as i128;
+        cota(&mut c, neto, "register");
+    }
+    transfer(&mut c, ALICE, BOB, "0");
+    assert_eq!(refunded_to(ALICE), 0);
+    assert_eq!(transfers(), vec![]);
+    cota(&mut c, neto, "ALICE -> BOB");
+    for i in 0..6 {
+        let nueva = format!("n{i}.testnet");
+        transfer(&mut c, BOB, &nueva, "0");
+        assert_eq!(transfers(), vec![]);
+        cota(&mut c, neto, &format!("ciclo {i}: BOB -> {nueva}"));
+        transfer(&mut c, &nueva, BOB, "0");
+        assert_eq!(transfers(), vec![]);
+        cota(&mut c, neto, &format!("ciclo {i}: {nueva} -> BOB"));
+    }
+    assert_eq!(c.nft_supply_for_owner(acc(BOB)).0, 2);
+}

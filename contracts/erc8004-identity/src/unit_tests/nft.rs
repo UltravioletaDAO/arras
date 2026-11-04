@@ -437,15 +437,33 @@ fn revoke_all_sin_un_yocto() {
     c.nft_revoke_all("0".into());
 }
 
+/// Mientras tuvo el agente, MARKET (dueno) se puso como agentWallet y propuso a WALLET como pendiente; despues el
+/// resolve lo devuelve.
+fn resolve_con_wallet_y_pendiente_del_receptor(c: &mut IdentityRegistry) {
+    let (a, pagado) = transfer_call(c);
+    ctx(MARKET, 1);
+    assert!(c.set_agent_wallet("0".into(), acc(MARKET), NOW.to_string()));
+    ctx(MARKET, 1);
+    assert!(!c.set_agent_wallet("0".into(), acc(WALLET), (NOW + 10).to_string()));
+    ctx_callback(PromiseResult::Successful(b"true".to_vec()));
+    assert!(!c.nft_resolve_transfer(acc(ALICE), acc(MARKET), "0".into(), a, U128(pagado)));
+}
+
 #[test]
 fn resolve_que_lo_devuelve_limpia_la_wallet_que_puso_el_receptor() {
     let mut c = new_contract();
-    let (a, pagado) = transfer_call(&mut c);
-    // Mientras lo tuvo, MARKET (dueno) se puso como agentWallet.
-    ctx(MARKET, 1);
-    assert!(c.set_agent_wallet("0".into(), acc(MARKET), NOW.to_string()));
-    ctx_callback(PromiseResult::Successful(b"true".to_vec()));
-    assert!(!c.nft_resolve_transfer(acc(ALICE), acc(MARKET), "0".into(), a, U128(pagado)));
+    resolve_con_wallet_y_pendiente_del_receptor(&mut c);
     assert_eq!(c.get_agent_wallet("0".into()), None);
     assert_eq!(events()[0].2["metadata_value"], "");
+    // Refutador, O2: tambien la pendiente.
+    assert_eq!(c.get_pending_agent_wallet("0".into()), None);
+}
+
+#[test]
+#[should_panic(expected = "ERC8004_ID_E16")]
+fn resolve_que_lo_devuelve_la_pendiente_del_receptor_no_acepta() {
+    let mut c = new_contract();
+    resolve_con_wallet_y_pendiente_del_receptor(&mut c);
+    ctx_at(WALLET, 1, NOW + 2);
+    c.accept_agent_wallet("0".into());
 }

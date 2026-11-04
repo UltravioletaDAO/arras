@@ -1,7 +1,8 @@
 //! NEP-171 (transferencias) y NEP-178 (aprobaciones). Toda transferencia limpia `agentWallet` y la pendiente (como
-//! `_update` de EVM) y borra las aprobaciones (su storage vuelve al dueno anterior).
+//! `_update` de EVM) y borra las aprobaciones (su storage vuelve al dueno anterior). Toda revocacion cancela la
+//! pendiente (desviacion I-9).
 
-use crate::events::{NftTransferData, emit_agent_wallet};
+use crate::events::{NftTransferData, emit_agent_wallet, emit_agent_wallet_pending};
 use crate::*;
 use erc8004_common::events::emit_nep171;
 use erc8004_common::storage::{bytes_cost, refund};
@@ -43,6 +44,19 @@ pub(crate) struct Transferred {
 }
 
 impl IdentityRegistry {
+    /// Desviacion I-9: `nft_revoke` y `nft_revoke_all` cancelan la `agentWallet` pendiente, la haya propuesto quien
+    /// la haya propuesto (en EVM `setAgentWallet` es atomico: un aprobado revocado ya no puede ponerla). Si habia
+    /// una, emite `agent_wallet_pending` con `wallet` null. El `Token` es de largo fijo: el storage no cambia.
+    fn cancel_pending_wallet(&mut self, id: u64, mut token: Token) {
+        if token.pending_wallet.is_none() {
+            return;
+        }
+        token.pending_wallet = FixedAccount::NONE;
+        token.pending_deadline = 0;
+        self.tokens.insert(id, token);
+        emit_agent_wallet_pending(id, None, 0);
+    }
+
     /// Mueve el agente de su dueno a `receiver`. `sender` es el dueno o un aprobado (con `approval_id` si lo pasa).
     /// No devuelve el storage de las aprobaciones: lo hace quien llama (`nft_transfer` en el acto,
     /// `nft_resolve_transfer` al final).
@@ -241,7 +255,8 @@ impl IdentityRegistry {
         })
     }
 
-    /// NEP-178: solo el dueno, exactamente 1 yocto. El storage liberado vuelve al dueno.
+    /// NEP-178: solo el dueno, exactamente 1 yocto. El storage liberado vuelve al dueno. Cancela siempre la
+    /// `agentWallet` pendiente, aunque `account_id` no estuviera aprobada (desviacion I-9).
     #[payable]
     pub fn nft_revoke(&mut self, token_id: String, account_id: AccountId) {
         assert_one_yocto();
@@ -250,6 +265,7 @@ impl IdentityRegistry {
         if !token.owner.is(&caller) {
             IdentityError::E22SoloElDueno.panic();
         }
+        self.cancel_pending_wallet(id, token);
         let Some(mut map) = self.approvals.get(&id).cloned() else {
             return;
         };
@@ -266,7 +282,8 @@ impl IdentityRegistry {
         refund(&caller, bytes_cost(freed));
     }
 
-    /// NEP-178: solo el dueno, exactamente 1 yocto.
+    /// NEP-178: solo el dueno, exactamente 1 yocto. El storage liberado vuelve al dueno. Cancela siempre la
+    /// `agentWallet` pendiente (desviacion I-9).
     #[payable]
     pub fn nft_revoke_all(&mut self, token_id: String) {
         assert_one_yocto();
@@ -275,6 +292,7 @@ impl IdentityRegistry {
         if !token.owner.is(&caller) {
             IdentityError::E22SoloElDueno.panic();
         }
+        self.cancel_pending_wallet(id, token);
         let before = self.usage();
         self.approvals.remove(&id);
         let freed = before.saturating_sub(self.usage());

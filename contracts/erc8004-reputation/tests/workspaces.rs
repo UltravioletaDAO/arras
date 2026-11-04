@@ -1275,6 +1275,45 @@ async fn we10_transferir_a_cuentas_nuevas_no_vacia_el_contrato() -> anyhow::Resu
     Ok(())
 }
 
+/// WE-12 (refutador, O1): quedarse sin agentes no le devuelve a nadie el contador del dueno. ALICE (1) -> BOB (1),
+/// despues el ciclo BOB (2) -> NUEVA -> BOB seis veces: el saldo libre del Identity Registry no baja en ningun ciclo
+/// (si se devolviera el contador, bajaria 77 bytes por ciclo, mas de lo que el contrato gana de gas en dos
+/// transferencias).
+#[tokio::test]
+async fn we12_el_ciclo_de_duenos_no_baja_el_saldo_libre() -> anyhow::Result<()> {
+    let _p = SANDBOXES.acquire().await?;
+    let e = setup().await?;
+    let alice = sub(&e.root, "alice", 5).await?;
+    let bob = sub(&e.root, "bob", 5).await?;
+    let nueva = sub(&e.root, "nueva", 5).await?;
+    let (id, _) = e.register(&alice, "a:b").await?;
+    let _ = e.register(&bob, "a:b").await?;
+    e.settle().await?;
+    let f0 = e.free(e.identity.id()).await?;
+    let _ = e.transfer(&alice, bob.id(), &id).await?;
+    e.settle().await?;
+    let mut antes = e.free(e.identity.id()).await?;
+    assert!(
+        antes >= f0,
+        "ALICE -> BOB: el saldo libre bajo: {f0} -> {antes}"
+    );
+    let mut deltas = vec![];
+    for i in 0..6 {
+        let _ = e.transfer(&bob, nueva.id(), &id).await?;
+        let _ = e.transfer(&nueva, bob.id(), &id).await?;
+        e.settle().await?;
+        let f = e.free(e.identity.id()).await?;
+        assert!(f >= antes, "ciclo {i}: el saldo libre bajo: {antes} -> {f}");
+        deltas.push(f - antes);
+        antes = f;
+    }
+    println!(
+        "MEDIDA WE-12 saldo libre de identity por ciclo (yocto): {deltas:?}; un contador son {}",
+        77 * BYTE
+    );
+    Ok(())
+}
+
 /// WE-11: lo que ocupa cada cuenta recien desplegada (codigo + estado de `new` + la cuenta), con su llave y sin ella:
 /// el piso de NEAR de cada cuenta del plan de deploy (1 NEAR por 100 KB).
 #[tokio::test]
@@ -1305,6 +1344,36 @@ async fn we11_storage_de_cada_cuenta_recien_desplegada() -> anyhow::Result<()> {
         ),
     ] {
         let acc = deploy_init(&root, name, code, args).await?;
+        // NEP-330: los `standards` que declara cada wasm (refutador, P3-6; seccion 7 del plan). Validation es BORRADOR.
+        let meta: Value = acc
+            .view(acc.id(), "contract_source_metadata")
+            .args_json(json!({}))
+            .await?
+            .json()?;
+        let standards: Vec<(&str, &str)> = meta["standards"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["standard"].as_str().unwrap(),
+                    s["version"].as_str().unwrap(),
+                )
+            })
+            .collect();
+        let esperado: &[(&str, &str)] = match name {
+            "identity" => &[
+                ("nep171", "1.0.0"),
+                ("nep177", "1.0.0"),
+                ("nep178", "1.0.0"),
+                ("nep181", "1.0.0"),
+                ("erc8004", "1.0.0"),
+                ("nep330", "1.3.0"),
+            ],
+            "validation" => &[("nep330", "1.3.0")],
+            _ => &[("erc8004", "1.0.0"), ("nep330", "1.3.0")],
+        };
+        assert_eq!(standards, esperado, "{name}");
         let con_llave = w.view_account(acc.id()).await?.storage_usage;
         let keys = w.view_access_keys(acc.id()).await?;
         assert!(

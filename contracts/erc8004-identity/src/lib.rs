@@ -9,7 +9,8 @@
 //! - Metadata clave -> bytes (`get_metadata` / `set_metadata`), con la clave reservada `agentWallet`.
 //! - `agentWallet`: la pone `register` (el que registra), la cambia `set_agent_wallet` (si la wallet nueva es el que
 //!   llama, en el acto; si no, queda pendiente hasta que la wallet llame `accept_agent_wallet`), la borra
-//!   `unset_agent_wallet` y **toda transferencia** (como `_update` de EVM).
+//!   `unset_agent_wallet` y **toda transferencia** (como `_update` de EVM). La pendiente la cancelan ademas
+//!   `nft_revoke` y `nft_revoke_all` (desviacion I-9).
 //!
 //! Storage (seccion 2.4 del plan): quien llama paga lo que crece; lo liberado vuelve al dueno. Una transferencia (1
 //! yocto, NEP-171) nunca puede cobrar: todo lo que cambia en ella es de largo fijo ([`FixedAccount`]) salvo la
@@ -161,8 +162,18 @@ pub const REGISTER_MAX_BYTES: u64 = {
         + TOKEN_RESERVE_BYTES
 };
 
-/// Contrato `IdentityRegistry`.
-#[near(contract_state)]
+/// Contrato `IdentityRegistry`. NEP-330 `standards` (seccion 7 del plan): los NEP del NFT y `erc8004` 1.0.0 (la
+/// interfaz y los eventos de este port); `nep330` lo agrega near-sdk, y `link`/`version` los pone cargo-near.
+#[near(
+    contract_state,
+    contract_metadata(
+        standard(standard = "nep171", version = "1.0.0"),
+        standard(standard = "nep177", version = "1.0.0"),
+        standard(standard = "nep178", version = "1.0.0"),
+        standard(standard = "nep181", version = "1.0.0"),
+        standard(standard = "erc8004", version = "1.0.0")
+    )
+)]
 #[derive(PanicOnDefault)]
 pub struct IdentityRegistry {
     /// El proximo `agent_id` (= la cantidad de agentes: no hay burn).

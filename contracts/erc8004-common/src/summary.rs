@@ -308,6 +308,34 @@ mod tests {
         assert_eq!(summary(&[(100, 0), (-99, 0), (-100, 0)]).value, "-33");
     }
 
+    /// Vectores calculados afuera, con los enteros sin tope de Python (`testdata/vectores_256.py`).
+    mod vectores {
+        include!("../testdata/vectores_256.rs");
+    }
+
+    #[test]
+    fn mul_u128_u64_contra_python() {
+        // Refutador, O4: incluye productos que acarrean de la palabra 1 a la 2 (a >= 2^64, b = 10^k).
+        assert!(vectores::MUL.len() >= 80);
+        for &(a, b, w) in vectores::MUL {
+            assert_eq!(U256::mul_u128_u64(a, b).0, w, "{a} * {b}");
+        }
+    }
+
+    #[test]
+    fn resumen_contra_python_con_values_de_hasta_1e38() {
+        // |value| hasta 1e38 y decimales 0..18, con signos mezclados y con items que acarrean (refutador, O4).
+        assert!(vectores::RESUMEN.len() >= 200);
+        for &(items, n, v, d) in vectores::RESUMEN {
+            let s = summary(items);
+            assert_eq!(
+                (s.count, s.value.as_str(), s.decimals),
+                (n, v, d),
+                "{items:?}"
+            );
+        }
+    }
+
     #[test]
     fn u256_ordena_desde_la_palabra_mas_significativa() {
         let alto = U256([0, 1, 0, 0]);

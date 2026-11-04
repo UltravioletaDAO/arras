@@ -122,8 +122,11 @@ pub const PROOF_MAX_BYTES: u64 = {
 /// Peor caso de una calificacion con prueba.
 pub const FEEDBACK_PROOF_MAX_BYTES: u64 = FEEDBACK_MAX_BYTES + PROOF_MAX_BYTES;
 
-/// Contrato `ReputationRegistry`.
-#[near(contract_state)]
+/// Contrato `ReputationRegistry`. NEP-330 `standards`: `erc8004` 1.0.0 (seccion 7 del plan).
+#[near(
+    contract_state,
+    contract_metadata(standard(standard = "erc8004", version = "1.0.0"))
+)]
 #[derive(PanicOnDefault)]
 pub struct ReputationRegistry {
     /// Fijo desde `new`: el Identity Registry que dice que agentes existen y quien es su dueno.

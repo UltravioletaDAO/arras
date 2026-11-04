@@ -222,7 +222,11 @@ pub struct VerifierConfig {
     pub gas_on_payment: U64,
 }
 
-#[near(contract_state)]
+/// NEP-330 `standards`: `erc8004` 1.0.0, el lado verificador de la extension R-5 (seccion 7 del plan).
+#[near(
+    contract_state,
+    contract_metadata(standard(standard = "erc8004", version = "1.0.0"))
+)]
 #[derive(PanicOnDefault)]
 pub struct ArrasVerifier {
     /// Fijo desde `new`.

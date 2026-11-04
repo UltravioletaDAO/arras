@@ -1,8 +1,8 @@
-//! Eventos del Identity Registry: `erc8004` 1.0.0 (`registered`, `metadata_set`, `uri_updated`) y `nep171` 1.0.0
-//! (`nft_mint`, `nft_transfer`). Ver la seccion 5 del plan.
+//! Eventos del Identity Registry: `erc8004` 1.0.0 (`registered`, `metadata_set`, `uri_updated` y
+//! `agent_wallet_pending`) y `nep171` 1.0.0 (`nft_mint`, `nft_transfer`). Ver la seccion 5 del plan.
 
 use near_sdk::AccountId;
-use near_sdk::json_types::Base64VecU8;
+use near_sdk::json_types::{Base64VecU8, U64};
 use near_sdk::serde::Serialize;
 
 /// `nft_mint` (NEP-171).
@@ -51,6 +51,28 @@ pub struct UriUpdatedData {
     pub agent_id: String,
     pub new_uri: String,
     pub updated_by: AccountId,
+}
+
+/// `agent_wallet_pending` (sin equivalente en EVM, desviacion I-9): `set_agent_wallet` dejo `wallet` pendiente de
+/// `accept_agent_wallet` hasta `deadline` (ns), o una revocacion (`nft_revoke`, `nft_revoke_all`) la cancelo
+/// (`wallet` null, `deadline` `"0"`).
+#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(crate = "near_sdk::serde")]
+pub struct AgentWalletPendingData {
+    pub agent_id: String,
+    pub wallet: Option<AccountId>,
+    pub deadline: U64,
+}
+
+pub(crate) fn emit_agent_wallet_pending(agent_id: u64, wallet: Option<&AccountId>, deadline: u64) {
+    erc8004_common::events::emit(
+        "agent_wallet_pending",
+        &AgentWalletPendingData {
+            agent_id: agent_id.to_string(),
+            wallet: wallet.cloned(),
+            deadline: U64(deadline),
+        },
+    );
 }
 
 pub(crate) fn emit_metadata_set(agent_id: u64, key: &str, value: Vec<u8>) {
