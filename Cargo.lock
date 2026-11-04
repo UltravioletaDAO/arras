@@ -1128,6 +1128,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "erc8004-validation"
+version = "0.0.1"
+dependencies = [
+ "erc8004-common",
+ "near-sdk",
+]
+
+[[package]]
 name = "errno"
 version = "0.3.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"

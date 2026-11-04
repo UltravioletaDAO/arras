@@ -17,6 +17,7 @@ members = [
     "contracts/erc8004-identity",
     "contracts/erc8004-reputation",
     "contracts/erc8004-arras-verifier",
+    "contracts/erc8004-validation",
 ]
 
 [workspace.lints.rust.unexpected_cfgs]
