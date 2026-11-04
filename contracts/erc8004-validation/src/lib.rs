@@ -195,8 +195,8 @@ pub struct ValidationResponseData {
     pub tag: String,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationStatusView {
     pub validator_address: AccountId,
     pub agent_id: String,
@@ -207,8 +207,8 @@ pub struct ValidationStatusView {
     pub has_response: bool,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationSummaryView {
     pub count: U64,
     pub average_response: u8,

@@ -37,6 +37,16 @@ erc8004-common = { path = "../erc8004-common" }
 
 [dev-dependencies]
 near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+# El sandbox del ciclo entero (tests/workspaces.rs), con las mismas versiones que contracts/registry-v1.
+# `unstable` trae `compile_project` (cargo-near-build): los tests compilan las wasm ellos mismos.
+near-workspaces = { version = "=0.23.0", features = ["unstable"] }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+anyhow = "1"
+# El sha256 de la wasm de v1 de mainnet (contracts/registry-v1/tests/fixtures) antes de usarla.
+sha2 = "0.10"
+# Para armar el `msg` canonico de un authorize real de v1.
+arras-escrow-core = { path = "../escrow-core" }
 
 [lints]
 workspace = true

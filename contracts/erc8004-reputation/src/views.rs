@@ -5,11 +5,10 @@ use crate::*;
 use erc8004_common::summary::Accumulator;
 use erc8004_common::validate::parse_u64;
 use near_sdk::json_types::{U64, U128};
-use near_sdk::serde::Serialize;
 
 /// `getSummary`: `(count, summaryValue, summaryValueDecimals)`. `summary_value` es exacto (desviacion R-4).
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SummaryView {
     pub count: U64,
     pub summary_value: String,
@@ -17,8 +16,8 @@ pub struct SummaryView {
 }
 
 /// `readFeedback`.
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeedbackView {
     pub value: String,
     pub value_decimals: u8,
@@ -28,8 +27,8 @@ pub struct FeedbackView {
 }
 
 /// `readAllFeedback`: los 7 arreglos paralelos de EVM.
-#[derive(Serialize, Debug, Clone, Default, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AllFeedbackView {
     pub clients: Vec<AccountId>,
     pub feedback_indexes: Vec<String>,
@@ -40,8 +39,8 @@ pub struct AllFeedbackView {
     pub revoked_statuses: Vec<bool>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReputationConfig {
     pub contract: String,
     pub erc8004_version: String,
@@ -294,8 +293,8 @@ mod proof_views {
     use crate::events::ProofData;
     use crate::proof::proof_key;
 
-    #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-    #[serde(crate = "near_sdk::serde")]
+    #[near(serializers = [json])]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct FeedbackRef {
         pub agent_id: String,
         pub client_address: AccountId,
@@ -303,8 +302,8 @@ mod proof_views {
     }
 
     /// `get_verified_summary`: el resumen de las calificaciones con prueba de un verificador, sin revocadas.
-    #[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-    #[serde(crate = "near_sdk::serde")]
+    #[near(serializers = [json])]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct VerifiedSummaryView {
         pub count: U64,
         pub summary_value: String,

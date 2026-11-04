@@ -5,11 +5,10 @@ use crate::*;
 use erc8004_common::types::AgentCheck;
 use erc8004_common::validate::parse_u64;
 use near_sdk::json_types::{Base64VecU8, U64, U128};
-use near_sdk::serde::Serialize;
 
 /// NEP-177, por token. Solo `reference` (= el agentURI) tiene valor; lo demas va en el registration file.
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TokenMetadata {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -26,8 +25,8 @@ pub struct TokenMetadata {
 }
 
 /// NEP-171 `Token` (con NEP-177 y NEP-178).
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JsonToken {
     pub token_id: String,
     pub owner_id: AccountId,
@@ -36,8 +35,8 @@ pub struct JsonToken {
 }
 
 /// NEP-177, del contrato.
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NftContractMetadata {
     pub spec: String,
     pub name: String,
@@ -48,16 +47,16 @@ pub struct NftContractMetadata {
     pub reference_hash: Option<Base64VecU8>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingWalletView {
     pub wallet: AccountId,
     /// Nanosegundos.
     pub deadline: U64,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityLimits {
     pub max_agent_uri_len: u64,
     pub max_metadata_key_len: u64,
@@ -69,8 +68,8 @@ pub struct IdentityLimits {
     pub max_list_limit: u64,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityConfig {
     /// `"erc8004-identity"`.
     pub contract: String,

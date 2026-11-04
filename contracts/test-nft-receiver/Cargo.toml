@@ -1,0 +1,18 @@
+[package]
+name = "arras-test-nft-receiver"
+description = "Receptor de NFT de mentira para los tests near-workspaces del Identity Registry de ERC-8004: nft_on_transfer devuelve true con msg \"return\""
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/UltravioletaDAO/arras"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.29.1"
+
+[lints]
+workspace = true

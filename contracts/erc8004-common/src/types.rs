@@ -4,8 +4,8 @@
 
 use near_sdk::json_types::U128;
 use near_sdk::serde::de::Error as _;
-use near_sdk::serde::{Deserialize, Deserializer, Serialize};
-use near_sdk::{AccountId, serde_json};
+use near_sdk::serde::{Deserialize, Deserializer};
+use near_sdk::{AccountId, near, serde_json};
 
 use crate::validate::{is_canonical_uint, is_valid_label};
 
@@ -15,8 +15,9 @@ pub const MAX_AGENT_CHECK_LEN: usize = 1024;
 pub const MAX_FEEDBACK_PROOF_LEN: usize = 1024;
 
 /// Lo que devuelve `identity.check_agent(agent_id, account_id)` cuando el agente existe (si no, `null`).
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde", deny_unknown_fields)]
+#[near(serializers = [json])]
+#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentCheck {
     /// El dueno del NFT.
     pub owner_id: AccountId,
@@ -28,8 +29,9 @@ pub struct AgentCheck {
 }
 
 /// Lo que devuelve `verifier.verify_feedback_proof(client, proof)`: la otra parte del trato que prueba `proof`.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde", deny_unknown_fields)]
+#[near(serializers = [json])]
+#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeedbackProof {
     /// La otra parte del trato (el Reputation Registry exige que sea el dueno o la `agentWallet` del agente).
     pub counterparty: AccountId,

@@ -17,7 +17,7 @@ use erc8004_common::types::FeedbackProof;
 use erc8004_common::validate::is_canonical_uint;
 use near_sdk::json_types::{U64, U128};
 use near_sdk::serde::de::Error as _;
-use near_sdk::serde::{Deserialize, Deserializer, Serialize};
+use near_sdk::serde::{Deserialize, Deserializer};
 use near_sdk::{
     AccountId, Gas, PanicOnDefault, Promise, PromiseError, bs58, env, ext_contract, near,
     serde_json,
@@ -215,8 +215,8 @@ pub fn check_payment(
     })
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[near(serializers = [json])]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifierConfig {
     pub contract: String,
     pub escrow: AccountId,
