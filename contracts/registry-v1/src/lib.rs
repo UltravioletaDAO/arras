@@ -48,8 +48,10 @@ pub const MAX_FEEDBACK_URI_LEN: usize = 512;
 pub const MAX_TAG_LEN: usize = 64;
 /// Un `payment_id` de Arras tiene de 32 a 44 caracteres (base58 de 32 bytes).
 pub const MAX_PAYMENT_ID_LEN: usize = 64;
-/// `operator_id` que devuelve el escrow: Arras lo limita a 32; mas de 64 es una respuesta invalida (`E21`).
-pub const MAX_OPERATOR_ID_LEN: usize = 64;
+/// Bytes de `operator_id` que cubre `feedback_deposit`. v1 lo limita a 32 (`[a-z0-9_-]{1,32}`, que el callback exige:
+/// fuera de eso es `E21`); el deposito se fijo con 64 y no se achico en la RONDA 1 para no cambiar la interfaz: ese
+/// margen (2 x 32 bytes, en la `Feedback` y en la clave del resumen por operador) vuelve siempre al rater.
+pub const DEPOSIT_OPERATOR_ID_LEN: usize = 64;
 pub const MAX_SCORE: u8 = 100;
 /// Tope de `limit` en las vistas paginadas (y su valor por defecto).
 pub const MAX_LIST_LIMIT: u32 = 50;
@@ -186,7 +188,9 @@ pub struct Registry {
     /// Calificada -> sus `feedback_id`, en orden de llegada.
     received: LookupMap<AccountId, Vector<u32>>,
     summaries: LookupMap<AccountId, Summary>,
-    /// El mismo resumen, por `(ratee, operator_id)` del pago: EM consulta el suyo (`operator_id == "em"`).
+    /// El mismo resumen, por `(ratee, operator_id)` del pago: EM consulta el suyo (`operator_id == "em"`). La clave no
+    /// lleva el escrow: vale porque la lista de `new` es un solo escrow para siempre (`v1.arras-escrow.near`); un
+    /// registro con varios escrows tendria que sumarlo.
     summaries_by_operator: LookupMap<(AccountId, String), Summary>,
     /// Candado de `give_feedback` en vuelo: misma clave -> `block_height` del `give_feedback` (es el `nonce`).
     pending: LookupMap<[u8; 32], u64>,
@@ -224,13 +228,14 @@ const fn opt_string_bytes(n: usize) -> u64 {
 
 /// Peor caso de lo que escribe una calificacion aceptada: la `Feedback` con todo al tope, su entrada de
 /// `feedback_by_key`, la entrada nueva de `received` (el `Vector` de una calificada nueva), su elemento, el `Summary`
-/// nuevo y el `Summary` nuevo de `(ratee, operator_id)` con un `operator_id` de 64 (221 bytes). `feedback_deposit` = este numero por el costo del byte; el callback cobra lo medido y devuelve el
-/// resto. U-ST1 mide que el peor caso real es exactamente este.
+/// nuevo y el `Summary` nuevo de `(ratee, operator_id)`, con un `operator_id` de `DEPOSIT_OPERATOR_ID_LEN` (64) bytes.
+/// `feedback_deposit` = este numero por el costo del byte; el callback cobra lo medido y devuelve el resto. Como v1
+/// limita el `operator_id` a 32, el peor caso real es `FEEDBACK_MAX_BYTES - 64` (1.800); U-ST1 lo mide exacto.
 pub const FEEDBACK_MAX_BYTES: u64 = {
     let feedback_value = ACCOUNT_MAX * 3 // rater, ratee, escrow
         + 1 // ratee_role
         + string_bytes(MAX_PAYMENT_ID_LEN)
-        + string_bytes(MAX_OPERATOR_ID_LEN)
+        + string_bytes(DEPOSIT_OPERATOR_ID_LEN)
         + 16 // released
         + 1 // score
         + opt_string_bytes(MAX_TAG_LEN) * 2
@@ -245,7 +250,7 @@ pub const FEEDBACK_MAX_BYTES: u64 = {
     let received_elem = record_bytes(index_prefix + 4, 4);
     let summary = record_bytes(1 + ACCOUNT_MAX, 16 * 2 + 4 + 8);
     let summary_by_operator = record_bytes(
-        1 + ACCOUNT_MAX + string_bytes(MAX_OPERATOR_ID_LEN),
+        1 + ACCOUNT_MAX + string_bytes(DEPOSIT_OPERATOR_ID_LEN),
         16 * 2 + 4 + 8,
     );
     feedback + by_key + received + received_elem + summary + summary_by_operator

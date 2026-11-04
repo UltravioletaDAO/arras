@@ -43,6 +43,22 @@ pub fn ctx_full(predecessor: &str, deposit: u128, ts: u64, height: u64, gas: Gas
     );
 }
 
+/// Una llamada que llega por un contrato intermedio: `signer` firmo la tx y `predecessor` es quien llama al registro.
+pub fn ctx_via(predecessor: &str, signer: &str, deposit: u128) {
+    testing_env!(
+        VMContextBuilder::new()
+            .current_account_id(acc(CONTRACT))
+            .predecessor_account_id(acc(predecessor))
+            .signer_account_id(acc(signer))
+            .attached_deposit(NearToken::from_yoctonear(deposit))
+            .account_balance(NearToken::from_near(10))
+            .block_timestamp(NOW)
+            .block_height(HEIGHT)
+            .prepaid_gas(Gas::from_tgas(300))
+            .build()
+    );
+}
+
 /// Contexto de una llamada de `predecessor` con `deposit` yocto, a `NOW` y `HEIGHT`, con 300 TGas.
 pub fn ctx(predecessor: &str, deposit: u128) {
     ctx_full(predecessor, deposit, NOW, HEIGHT, Gas::from_tgas(300));

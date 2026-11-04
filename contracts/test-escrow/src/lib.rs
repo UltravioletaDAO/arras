@@ -1,8 +1,8 @@
 //! Escrow de mentira para los tests near-workspaces de `contracts/registry-v1`. **Solo para el sandbox.**
 //!
 //! `get_payment(payment_id)` devuelve, byte por byte, el JSON que se le cargo con `set_raw` (asi un test arma
-//! respuestas que un escrow de Arras real no da: un pago con payer == receiver, un `status` de v2, un JSON roto o una
-//! respuesta de mas de 8 KiB). Sin carga devuelve `null`; con el id `panic`, entra en panico.
+//! respuestas que un escrow de Arras real no da: un pago con payer == receiver, un JSON roto, una respuesta de mas de
+//! 8 KiB o una que no es exactamente un `Payment` de v1). Sin carga devuelve `null`; con el id `panic`, entra en panico.
 
 use near_sdk::store::LookupMap;
 use near_sdk::{PanicOnDefault, env, near};

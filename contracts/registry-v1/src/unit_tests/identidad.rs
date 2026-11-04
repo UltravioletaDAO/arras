@@ -135,6 +135,34 @@ fn register_al_tope_de_largo_pasa() {
     assert_eq!(v.agent_uri, uri);
 }
 
+#[test]
+fn register_y_update_son_del_predecessor_no_del_signer() {
+    // R05 (refutador de RARRAS-7): la ficha queda a nombre de quien llama al registro (un contrato intermedio), no de
+    // quien firmo la tx; el sobrante del deposito le vuelve a quien llama.
+    let mut c = new_contract();
+    ctx_via(WORKER, PAYER, UN_NEAR);
+    c.flush_all();
+    let antes = env::storage_usage();
+    let v = c.register(URI.into(), None);
+    c.flush_all();
+    let costo = u128::from(env::storage_usage() - antes) * 10u128.pow(19);
+    assert_eq!(v.account_id, acc(WORKER));
+    assert!(c.get_agent(acc(WORKER)).is_some());
+    assert_eq!(c.get_agent(acc(PAYER)), None);
+    assert_eq!(transfers(), vec![(WORKER.to_string(), UN_NEAR - costo)]);
+    // update: tambien del predecessor (el payer firma, el worker llama).
+    ctx_via(WORKER, PAYER, UN_NEAR);
+    let v = c.update("ipfs://nueva".into(), None);
+    assert_eq!(v.account_id, acc(WORKER));
+    assert_eq!(c.get_agent(acc(WORKER)).unwrap().agent_uri, "ipfs://nueva");
+    assert_eq!(transfers()[0].0, WORKER.to_string());
+    // Y al reves: el payer, sin ficha, que llama en una tx que firmo el worker, es E04.
+    ctx_via(PAYER, WORKER, UN_NEAR);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.update(URI.into(), None)));
+    assert!(r.is_err());
+    assert_eq!(c.get_agent(acc(WORKER)).unwrap().agent_uri, "ipfs://nueva");
+}
+
 /// `update` con `dep`; devuelve (vista, crecimiento con signo).
 fn update(
     c: &mut Registry,

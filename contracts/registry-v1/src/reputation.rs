@@ -6,41 +6,122 @@
 //! deposito -> `E17` gas -> `E18` ya calificado -> `E19` en vuelo. Despues pone el candado (`pending`) y llama.
 //!
 //! `on_payment_checked` (nunca entra en panico): `E26` el candado ya no es de esta llamada -> `E20` get_payment fallo
-//! -> `E21` respuesta demasiado larga o que no deserializa -> `E22` `null` -> `E21` operator_id de mas de 64 -> `E23`
-//! `released == 0` (no paso plata, cualquiera sea el estado) -> `E24` no es parte -> `E25` se califica a si mismo -> `E18` ya calificado. Un rechazo devuelve
-//! el deposito entero; una calificacion aceptada cobra el storage medido y devuelve el resto.
+//! -> `E21` respuesta de mas de 8 KiB o que no es exactamente un `Payment` de v1 (ver [`EscrowPayment`]) -> `E22`
+//! `null` -> `E23` `released == 0` (no paso plata, cualquiera sea el estado) -> `E24` no es parte -> `E25` se
+//! califica a si mismo -> `E18` ya calificado. Un rechazo devuelve el deposito entero; una calificacion aceptada cobra
+//! el storage medido y devuelve el resto.
 
 use crate::events::{FeedbackGivenData, FeedbackRevokedData};
-use crate::validate::{check_feedback_uri, check_payment_id, check_tag, parse_hash};
+use crate::validate::{
+    check_feedback_uri, check_payment_id, check_tag, is_canonical_uint, parse_hash,
+};
 use crate::*;
-use near_sdk::serde::Deserialize;
+use arras_escrow_core::is_valid_operator_id;
+use near_sdk::serde::de::Error as _;
+use near_sdk::serde::{Deserialize, Deserializer};
 use near_sdk::{Promise, PromiseError, assert_one_yocto, ext_contract, serde_json};
+use std::str::FromStr;
 
-/// La vista `get_payment` de Arras (v1 y v2 la tienen con esta firma). El trait solo genera `ext_escrow`.
+/// La vista `get_payment` de Arras v1 (`contracts/escrow-v1/src/views.rs`). El trait solo genera `ext_escrow`.
 #[allow(dead_code)]
 #[ext_contract(ext_escrow)]
 pub trait ArrasEscrow {
     fn get_payment(&self, payment_id: PaymentId) -> Option<serde_json::Value>;
 }
 
-/// Lo que el registro lee de un `Payment` de Arras (los demas campos se ignoran: sirve el de v1 y el de v2).
+/// Espejo exacto del `Payment` de Arras v1 (`contracts/escrow-v1/src/lib.rs:82-105`, los 16 campos) tal como lo
+/// serializa `get_payment`: falla cerrado (RONDA 1 de c0der, P2-1 (a)). Cualquier otra forma no deserializa y el
+/// callback rechaza con `E21` y el deposito entero:
+/// - un campo de mas (`deny_unknown_fields`) o de menos (ninguno es opcional), o una clave repetida;
+/// - un tipo JSON distinto del de v1: `U128`/`U64` son strings decimales canonicos (solo digitos, sin signo ni ceros a
+///   la izquierda salvo `"0"`, dentro del rango: [`canonical`]), `u16` y `bool` son numero y booleano, las cuentas
+///   son `AccountId` validos;
+/// - un `status` que no es uno de los 5 strings de v1 ([`EscrowStatus`]);
+/// - un `operator_id` fuera del charset de v1, `[a-z0-9_-]{1,32}` ([`operator`]).
+///
+/// Lo que el registro guarda sale de aca (`operator_id`, `released`, las partes); `terms_hash` y `fee_recipient` se
+/// exigen con su tipo pero no se validan por contenido (el registro no los usa).
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(crate = "near_sdk::serde")]
+#[serde(crate = "near_sdk::serde", deny_unknown_fields)]
 pub struct EscrowPayment {
+    #[serde(deserialize_with = "operator")]
     pub operator_id: String,
     pub payer: AccountId,
     pub receiver: AccountId,
-    pub released: U128,
-    /// `Authorized`, `PartiallyReleased`, `Released`, `Refunded`, `Reclaimed` (v2 suma `Disputed` y `Resolved`). Se
-    /// exige que venga (un `Payment` sin `status` no es de Arras: `E21`) pero no decide nada.
-    pub status: String,
+    #[serde(deserialize_with = "canonical")]
+    pub amount: u128,
+    #[serde(deserialize_with = "canonical")]
+    pub released: u128,
+    #[serde(deserialize_with = "canonical")]
+    pub refunded: u128,
+    pub fee_bps: u16,
+    pub fee_recipient: AccountId,
+    pub fee_bps_max: u16,
+    #[serde(deserialize_with = "canonical")]
+    pub created_at: u64,
+    #[serde(deserialize_with = "canonical")]
+    pub release_deadline: u64,
+    #[serde(deserialize_with = "canonical")]
+    pub reclaim_after: u64,
+    pub terms_hash: String,
+    pub status: EscrowStatus,
+    #[serde(deserialize_with = "canonical")]
+    pub storage_charged: u128,
+    pub sponsored: bool,
+}
+
+/// Los 5 estados de `PaymentStatus` de v1 (`contracts/escrow-v1/src/lib.rs:64-69`), solo como el string que serializa
+/// v1 (`"Released"`, nunca `{"Released":null}`). El estado no decide nada (decide `released`): se exige para fallar
+/// cerrado ante una respuesta que no es de v1.
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(crate = "near_sdk::serde", try_from = "String")]
+pub enum EscrowStatus {
+    Authorized,
+    PartiallyReleased,
+    Released,
+    Refunded,
+    Reclaimed,
+}
+
+impl TryFrom<String> for EscrowStatus {
+    type Error = &'static str;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.as_str() {
+            "Authorized" => Ok(Self::Authorized),
+            "PartiallyReleased" => Ok(Self::PartiallyReleased),
+            "Released" => Ok(Self::Released),
+            "Refunded" => Ok(Self::Refunded),
+            "Reclaimed" => Ok(Self::Reclaimed),
+            _ => Err("status que no es de v1"),
+        }
+    }
+}
+
+/// Un `U128`/`U64` de v1: string decimal canonico y dentro del rango del tipo.
+fn canonical<'de, D: Deserializer<'de>, T: FromStr>(d: D) -> Result<T, D::Error> {
+    let s = String::deserialize(d)?;
+    if !is_canonical_uint(&s) {
+        return Err(D::Error::custom("numero no canonico"));
+    }
+    s.parse()
+        .map_err(|_| D::Error::custom("numero fuera de rango"))
+}
+
+/// El `operator_id` de v1: `[a-z0-9_-]{1,32}` (el mismo `is_valid_operator_id` con el que v1 los da de alta).
+fn operator<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+    let s = String::deserialize(d)?;
+    if !is_valid_operator_id(&s) {
+        return Err(D::Error::custom("operator_id fuera del charset de v1"));
+    }
+    Ok(s)
 }
 
 impl EscrowPayment {
     /// Hubo plata que paso: `released > 0`, cualquiera sea el estado (RESPUESTA de c0der del 2026-11-03 23:30Z: un
     /// `Refunded` o `Reclaimed` despues de una liberacion parcial tambien es un trato real).
     pub fn has_released(&self) -> bool {
-        self.released.0 > 0
+        self.released > 0
     }
 }
 
@@ -218,9 +299,6 @@ impl Registry {
         let payment: Option<EscrowPayment> =
             serde_json::from_slice(&bytes).map_err(|_| RegistryError::E21RespuestaInvalida)?;
         let pay = payment.ok_or(RegistryError::E22PagoInexistente)?;
-        if pay.operator_id.len() > MAX_OPERATOR_ID_LEN {
-            return Err(RegistryError::E21RespuestaInvalida);
-        }
         if !pay.has_released() {
             return Err(RegistryError::E23PagoSinLiberar);
         }
@@ -241,7 +319,7 @@ impl Registry {
             ratee,
             role,
             operator_id: pay.operator_id,
-            released: pay.released.0,
+            released: pay.released,
         })
     }
 

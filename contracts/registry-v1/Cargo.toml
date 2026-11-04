@@ -37,6 +37,8 @@ near-workspaces = { version = "=0.23.0", features = ["unstable"] }
 tokio = { version = "1", features = ["full"] }
 serde_json = "1"
 anyhow = "1"
+# El sha256 de la wasm de v1 de mainnet (tests/fixtures) antes de usarla. La misma 0.10.9 que ya trae near-workspaces.
+sha2 = "0.10"
 
 [lints]
 workspace = true

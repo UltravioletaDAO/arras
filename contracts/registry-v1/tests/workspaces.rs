@@ -1,9 +1,13 @@
 //! Tests del registro contra las wasm reales en el sandbox de near-workspaces.
 //!
 //! - Pagos de **Arras v1 de verdad** (`contracts/escrow-v1`, con el FT de prueba de `contracts/test-ft`): authorize por
-//!   `ft_transfer_call`, `release`, `refund` y `reclaim` reales.
+//!   `ft_transfer_call`, `release`, `refund` y `reclaim` reales. WR-02, WR-03 y WR-04 corren dos veces: contra la v1
+//!   compilada del fuente y contra la wasm EXACTA de `v1.arras-escrow.near` (`tests/fixtures`, bajada de mainnet por
+//!   c0der con `view_code`; el test verifica su sha256 antes de usarla). Son los que prueban que el espejo estricto del
+//!   `Payment` (`EscrowPayment`) coincide con lo que serializa v1.
 //! - El escrow de mentira (`contracts/test-escrow`) para lo que v1 no puede dar: payer == receiver, un JSON roto, una
-//!   respuesta de mas de 8 KiB, un `status` de v2.
+//!   respuesta de mas de 8 KiB, respuestas que no son un `Payment` de v1 (un `status` o campos de v2, un `operator_id`
+//!   fuera del charset, un numero no canonico).
 //! - Una cuenta **sin codigo** en la lista de escrows: su `get_payment` falla de verdad (`E20`).
 //! - Sin red: `NEAR_SANDBOX_BIN_PATH` apuntando a un `near-sandbox` 2.13.4.
 //!
@@ -12,13 +16,15 @@
 use near_workspaces::network::Sandbox;
 use near_workspaces::operations::Function;
 use near_workspaces::result::ExecutionFinalResult;
-use near_workspaces::types::{Gas, NearToken};
-use near_workspaces::{Account, AccountId, Worker};
+use near_workspaces::types::{CryptoHash, Gas, NearToken};
+use near_workspaces::{Account, AccountId, ContractState, Worker};
 use serde_json::{Value, json};
+use sha2::Digest;
 use tokio::sync::{OnceCell, Semaphore};
 
 static WASM_REG: OnceCell<Vec<u8>> = OnceCell::const_new();
 static WASM_V1: OnceCell<Vec<u8>> = OnceCell::const_new();
+static WASM_V1_MAINNET: OnceCell<Vec<u8>> = OnceCell::const_new();
 static WASM_FT: OnceCell<Vec<u8>> = OnceCell::const_new();
 static WASM_MOCK: OnceCell<Vec<u8>> = OnceCell::const_new();
 /// Cuantos sandboxes a la vez (cada test levanta el suyo).
@@ -42,6 +48,82 @@ async fn wasm(
 
 async fn wasm_reg() -> anyhow::Result<&'static [u8]> {
     wasm(&WASM_REG, "./").await
+}
+
+/// La wasm de `v1.arras-escrow.near` en mainnet (`view_code`): 268.839 bytes, sha256
+/// `7058319d...0eada`, que en base58 es el code hash `8ZYfMJer...PxHr5X` de la cuenta.
+const V1_MAINNET_WASM: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/escrow-v1-mainnet-7058319d.wasm"
+);
+const V1_MAINNET_SHA256: &str = "7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada";
+const V1_MAINNET_CODE_HASH: &str = "8ZYfMJerz9r1mh4vZH55vyyJb1SLyX7qR2xqpYPxHr5X";
+
+/// La v1 contra la que corre un test.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum V1 {
+    /// `contracts/escrow-v1` compilada aca.
+    Compilada,
+    /// La wasm exacta de mainnet (`tests/fixtures`).
+    Mainnet,
+}
+
+async fn wasm_v1(v1: V1) -> anyhow::Result<&'static [u8]> {
+    match v1 {
+        V1::Compilada => wasm(&WASM_V1, "../escrow-v1").await,
+        V1::Mainnet => {
+            let w = WASM_V1_MAINNET
+                .get_or_try_init(|| async {
+                    let bytes = std::fs::read(V1_MAINNET_WASM)?;
+                    let sha: [u8; 32] = sha2::Sha256::digest(&bytes).into();
+                    anyhow::ensure!(
+                        arras_registry_v1::hex(&sha) == V1_MAINNET_SHA256,
+                        "la wasm de v1 de mainnet no es la esperada: sha256 {}",
+                        arras_registry_v1::hex(&sha)
+                    );
+                    anyhow::ensure!(bytes.len() == 268_839, "largo {}", bytes.len());
+                    let code_hash: CryptoHash = V1_MAINNET_CODE_HASH.parse()?;
+                    anyhow::ensure!(code_hash.0 == sha, "el code hash no es el sha256");
+                    Ok(bytes)
+                })
+                .await?;
+            Ok(w.as_slice())
+        }
+    }
+}
+
+/// Los 16 campos del `Payment` de v1 (`contracts/escrow-v1/src/lib.rs:82-105`), en su orden.
+const CAMPOS_V1: [&str; 16] = [
+    "operator_id",
+    "payer",
+    "receiver",
+    "amount",
+    "released",
+    "refunded",
+    "fee_bps",
+    "fee_recipient",
+    "fee_bps_max",
+    "created_at",
+    "release_deadline",
+    "reclaim_after",
+    "terms_hash",
+    "status",
+    "storage_charged",
+    "sponsored",
+];
+
+/// Lo que devolvio `get_payment` de una v1 real tiene exactamente los 16 campos, el `status` esperado y deserializa
+/// en el espejo estricto del registro.
+fn assert_espejo(p: &Value, status: &str) {
+    let mut claves: Vec<&str> = p.as_object().unwrap().keys().map(String::as_str).collect();
+    let mut esperadas = CAMPOS_V1.to_vec();
+    claves.sort();
+    esperadas.sort();
+    assert_eq!(claves, esperadas, "{p}");
+    assert_eq!(p["status"], status, "{p}");
+    let espejo: arras_registry_v1::EscrowPayment = serde_json::from_value(p.clone())
+        .unwrap_or_else(|err| panic!("el espejo no lee el Payment de v1: {err}: {p}"));
+    assert_eq!(espejo.released.to_string(), p["released"].as_str().unwrap());
 }
 
 struct Env {
@@ -109,6 +191,10 @@ async fn call_ok(
 }
 
 async fn setup() -> anyhow::Result<Env> {
+    setup_con(V1::Compilada).await
+}
+
+async fn setup_con(v1: V1) -> anyhow::Result<Env> {
     let w = near_workspaces::sandbox().await?;
     let root = w.root_account()?;
     let ft = sub(&root, "ft", 20).await?;
@@ -134,7 +220,7 @@ async fn setup() -> anyhow::Result<Env> {
     let arras = sub(&root, "arras", 10).await?;
     let r = arras
         .batch(arras.id())
-        .deploy(wasm(&WASM_V1, "../escrow-v1").await?)
+        .deploy(wasm_v1(v1).await?)
         .call(
             Function::new("new")
                 .args_json(json!({
@@ -149,6 +235,14 @@ async fn setup() -> anyhow::Result<Env> {
         .transact()
         .await?;
     assert!(r.is_success(), "deploy v1: {:?}", r.into_result());
+    if v1 == V1::Mainnet {
+        let hash: CryptoHash = V1_MAINNET_CODE_HASH.parse()?;
+        assert_eq!(
+            w.view_account(arras.id()).await?.contract_state,
+            ContractState::LocalHash(hash),
+            "el sandbox corre el codigo de mainnet"
+        );
+    }
     for who in [arras.id(), payer.id(), worker.id(), fees.id()] {
         call_ok(
             &root,
@@ -226,6 +320,28 @@ async fn setup() -> anyhow::Result<Env> {
         tercero,
         now,
         deposit,
+    })
+}
+
+/// Un `Payment` de v1 con sus 16 campos, como lo serializa `get_payment` (para el escrow de mentira).
+fn pago_v1(payer: &AccountId, receiver: &AccountId, status: &str, released: u128) -> Value {
+    json!({
+        "operator_id": "em",
+        "payer": payer,
+        "receiver": receiver,
+        "amount": "1000000",
+        "released": released.to_string(),
+        "refunded": "0",
+        "fee_bps": 1300,
+        "fee_recipient": "fees.test.near",
+        "fee_bps_max": 1300,
+        "created_at": "1793491200000000000",
+        "release_deadline": "1793577600000000000",
+        "reclaim_after": "1793664000000000000",
+        "terms_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "status": status,
+        "storage_charged": "3770000000000000000000",
+        "sponsored": false
     })
 }
 
@@ -659,9 +775,20 @@ async fn wr01_identidad() -> anyhow::Result<()> {
 /// WR-02: una calificacion valida de cada lado sobre un pago `Released` de Arras v1, y una sobre `PartiallyReleased`.
 #[tokio::test]
 async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
+    wr02(V1::Compilada).await
+}
+
+/// WR-02 contra la wasm exacta de v1 de mainnet.
+#[tokio::test]
+async fn wr02m_calificaciones_de_los_dos_lados_v1_de_mainnet() -> anyhow::Result<()> {
+    wr02(V1::Mainnet).await
+}
+
+async fn wr02(v1: V1) -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
-    let e = setup().await?;
+    let e = setup_con(v1).await?;
     let id = e.released(1).await?;
+    assert_espejo(&e.payment(&id).await?, "Released");
     let m = e.give_medido(&e.payer, &e.pedido(&id)).await?;
     assert!(m.r.is_success(), "{:?}", m.r.clone().into_result());
     let out: Option<u32> = m.r.clone().json()?;
@@ -694,7 +821,7 @@ async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
             .map(|o| format!("{} {:.3}", o.executor_id, tg(o.gas_burnt)))
             .collect();
     println!(
-        "MEDIDA WR-02 give_feedback (v1 real): total {:.3} TGas; recibos: {}; {} bytes ({} NEAR)",
+        "MEDIDA WR-02 give_feedback (v1 {v1:?}): total {:.3} TGas; recibos: {}; {} bytes ({} NEAR)",
         tg(m.r.total_gas_burnt),
         gas.join(", "),
         m.bytes,
@@ -721,13 +848,7 @@ async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
     // PartiallyReleased con plata liberada.
     let parcial = e.authorize(2 * USDC, &e.msg(2)).await?;
     e.capture("release", &parcial, Some(USDC / 2)).await?;
-    let p: Value = e
-        .root
-        .view(e.arras.id(), "get_payment")
-        .args_json(json!({ "payment_id": parcial }))
-        .await?
-        .json()?;
-    assert_eq!(p["status"], "PartiallyReleased");
+    assert_espejo(&e.payment(&parcial).await?, "PartiallyReleased");
     let r = e.give(&e.payer, &e.pedido(&parcial)).await?;
     let out: Option<u32> = r.clone().json()?;
     assert_eq!(out, Some(2), "{:?}", r.logs());
@@ -795,8 +916,18 @@ async fn wr02_calificaciones_de_los_dos_lados() -> anyhow::Result<()> {
 /// calificacion, un escrow fuera de la lista y guardas de entrada; y un Refunded tras una liberacion parcial, que vale.
 #[tokio::test]
 async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
+    wr03(V1::Compilada).await
+}
+
+/// WR-03 contra la wasm exacta de v1 de mainnet.
+#[tokio::test]
+async fn wr03m_rechazos_con_v1_de_mainnet() -> anyhow::Result<()> {
+    wr03(V1::Mainnet).await
+}
+
+async fn wr03(v1: V1) -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
-    let e = setup().await?;
+    let e = setup_con(v1).await?;
     // Inexistente: un payment_id con forma valida que nadie autorizo.
     let m = e
         .give_medido(
@@ -806,12 +937,13 @@ async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
         .await?;
     assert_rechazo(&e, &m, "E22_PAGO_INEXISTENTE");
     println!(
-        "MEDIDA WR-03 rechazo E22: total {:.3} TGas, gasto del rater {} NEAR",
+        "MEDIDA WR-03 rechazo E22 (v1 {v1:?}): total {:.3} TGas, gasto del rater {} NEAR",
         tg(m.r.total_gas_burnt),
         m.gasto as f64 / 1e24
     );
     // Authorized (sin release).
     let vivo = e.authorize(USDC, &e.msg(1)).await?;
+    assert_espejo(&e.payment(&vivo).await?, "Authorized");
     let m = e.give_medido(&e.payer, &e.pedido(&vivo)).await?;
     assert_rechazo(&e, &m, "E23_PAGO_SIN_LIBERAR");
     let m = e.give_medido(&e.worker, &e.pedido(&vivo)).await?;
@@ -819,6 +951,7 @@ async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
     // Refunded sin nada liberado.
     let devuelto = e.authorize(USDC, &e.msg(2)).await?;
     e.capture("refund", &devuelto, None).await?;
+    assert_espejo(&e.payment(&devuelto).await?, "Refunded");
     let m = e.give_medido(&e.payer, &e.pedido(&devuelto)).await?;
     assert_rechazo(&e, &m, "E23_PAGO_SIN_LIBERAR");
     // Un tercero sobre un pago liberado.
@@ -907,7 +1040,7 @@ async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
     e.capture("release", &parcial, Some(USDC / 2)).await?;
     e.capture("refund", &parcial, None).await?;
     let p = e.payment(&parcial).await?;
-    assert_eq!(p["status"], "Refunded");
+    assert_espejo(&p, "Refunded");
     assert_eq!(p["released"], (USDC / 2).to_string());
     let m = e.give_medido(&e.payer, &e.pedido(&parcial)).await?;
     assert_eq!(
@@ -928,8 +1061,18 @@ async fn wr03_rechazos_con_v1_real() -> anyhow::Result<()> {
 /// adelantado.
 #[tokio::test]
 async fn wr04_reclaimed() -> anyhow::Result<()> {
+    wr04(V1::Compilada).await
+}
+
+/// WR-04 contra la wasm exacta de v1 de mainnet.
+#[tokio::test]
+async fn wr04m_reclaimed_v1_de_mainnet() -> anyhow::Result<()> {
+    wr04(V1::Mainnet).await
+}
+
+async fn wr04(v1: V1) -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
-    let e = setup().await?;
+    let e = setup_con(v1).await?;
     let msg = msg_for(
         e.worker.id(),
         e.now + 300 * 1_000_000_000,
@@ -961,7 +1104,7 @@ async fn wr04_reclaimed() -> anyhow::Result<()> {
             NearToken::from_yoctonear(0),
         )
         .await?;
-        assert_eq!(e.payment(pid).await?["status"], "Reclaimed");
+        assert_espejo(&e.payment(pid).await?, "Reclaimed");
     }
     // Sin plata liberada: E23 para los dos.
     let m = e.give_medido(&e.payer, &e.pedido(&id)).await?;
@@ -981,7 +1124,8 @@ async fn wr04_reclaimed() -> anyhow::Result<()> {
 }
 
 /// WR-05: `get_payment` que falla (una cuenta sin codigo y un escrow que entra en panico) y respuestas que v1 no da:
-/// calificarse a si mismo, un JSON roto, una respuesta de mas de 8 KiB y un `status` de v2.
+/// calificarse a si mismo, un JSON roto, una respuesta de mas de 8 KiB y las que no son exactamente un `Payment` de v1
+/// (un `status` de v2, campos de v2, un campo de menos, un `operator_id` fuera del charset, un numero con signo).
 #[tokio::test]
 async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
@@ -1008,18 +1152,12 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
     assert_rechazo(&e, &m, "E20_GET_PAYMENT_FALLO");
 
     let pago = |payer: &AccountId, receiver: &AccountId, status: &str, released: u128| {
-        json!({
-            "operator_id": "em",
-            "payer": payer,
-            "receiver": receiver,
-            "amount": "1000000",
-            "released": released.to_string(),
-            "refunded": "0",
-            "status": status,
-            "dispute_deadline": "0",
-            "dispute": null,
-        })
-        .to_string()
+        pago_v1(payer, receiver, status, released).to_string()
+    };
+    let con = |campo: &str, valor: Value| {
+        let mut p = pago_v1(e.payer.id(), e.worker.id(), "Released", USDC);
+        p[campo] = valor;
+        p.to_string()
     };
     let cargar = |pid: &'static str, raw: String| {
         let mock = e.mock.clone();
@@ -1036,18 +1174,37 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
     };
     cargar("propio", pago(e.payer.id(), e.payer.id(), "Released", USDC)).await?;
     cargar("roto", "{\"payer\": ".into()).await?;
+    cargar("gordo", con("terms_hash", json!("x".repeat(9 * 1024)))).await?;
+    cargar("resuelto", con("status", json!("Resolved"))).await?;
+    let mut v2 = pago_v1(e.payer.id(), e.worker.id(), "Released", USDC);
+    v2["dispute_deadline"] = json!("0");
+    v2["dispute"] = Value::Null;
+    cargar("v2", v2.to_string()).await?;
+    let mut corto = pago_v1(e.payer.id(), e.worker.id(), "Released", USDC);
+    corto.as_object_mut().unwrap().remove("sponsored");
+    cargar("corto", corto.to_string()).await?;
+    cargar("operador", con("operator_id", json!("EM"))).await?;
+    cargar("signo", con("released", json!("+1000000"))).await?;
     cargar(
-        "gordo",
-        format!("{{\"relleno\":\"{}\"}}", "x".repeat(9 * 1024)),
+        "sin-liberar",
+        pago(e.payer.id(), e.worker.id(), "Released", 0),
     )
     .await?;
-    cargar("resuelto", pago(e.payer.id(), e.worker.id(), "Resolved", 0)).await?;
-    cargar("v2", pago(e.payer.id(), e.worker.id(), "Released", USDC)).await?;
+    cargar(
+        "valido",
+        pago(e.payer.id(), e.worker.id(), "Released", USDC),
+    )
+    .await?;
     for (pid, codigo) in [
         ("propio", "E25_AUTO_CALIFICACION"),
         ("roto", "E21_RESPUESTA_INVALIDA"),
         ("gordo", "E21_RESPUESTA_INVALIDA"),
-        ("resuelto", "E23_PAGO_SIN_LIBERAR"),
+        ("resuelto", "E21_RESPUESTA_INVALIDA"),
+        ("v2", "E21_RESPUESTA_INVALIDA"),
+        ("corto", "E21_RESPUESTA_INVALIDA"),
+        ("operador", "E21_RESPUESTA_INVALIDA"),
+        ("signo", "E21_RESPUESTA_INVALIDA"),
+        ("sin-liberar", "E23_PAGO_SIN_LIBERAR"),
         ("sin-cargar", "E22_PAGO_INEXISTENTE"),
     ] {
         let m = e
@@ -1061,24 +1218,36 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
             .await?;
         assert_rechazo(&e, &m, codigo);
     }
+    // Un rechazo con 3 veces el deposito adjunto devuelve los 3 (R11 del refutador de RARRAS-7).
+    let m = e
+        .give_medido(
+            &e.payer,
+            &Pedido {
+                escrow: e.mock.id(),
+                deposit: 3 * e.deposit,
+                ..e.pedido("v2")
+            },
+        )
+        .await?;
+    assert_rechazo(&e, &m, "E21_RESPUESTA_INVALIDA");
     let r = e
         .give(
             &e.payer,
             &Pedido {
                 escrow: e.mock.id(),
-                ..e.pedido("v2")
+                ..e.pedido("valido")
             },
         )
         .await?;
     let out: Option<u32> = r.clone().json()?;
     assert_eq!(out, Some(0), "{:?}", r.logs());
 
-    // El peor caso del callback: respuesta de casi 8 KiB, todo al tope y una calificada nueva.
-    let mut grande: Value =
-        serde_json::from_str(&pago(e.tercero.id(), e.worker.id(), "Released", u128::MAX))?;
-    grande["operator_id"] = json!("o".repeat(64));
-    let base = grande.to_string().len();
-    grande["relleno"] = json!("x".repeat(8 * 1024 - base - 13));
+    // El peor caso del callback: un `Payment` de v1 de 8 KiB justos (el `terms_hash` es un String sin tope en el
+    // tipo), todo al tope (operator_id de 32) y una calificada nueva.
+    let mut grande = pago_v1(e.tercero.id(), e.worker.id(), "Released", u128::MAX);
+    grande["operator_id"] = json!("o".repeat(32));
+    let base = grande.to_string().len() - grande["terms_hash"].as_str().unwrap().len();
+    grande["terms_hash"] = json!("x".repeat(8 * 1024 - base));
     assert_eq!(grande.to_string().len(), 8 * 1024);
     cargar("grande", grande.to_string()).await?;
     let r = e
@@ -1114,12 +1283,12 @@ async fn wr05_get_payment_que_falla_y_respuestas_raras() -> anyhow::Result<()> {
         cb < Gas::from_tgas(30),
         "el callback entra en su gas estatico"
     );
-    // El worker recibio una por `em` (del payer, "v2") y una por el operador de 64 (del tercero, "grande").
+    // El worker recibio una por `em` (del payer, "valido") y una por el operador de 32 (del tercero, "grande").
     let g = e
         .view("get_summary", json!({ "account_id": e.worker.id() }))
         .await?;
     assert_eq!(g["count"], 2);
-    for (op, score) in [("em".to_string(), 90), ("o".repeat(64), 100)] {
+    for (op, score) in [("em".to_string(), 90), ("o".repeat(32), 100)] {
         let s = e
             .view(
                 "get_summary_by_operator",

@@ -4,7 +4,7 @@
 use super::common::*;
 use crate::*;
 use near_sdk::PromiseResult;
-use near_sdk::serde_json::json;
+use near_sdk::serde_json::{Value, json};
 
 // ---------------------------------------------------------------- la promesa
 
@@ -198,21 +198,6 @@ fn score_0_y_100_valen() {
 }
 
 #[test]
-fn un_payment_de_v2_con_campos_de_mas_vale() {
-    let mut c = new_contract();
-    let mut pago = payment_v1(PAYER, WORKER, "Released", 500);
-    pago["dispute_deadline"] = json!("1793577600000000000");
-    pago["arbiter_window_ns"] = json!("86400000000000");
-    pago["dispute"] = json!(null);
-    let p = Pedido {
-        escrow: ESCROW2.into(),
-        ..Default::default()
-    };
-    assert_eq!(rate(&mut c, PAYER, &p, &pago.to_string()), Some(0));
-    assert_eq!(c.get_feedback(0).unwrap().escrow, acc(ESCROW2));
-}
-
-#[test]
 fn el_mismo_pago_en_otro_escrow_es_otra_calificacion() {
     let mut c = new_contract();
     assert_eq!(
@@ -227,14 +212,27 @@ fn el_mismo_pago_en_otro_escrow_es_otra_calificacion() {
 }
 
 #[test]
-fn operator_id_de_64_vale() {
+fn operator_id_con_el_charset_de_v1_vale() {
+    // `[a-z0-9_-]{1,32}`, de 1 y de 32.
     let mut c = new_contract();
-    let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
-    pago["operator_id"] = json!("o".repeat(64));
-    assert_eq!(
-        rate(&mut c, PAYER, &Pedido::default(), &pago.to_string()),
-        Some(0)
-    );
+    for (n, op) in ["o".repeat(32), "a".into(), "em_2-x9".into()]
+        .into_iter()
+        .enumerate()
+    {
+        let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
+        pago["operator_id"] = json!(op);
+        let p = Pedido {
+            payment_id: format!("op-{n}"),
+            ..Default::default()
+        };
+        assert_eq!(
+            rate(&mut c, PAYER, &p, &pago.to_string()),
+            Some(n as u32),
+            "{op}: {:?}",
+            logs()
+        );
+        assert_eq!(c.get_feedback(n as u32).unwrap().operator_id, op);
+    }
 }
 
 // ---------------------------------------------------------------- rechazos del callback
@@ -265,8 +263,10 @@ fn get_payment_que_falla_es_e20() {
 
 #[test]
 fn respuesta_de_mas_de_8_kib_es_e21() {
+    // Un `Payment` con la forma de v1 (el `terms_hash` es un String sin tope en el tipo): lo unico que falla es el
+    // largo.
     let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
-    pago["relleno"] = json!("x".repeat(9 * 1024));
+    pago["terms_hash"] = json!("x".repeat(9 * 1024));
     rechazo_pago(
         PAYER,
         &pago.to_string(),
@@ -277,8 +277,8 @@ fn respuesta_de_mas_de_8_kib_es_e21() {
 #[test]
 fn respuesta_de_8_kib_justos_se_lee() {
     let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
-    let base = pago.to_string().len();
-    pago["relleno"] = json!("x".repeat(MAX_PAYMENT_RESULT_LEN - base - ",\"relleno\":\"\"".len()));
+    let base = pago.to_string().len() - pago["terms_hash"].as_str().unwrap().len();
+    pago["terms_hash"] = json!("x".repeat(MAX_PAYMENT_RESULT_LEN - base));
     let s = pago.to_string();
     assert_eq!(s.len(), MAX_PAYMENT_RESULT_LEN);
     let mut c = new_contract();
@@ -304,14 +304,26 @@ fn respuesta_que_no_deserializa_es_e21() {
 }
 
 #[test]
-fn operator_id_de_65_es_e21() {
-    let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
-    pago["operator_id"] = json!("o".repeat(65));
-    rechazo_pago(
-        PAYER,
-        &pago.to_string(),
-        RegistryError::E21RespuestaInvalida,
-    );
+fn operator_id_fuera_del_charset_de_v1_es_e21() {
+    for op in [
+        json!(""),
+        json!("o".repeat(33)),
+        json!("o".repeat(65)),
+        json!("EM"),
+        json!("Em"),
+        json!("em "),
+        json!(" em"),
+        json!("e m"),
+        json!("em.near"),
+        json!("em/1"),
+        json!("em:1"),
+        json!("e\u{0}m"),
+        json!("émé"),
+        json!(1),
+        json!(null),
+    ] {
+        rechazo_e21(&pago_con("operator_id", op));
+    }
 }
 
 #[test]
@@ -321,18 +333,14 @@ fn pago_inexistente_es_e22() {
 
 #[test]
 fn pago_sin_plata_liberada_es_e23() {
-    // RESPUESTA de c0der (2026-11-03 23:30Z): lo unico que decide es `released`; con 0 no paso plata, en cualquier
-    // estado (tambien uno que no existe).
+    // RESPUESTA de c0der (2026-11-03 23:30Z): lo unico que decide es `released`; con 0 no paso plata, en cualquiera
+    // de los 5 estados de v1.
     for status in [
         "Authorized",
         "PartiallyReleased",
         "Released",
         "Refunded",
         "Reclaimed",
-        "Disputed",
-        "Resolved",
-        "released",
-        "",
     ] {
         let pago = payment_v1(PAYER, WORKER, status, 0).to_string();
         rechazo_pago(PAYER, &pago, RegistryError::E23PagoSinLiberar);
@@ -352,8 +360,7 @@ fn con_plata_liberada_vale_en_cualquier_estado() {
         ("Refunded", 1),
         ("Released", 1_000_000),
         ("PartiallyReleased", 1),
-        ("Disputed", 400_000),
-        ("Resolved", 400_000),
+        ("Authorized", 1),
     ]
     .into_iter()
     .enumerate()
@@ -381,15 +388,184 @@ fn con_plata_liberada_vale_en_cualquier_estado() {
     }
 }
 
+// ---------------------------------------------------------------- la respuesta es exactamente un `Payment` de v1
+
+/// `payment_v1` con `campo` cambiado por `valor` (un pago liberado, del payer al worker).
+fn pago_con(campo: &str, valor: Value) -> String {
+    let mut pago = payment_v1(PAYER, WORKER, "Released", 1_000_000);
+    pago[campo] = valor;
+    pago.to_string()
+}
+
+/// La respuesta rechazada con `E21`, por el payer y por el receiver, con el deposito entero de vuelta.
+fn rechazo_e21(pago: &str) {
+    rechazo_pago(PAYER, pago, RegistryError::E21RespuestaInvalida);
+    rechazo_pago(WORKER, pago, RegistryError::E21RespuestaInvalida);
+}
+
+/// Los 16 campos del `Payment` de v1 (`contracts/escrow-v1/src/lib.rs:82-105`).
+const CAMPOS_V1: [&str; 16] = [
+    "operator_id",
+    "payer",
+    "receiver",
+    "amount",
+    "released",
+    "refunded",
+    "fee_bps",
+    "fee_recipient",
+    "fee_bps_max",
+    "created_at",
+    "release_deadline",
+    "reclaim_after",
+    "terms_hash",
+    "status",
+    "storage_charged",
+    "sponsored",
+];
+
 #[test]
-fn un_payment_sin_status_es_e21() {
-    let mut pago = payment_v1(PAYER, WORKER, "Released", 1);
-    pago.as_object_mut().unwrap().remove("status");
-    rechazo_pago(
-        PAYER,
-        &pago.to_string(),
-        RegistryError::E21RespuestaInvalida,
+fn el_payment_de_v1_tiene_sus_16_campos() {
+    let pago = payment_v1(PAYER, WORKER, "Released", 1);
+    let mut claves: Vec<&str> = pago
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let mut esperadas = CAMPOS_V1.to_vec();
+    claves.sort();
+    esperadas.sort();
+    assert_eq!(claves, esperadas);
+}
+
+#[test]
+fn un_campo_de_menos_es_e21() {
+    for campo in CAMPOS_V1 {
+        let mut pago = payment_v1(PAYER, WORKER, "Released", 1_000_000);
+        pago.as_object_mut().unwrap().remove(campo);
+        rechazo_e21(&pago.to_string());
+        // `null` en lugar del valor tampoco: ningun campo de v1 es opcional.
+        rechazo_e21(&pago_con(campo, Value::Null));
+    }
+}
+
+#[test]
+fn un_campo_de_mas_es_e21() {
+    // Los de v2 (P2-1: v2 no esta en la lista) y cualquier otro.
+    for (campo, valor) in [
+        ("dispute_deadline", json!("1793577600000000000")),
+        ("arbiter_window_ns", json!("86400000000000")),
+        ("dispute", Value::Null),
+        ("relleno", json!("x")),
+        ("Status", json!("Released")),
+    ] {
+        rechazo_e21(&pago_con(campo, valor));
+    }
+}
+
+#[test]
+fn una_clave_repetida_es_e21() {
+    let pago = released_json();
+    let repetido = pago.replacen("{", &format!("{{\"payer\":\"{OTHER}\","), 1);
+    assert_ne!(repetido, pago);
+    rechazo_e21(&repetido);
+}
+
+#[test]
+fn un_status_que_no_es_de_v1_es_e21() {
+    for status in [
+        json!("Disputed"),
+        json!("Resolved"),
+        json!("released"),
+        json!("RELEASED"),
+        json!(" Released"),
+        json!("Released "),
+        json!(""),
+        json!("Banana"),
+        json!({ "Released": null }),
+        json!({ "Released": {} }),
+        json!(["Released"]),
+        json!(2),
+        json!(true),
+    ] {
+        rechazo_e21(&pago_con("status", status));
+    }
+}
+
+#[test]
+fn un_numero_no_canonico_es_e21() {
+    // Los 7 `U128`/`U64` de v1: string decimal canonico (v1 siempre serializa asi), dentro del rango del tipo.
+    let u128_fuera = "340282366920938463463374607431768211456";
+    let u64_fuera = "18446744073709551616";
+    for (campo, fuera) in [
+        ("amount", u128_fuera),
+        ("released", u128_fuera),
+        ("refunded", u128_fuera),
+        ("storage_charged", u128_fuera),
+        ("created_at", u64_fuera),
+        ("release_deadline", u64_fuera),
+        ("reclaim_after", u64_fuera),
+    ] {
+        for valor in [
+            json!("+1"),
+            json!("01"),
+            json!("00"),
+            json!("-1"),
+            json!(" 1"),
+            json!("1 "),
+            json!(""),
+            json!("0x1"),
+            json!("1e0"),
+            json!("1.0"),
+            json!("1_000"),
+            json!(1),
+            json!(fuera),
+        ] {
+            rechazo_e21(&pago_con(campo, valor.clone()));
+        }
+    }
+}
+
+#[test]
+fn los_demas_tipos_de_v1_son_estrictos() {
+    for (campo, valor) in [
+        ("fee_bps", json!("1300")),
+        ("fee_bps", json!(-1)),
+        ("fee_bps", json!(65536)),
+        ("fee_bps", json!(13.5)),
+        ("fee_bps_max", json!("1800")),
+        ("sponsored", json!("false")),
+        ("sponsored", json!(0)),
+        ("fee_recipient", json!("NO VALIDA")),
+        ("payer", json!("")),
+        ("receiver", json!(7)),
+        ("terms_hash", json!(7)),
+    ] {
+        rechazo_e21(&pago_con(campo, valor));
+    }
+}
+
+#[test]
+fn los_numeros_canonicos_al_borde_valen() {
+    // "0" donde v1 puede tener 0, y los maximos del tipo.
+    let mut c = new_contract();
+    let mut pago = payment_v1(PAYER, WORKER, "Released", u128::MAX);
+    pago["amount"] = json!(u128::MAX.to_string());
+    pago["refunded"] = json!("0");
+    pago["storage_charged"] = json!("0");
+    pago["created_at"] = json!("0");
+    pago["release_deadline"] = json!(u64::MAX.to_string());
+    pago["reclaim_after"] = json!(u64::MAX.to_string());
+    pago["fee_bps"] = json!(0);
+    pago["fee_bps_max"] = json!(u16::MAX);
+    pago["sponsored"] = json!(true);
+    assert_eq!(
+        rate(&mut c, PAYER, &Pedido::default(), &pago.to_string()),
+        Some(0),
+        "{:?}",
+        logs()
     );
+    assert_eq!(c.get_feedback(0).unwrap().released, U128(u128::MAX));
 }
 
 #[test]
@@ -434,6 +610,77 @@ fn el_callback_vuelve_a_mirar_si_ya_califico_e18() {
     assert_eq!(transfers(), vec![(PAYER.to_string(), deposit())]);
     assert_eq!(c.get_config().feedbacks, 1);
     assert!(c.pending.get(&key).is_none(), "el candado se libera");
+}
+
+#[test]
+fn el_rater_es_el_predecessor_no_el_signer() {
+    // R04 (refutador de RARRAS-7): un contrato intermedio (`OTHER`) al que el payer le firma una tx no califica en
+    // nombre del payer: el rater es `OTHER`, no es parte (`E24`) y el deposito le vuelve a `OTHER`.
+    let mut c = new_contract();
+    let p = Pedido::default();
+    ctx_via(OTHER, PAYER, deposit());
+    call_give(&mut c, &p);
+    let args = callback_args();
+    assert_eq!(args.rater, acc(OTHER));
+    assert!(c.is_feedback_pending(acc(ESCROW), PID.into(), acc(OTHER)));
+    assert!(!c.is_feedback_pending(acc(ESCROW), PID.into(), acc(PAYER)));
+    let out = callback(&mut c, args, ok_bytes(&released_json()));
+    assert_rechazo(&mut c, out, OTHER, &p, RegistryError::E24NoEsParte);
+    // Y al reves: el payer que llama por si mismo en una tx que firmo otro (un relayer) es el rater.
+    ctx_via(PAYER, OTHER, deposit());
+    call_give(&mut c, &p);
+    let args = callback_args();
+    assert_eq!(args.rater, acc(PAYER));
+    assert_eq!(callback(&mut c, args, ok_bytes(&released_json())), Some(0));
+    assert_eq!(c.get_feedback(0).unwrap().rater, acc(PAYER));
+    assert_eq!(transfers()[0].0, PAYER.to_string());
+}
+
+#[test]
+fn un_rechazo_devuelve_todo_lo_adjuntado() {
+    // R11 (refutador de RARRAS-7): quien adjunta de mas y es rechazado recupera todo, no `feedback_deposit`.
+    let mut c = new_contract();
+    let p = Pedido::default();
+    for (n, r) in [
+        ok_bytes("null"),
+        PromiseResult::Failed,
+        ok_bytes(&pago_con("status", json!("Disputed"))),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let triple = deposit() * 3 + n as u128;
+        let args = give_at(&mut c, PAYER, triple, HEIGHT, &p);
+        assert_eq!(args.deposit, U128(triple));
+        assert_eq!(callback(&mut c, args, r), None);
+        assert_eq!(transfers(), vec![(PAYER.to_string(), triple)]);
+    }
+    // El rechazo por candado reemplazado (`E26`) tambien.
+    let args = give_at(&mut c, PAYER, deposit() * 3, HEIGHT, &p);
+    let mut viejo = args.clone();
+    viejo.nonce = U64(HEIGHT - 1);
+    assert_eq!(callback(&mut c, viejo, ok_bytes(&released_json())), None);
+    assert!(logs().contains(&RegistryError::E26Reemplazado.rejection_log()));
+    assert_eq!(transfers(), vec![(PAYER.to_string(), deposit() * 3)]);
+}
+
+#[test]
+fn revocar_es_del_predecessor_no_del_signer() {
+    let mut c = new_contract();
+    assert_eq!(
+        rate(&mut c, PAYER, &Pedido::default(), &released_json()),
+        Some(0)
+    );
+    // El payer firma, pero llama un contrato intermedio: no hay calificacion de ese contrato (`E30`).
+    ctx_via(OTHER, PAYER, 1);
+    let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        c.revoke_feedback(acc(ESCROW), PID.into())
+    }));
+    assert!(r.is_err());
+    assert!(!c.get_feedback(0).unwrap().revoked);
+    // El payer, en una tx que firmo otro: revoca la suya.
+    ctx_via(PAYER, OTHER, 1);
+    assert!(c.revoke_feedback(acc(ESCROW), PID.into()).revoked);
 }
 
 #[test]

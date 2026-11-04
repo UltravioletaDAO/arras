@@ -8,6 +8,7 @@
 //! - tag: de 1 a 64 bytes de `[A-Za-z0-9._:/-]`; distingue mayusculas.
 //! - `payment_id`: de 1 a 64 bytes de ASCII imprimible sin espacios.
 //! - `feedback_hash`: exactamente 64 hex en minusculas, sin `0x` (como el `terms_hash` de Arras).
+//! - Los `U128`/`U64` de la respuesta de `get_payment`: decimales canonicos (`is_canonical_uint`).
 
 use crate::{
     MAX_AGENT_URI_LEN, MAX_FEEDBACK_URI_LEN, MAX_METADATA_LEN, MAX_PAYMENT_ID_LEN, MAX_TAG_LEN,
@@ -81,6 +82,13 @@ pub fn check_feedback_uri(u: Option<&str>) -> Result<(), RegistryError> {
         }
         _ => Ok(()),
     }
+}
+
+/// Un entero sin signo como lo escribe `U128`/`U64` de near-sdk: solo digitos, sin ceros a la izquierda (salvo `"0"`).
+/// El rango lo mira quien lo parsea.
+pub fn is_canonical_uint(s: &str) -> bool {
+    let b = s.as_bytes();
+    !b.is_empty() && b.iter().all(u8::is_ascii_digit) && (b[0] != b'0' || b.len() == 1)
 }
 
 pub fn check_payment_id(id: &str) -> Result<(), RegistryError> {
@@ -246,6 +254,18 @@ mod tests {
                 Err(RegistryError::E11PaymentIdInvalido),
                 "{id:?}"
             );
+        }
+    }
+
+    #[test]
+    fn enteros_canonicos() {
+        for ok in ["0", "1", "10", "1000000", &u128::MAX.to_string()] {
+            assert!(is_canonical_uint(ok), "{ok}");
+        }
+        for mal in [
+            "", "+1", "-1", "01", "00", "000", " 1", "1 ", "1_000", "0x1", "1e0", "1.0", "١",
+        ] {
+            assert!(!is_canonical_uint(mal), "{mal:?}");
         }
     }
 

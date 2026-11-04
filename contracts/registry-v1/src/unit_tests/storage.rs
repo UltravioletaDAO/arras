@@ -1,7 +1,9 @@
-//! U-ST: el storage que se cobra. `FEEDBACK_MAX_BYTES` y `AGENT_MAX_BYTES` son exactamente el peor caso medido.
+//! U-ST: el storage que se cobra. `AGENT_MAX_BYTES` es exactamente el peor caso medido; `FEEDBACK_MAX_BYTES` es el
+//! peor caso medido mas 64 bytes de margen (cubre un `operator_id` de 64 y v1 los limita a 32).
 
 use super::common::*;
 use crate::*;
+use arras_escrow_core::MAX_OPERATOR_ID_LEN as V1_OPERATOR_MAX;
 use near_sdk::serde_json::json;
 
 fn al_tope(escrow: &str) -> Pedido {
@@ -18,7 +20,7 @@ fn al_tope(escrow: &str) -> Pedido {
 
 fn pago_al_tope(rater: &str, ratee: &str) -> String {
     let mut pago = payment_v1(rater, ratee, "Released", u128::MAX);
-    pago["operator_id"] = json!("o".repeat(MAX_OPERATOR_ID_LEN));
+    pago["operator_id"] = json!("o".repeat(V1_OPERATOR_MAX));
     pago.to_string()
 }
 
@@ -34,7 +36,7 @@ fn medir(c: &mut Registry, rater: &str, p: &Pedido, pago: &str) -> u64 {
 }
 
 #[test]
-fn ust1_peor_caso_de_una_calificacion_es_feedback_max_bytes() {
+fn ust1_peor_caso_de_una_calificacion_y_el_margen_de_feedback_max_bytes() {
     // Cuentas de 64 caracteres (implicitas) para el escrow, el rater y la calificada.
     let escrow = "d".repeat(64);
     let rater = "b".repeat(64);
@@ -46,37 +48,44 @@ fn ust1_peor_caso_de_una_calificacion_es_feedback_max_bytes() {
         &al_tope(&escrow),
         &pago_al_tope(&rater, &ratee),
     );
-    assert_eq!(bytes, FEEDBACK_MAX_BYTES);
+    // El deposito cubre un operator_id de 64 (en la Feedback y en la clave del resumen por operador); v1 da a lo sumo
+    // 32: el peor caso real son 64 bytes menos, que vuelven.
+    let margen = 2 * (DEPOSIT_OPERATOR_ID_LEN - V1_OPERATOR_MAX) as u64;
+    assert_eq!(margen, 64);
+    assert_eq!(bytes, FEEDBACK_MAX_BYTES - margen);
+    assert_eq!(bytes, 1800);
     assert_eq!(FEEDBACK_MAX_BYTES, 1864);
-    // Se cobra todo el deposito: no vuelve nada.
-    assert!(transfers().is_empty(), "{:?}", transfers());
     assert_eq!(deposit(), 1864 * 10u128.pow(19));
+    assert_eq!(
+        transfers(),
+        vec![(rater.clone(), u128::from(margen) * 10u128.pow(19))]
+    );
     // La segunda a la misma calificada y por el mismo operador no paga el indice ni los dos resumenes nuevos.
     let p2 = Pedido {
         payment_id: "q".repeat(MAX_PAYMENT_ID_LEN),
         ..al_tope(&escrow)
     };
     let bytes2 = medir(&mut c, &rater, &p2, &pago_al_tope(&rater, &ratee));
-    let resumen_op = record_bytes(1 + 68 + 4 + 64, 44);
-    assert_eq!(resumen_op, 221);
+    let resumen_op = record_bytes(1 + 68 + 4 + V1_OPERATOR_MAX as u64, 44);
+    assert_eq!(resumen_op, 189);
     let indice_y_resumenes =
         record_bytes(1 + 68, 4 + 4 + 70) + record_bytes(1 + 68, 44) + resumen_op;
-    assert_eq!(bytes2, FEEDBACK_MAX_BYTES - indice_y_resumenes);
+    assert_eq!(bytes2, bytes - indice_y_resumenes);
     assert_eq!(
         transfers(),
         vec![(
             rater.clone(),
-            u128::from(indice_y_resumenes) * 10u128.pow(19)
+            u128::from(FEEDBACK_MAX_BYTES - bytes2) * 10u128.pow(19)
         )]
     );
-    // La tercera, por otro operador (tambien de 64): paga solo su resumen por operador nuevo, 221 bytes.
+    // La tercera, por otro operador (tambien de 32): paga solo su resumen por operador nuevo, 189 bytes.
     let p3 = Pedido {
         payment_id: "r".repeat(MAX_PAYMENT_ID_LEN),
         ..al_tope(&escrow)
     };
     let mut pago3: near_sdk::serde_json::Value =
         near_sdk::serde_json::from_str(&pago_al_tope(&rater, &ratee)).unwrap();
-    pago3["operator_id"] = json!("x".repeat(MAX_OPERATOR_ID_LEN));
+    pago3["operator_id"] = json!("x".repeat(V1_OPERATOR_MAX));
     let bytes3 = medir(&mut c, &rater, &p3, &pago3.to_string());
     assert_eq!(bytes3, bytes2 + resumen_op);
     assert_eq!(
