@@ -170,13 +170,12 @@ fn operator<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     Ok(s)
 }
 
-/// Un `payment_id` canonico: base58 de exactamente 32 bytes, y la misma cadena al volver a codificarlo (vacio o mas de
-/// 44 caracteres nunca dan 32 bytes; el Reputation Registry ya limita `proof` a 128 bytes).
+/// Un `payment_id` canonico: base58 (alfabeto de bitcoin) de exactamente 32 bytes. No hace falta volver a codificarlo:
+/// cada `1` adelante es un byte cero y el resto es un numero en base 58 sin ceros a la izquierda, asi que dos cadenas
+/// distintas nunca dan los mismos 32 bytes (vacio o mas de 44 caracteres nunca dan 32; el Reputation Registry ya
+/// limita `proof` a 128 bytes).
 pub fn is_canonical_payment_id(s: &str) -> bool {
-    match bs58::decode(s).into_vec() {
-        Ok(b) => b.len() == 32 && bs58::encode(&b).into_string() == s,
-        Err(_) => false,
-    }
+    bs58::decode(s).into_vec().is_ok_and(|b| b.len() == 32)
 }
 
 /// Lo que el callback verifico, o el error.

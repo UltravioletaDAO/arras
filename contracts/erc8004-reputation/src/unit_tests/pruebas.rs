@@ -486,3 +486,14 @@ fn ust3_peor_caso_de_una_calificacion_con_prueba() {
     assert_eq!(FEEDBACK_PROOF_MAX_BYTES, 1_472);
     assert_eq!(transfers(), vec![]);
 }
+
+#[test]
+fn is_proof_pending_vence_con_el_ttl() {
+    let mut c = new_contract();
+    give_proof_at(&mut c, CLIENT, dep(), HEIGHT, PID);
+    ctx_at(OTHER, 0, HEIGHT + PENDING_TTL_BLOCKS - 1);
+    assert!(c.is_proof_pending(acc(VERIFIER), PID.into(), acc(CLIENT)));
+    ctx_at(OTHER, 0, HEIGHT + PENDING_TTL_BLOCKS);
+    assert!(!c.is_proof_pending(acc(VERIFIER), PID.into(), acc(CLIENT)));
+    assert!(!c.is_proof_pending(acc(VERIFIER), PID.into(), acc(CLIENT2)));
+}
