@@ -493,3 +493,13 @@ fn revocar_es_del_predecessor() {
             .is_revoked
     );
 }
+
+#[test]
+fn el_cobro_no_pasa_del_deposito() {
+    // Inalcanzable con `feedback_deposit` (cubre el peor caso): el callback igual nunca cobra mas de lo adjuntado.
+    let mut c = new_contract();
+    let mut p = give(&mut c, CLIENT, &Pedido::default());
+    p.deposit = near_sdk::json_types::U128(3);
+    assert_eq!(callback(&mut c, p, agent_ok()), Some("1".into()));
+    assert_eq!(transfers(), vec![]);
+}

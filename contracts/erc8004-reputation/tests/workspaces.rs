@@ -1113,6 +1113,13 @@ async fn we06_validacion_borrador() -> anyhow::Result<()> {
 async fn we07_callbacks_privados() -> anyhow::Result<()> {
     let _p = SANDBOXES.acquire().await?;
     let e = setup().await?;
+    let val = deploy_init(
+        &e.root,
+        "validation",
+        wasm(&WASM_VAL, "../erc8004-validation").await?,
+        json!({ "identity_registry": e.identity.id() }),
+    )
+    .await?;
     let p = json!({ "client": e.payer.id(), "agent_id": "0", "value": "1", "value_decimals": 0, "tag1": "", "tag2": "",
                     "endpoint": "", "feedback_uri": "", "feedback_hash": null, "deposit": "0" });
     for (c, method, args) in [
@@ -1128,6 +1135,12 @@ async fn we07_callbacks_privados() -> anyhow::Result<()> {
             json!({ "previous_owner_id": e.payer.id(), "receiver_id": e.worker.id(), "token_id": "0", "approved_account_ids": null, "approvals_refund": "0" }),
         ),
         (&e.verifier, "on_payment", json!({ "client": e.payer.id() })),
+        (
+            &val,
+            "on_request_checked",
+            json!({ "p": { "requester": e.payer.id(), "validator_address": e.em.id(), "agent_id": "0",
+                           "request_uri": "a:b", "request_hash": HASH, "deposit": "0" }, "nonce": "0" }),
+        ),
     ] {
         let err = panic_de(
             e.tercero

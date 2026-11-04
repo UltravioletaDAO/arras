@@ -170,11 +170,9 @@ fn operator<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
     Ok(s)
 }
 
-/// Un `payment_id` canonico: base58 de exactamente 32 bytes, y la misma cadena al volver a codificarlo.
+/// Un `payment_id` canonico: base58 de exactamente 32 bytes, y la misma cadena al volver a codificarlo (vacio o mas de
+/// 44 caracteres nunca dan 32 bytes; el Reputation Registry ya limita `proof` a 128 bytes).
 pub fn is_canonical_payment_id(s: &str) -> bool {
-    if s.is_empty() || s.len() > 44 {
-        return false;
-    }
     match bs58::decode(s).into_vec() {
         Ok(b) => b.len() == 32 && bs58::encode(&b).into_string() == s,
         Err(_) => false,

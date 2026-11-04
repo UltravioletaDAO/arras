@@ -498,3 +498,13 @@ fn config_dice_borrador() {
     assert!(c.get_agent_validations("x".into(), None, None).is_empty());
     assert_eq!(c.get_validation_status("x".into()), None);
 }
+
+#[test]
+fn el_cobro_no_pasa_del_deposito() {
+    let mut c = new_contract();
+    let (mut p, n) = request(&mut c, OWNER, dep(), H1);
+    p.deposit = U128(3);
+    ctx_cb(agent(true));
+    assert!(c.on_request_checked(p, n));
+    assert_eq!(transfers(), vec![]);
+}
