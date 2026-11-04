@@ -57,7 +57,8 @@ atada a pagos de Arras que de verdad liberaron plata.
    v1 (`[a-z0-9_-]{1,32}`), asi que el peor caso real es **1.800 bytes** (U-ST1 lo mide exacto: cuentas de 64,
    operador de 32, todo al tope, calificada y operador nuevos) y esos 64 bytes de margen vuelven siempre al rater. Se
    dejo 1.864 para no cambiar la interfaz que los SDK ya implementan (`DEPOSIT_OPERATOR_ID_LEN` = 64). El callback
-   cobra lo medido (una calificacion tipica con tags, URI y hash, calificada nueva, sobre v1: 746 bytes, 0,00746 NEAR) y
+   cobra lo medido (una calificacion tipica con tags, URI y hash, calificada nueva, sobre v1: 745 o 746 bytes segun el
+   largo base58 del `payment_id`, ~0,0075 NEAR) y
    devuelve el resto. El resumen por operador nuevo cuesta 189 bytes en el peor caso (operador de 32) y 109 con
    `worker.testnet` y `em` (U-ST5), solo la primera vez por `(calificada, operador)`; lo paga el rater. `register`: `register_deposit` = 1.751 bytes
    (0,01751 NEAR) cubre el peor caso; se cobra lo medido.
@@ -354,38 +355,47 @@ y `get_summary_by_operator` (el filtro es por operador del pago, no por cliente)
 
 ## Gas y storage medidos (sandbox nearcore 2.13.4)
 
+Con la RONDA 1 (espejo estricto). Donde hay dos numeros, el primero es contra la v1 compilada y el segundo contra la
+wasm de mainnet.
+
 | Que | Medido | Constante del contrato |
 |---|---|---|
-| `give_feedback`, recibo del registro (WR-02, v1 real) | 2,383 TGas | `MIN_GAS_GIVE_FEEDBACK` 60 TGas en total |
-| `get_payment` de v1 | 1,477 TGas | `GAS_GET_PAYMENT` 10 TGas |
-| `on_payment_checked` (aceptada, calificada y operador nuevos) | 2,892 TGas | `GAS_ON_PAYMENT_CHECKED` 30 TGas |
-| callback en el peor caso (respuesta de 8 KiB, todo al tope; WR-05) | 3,256 TGas | 30 TGas |
-| tx completa de `give_feedback` aceptada / rechazada (`E22`) | 7,97 / 6,83 TGas | se adjuntan >= 60 (recomendado 100) |
-| `give_feedback` con 60 TGas justos sobre v1 real (WR-09) | pasa | |
-| `register` con `metadata` de 600 bytes (WR-01) | 798 bytes (0,00798 NEAR), 3,00 TGas | `register_deposit` 1.751 bytes |
-| una calificacion con tags, URI y hash, calificada y operador nuevos (WR-02) | 746 bytes (0,00746 NEAR) | `feedback_deposit` 1.864 bytes (0,01864 NEAR) |
-| peor caso de una calificacion (U-ST1: cuentas y operador de 64, todo al tope, calificada y operador nuevos) | 1.864 bytes exactos | `FEEDBACK_MAX_BYTES` |
-| resumen por operador nuevo: peor caso / `worker.testnet` + `em` (U-ST1, U-ST5) | 221 / 109 bytes | |
+| `give_feedback`, recibo del registro (WR-02) | 2,392 TGas | `MIN_GAS_GIVE_FEEDBACK` 60 TGas en total |
+| `get_payment` de v1 (WR-02) | 1,477 / 1,471 TGas | `GAS_GET_PAYMENT` 10 TGas |
+| `on_payment_checked` (aceptada, calificada y operador nuevos; WR-02) | 2,924 TGas | `GAS_ON_PAYMENT_CHECKED` 30 TGas |
+| callback en el peor caso (un `Payment` de v1 de 8 KiB justos, todo al tope; WR-05) | 3,305 TGas | 30 TGas |
+| tx completa de `give_feedback` aceptada (WR-02) / rechazada con `E22` (WR-03) | 8,008 / 8,001 y 6,844 / 6,838 TGas | se adjuntan >= 60 (recomendado 100) |
+| tx completa del peor caso (WR-05) | 8,826 TGas | con 60 TGas justos |
+| `give_feedback` con 60 TGas justos sobre v1 real (WR-09) | pasa (8,008 TGas) | |
+| `register` con `metadata` de 600 bytes (WR-01) | 798 bytes (0,00798 NEAR), 3,01 TGas | `register_deposit` 1.751 bytes |
+| una calificacion con tags, URI y hash, calificada y operador nuevos (WR-02, las dos v1) | 745 o 746 bytes (~0,0075 NEAR): el `payment_id` base58 tiene 43 o 44 caracteres | `feedback_deposit` 1.864 bytes (0,01864 NEAR) |
+| peor caso de una calificacion (U-ST1: cuentas de 64, operador de 32, todo al tope, calificada y operador nuevos) | 1.800 bytes exactos (vuelven 64) | `FEEDBACK_MAX_BYTES` 1.864 (cubre un operador de 64) |
+| resumen por operador nuevo: peor caso / `worker.testnet` + `em` (U-ST1, U-ST5) | 189 / 109 bytes | |
 | peor caso de `register` (U-ST3) | 1.751 bytes exactos | `AGENT_MAX_BYTES` |
 | el candado mientras vuela | 81 bytes (se borra en el callback) | |
 | gasto del rater en un rechazo (deposito devuelto entero) | 0,00062 NEAR de gas | |
+| wasm (`cargo near build non-reproducible-wasm`, la de `compile_project`) | 231.516 bytes (223.893 antes de la RONDA 1) | el 1b del plan, 2,5 NEAR, alcanza hasta ~245.000 |
 
 ## Lo que corri
 
-Sin red (`HTTPS_PROXY=http://127.0.0.1:9`, `--offline`), `NEAR_SANDBOX_BIN_PATH` = near-sandbox 2.13.4, Rust 1.93.0 de
-`rust-toolchain.toml`. El repo no tiene `.github/workflows` ni `scripts/ci/preflight.sh`: no hay CI que reproducir.
+Sin red (`HTTPS_PROXY=http://127.0.0.1:9`, `--offline`), sin credenciales (`AWS_SHARED_CREDENTIALS_FILE=/dev/null`),
+`NEAR_SANDBOX_BIN_PATH` = near-sandbox 2.13.4, Rust 1.93.0 de `rust-toolchain.toml`. El repo no tiene
+`.github/workflows` ni `scripts/ci/preflight.sh`: no hay CI que reproducir. `origin/main` sigue en ddc5121 (re-medido con
+`git fetch` antes de la corrida final; es ancestro de la rama, asi que la union es la rama misma).
 
 | Paso | Comando | Resultado |
 |---|---|---|
 | Linea base, `origin/main` ddc5121 | `cargo test --workspace --offline` y `scripts/test_mainnet.sh` | escrow-core 12, escrow-v1 60 + 15 sandbox (+3 ignored, necesitan red), escrow-v2 130 + 11 sandbox, test-ft 0; 347 asserts. **Sin rojos** |
-| Union con `origin/main` (ddc5121, sin cambios desde el despacho) en 31c9f3e | `cargo test --workspace --offline --no-fail-fast -- --nocapture` | escrow-core 12, escrow-v1 60 + 15 (+3 ignored), escrow-v2 130 + 11, **registry-v1 104 unitarios + 10 sandbox**, test-escrow 0, test-ft 0: todo verde |
-| Union | `scripts/test_mainnet.sh` | 347 asserts pasan, 0 fallan |
+| RONDA 1: union con `origin/main` en 2cc2437 (el ultimo commit de codigo; despues solo cambia este handoff) | `cargo test --workspace --offline --no-fail-fast -- --nocapture` | escrow-core 12, escrow-v1 60 + 15 (+3 ignored), escrow-v2 130 + 11, **registry-v1 115 unitarios + 14 sandbox**, test-escrow 0, test-ft 0: todo verde |
+| Lo mismo en 60d285c (antes de WR-10) | idem | igual, con registry-v1 115 + 13 |
+| Sandbox contra las dos v1 | `cargo test -p arras-registry-v1 --test workspaces -- --nocapture` | WR-02, WR-03 y WR-04 pasan contra la v1 compilada y contra la wasm de mainnet (sha256 `7058319d...0eada` verificado, code hash `8ZYfMJer...PxHr5X` en la cuenta del sandbox); `assert_espejo` en los 5 estados |
+| Union | `scripts/test_mainnet.sh` con `/bin/bash` 3.2.57 y `/opt/homebrew/bin/bash` 5.3.20 | 347 asserts pasan, 0 fallan, con los dos |
 | Formato | `cargo fmt --all -- --check` | limpio |
-| Lint | `cargo clippy --offline -p arras-registry-v1 -p arras-test-escrow --all-targets` | 0 warnings |
+| Lint | `cargo clippy --offline -p arras-registry-v1 -p arras-test-escrow --all-targets -- -D warnings` | limpio |
 | Pre-CI de c0der | `python3 ~/c0der-specs/hooks/preci.py --repo . --base origin/main --ejecutar` | verde por vacio (0 pasos: no hay workflows) |
-| Mediciones | `cargo test -p arras-registry-v1 --test workspaces -- --nocapture` | las `MEDIDA` de la tabla de arriba |
-| Mutaciones | `mutar.py` (86 mutantes, `timeout` por mutante, revertidos con `git checkout`) | 86 de 86 muertas |
-| Wasm | `cargo near build non-reproducible-wasm` (lo hace `compile_project` del sandbox) | 223.893 bytes en 31c9f3e |
+| Secretos | `gitleaks git --log-opts=origin/main..HEAD` | sin hallazgos |
+| Mutaciones | `mutar.py` (115 mutantes, `timeout` por mutante, revertidos con `git checkout`, arbol limpio entre uno y otro) | **115 de 115 muertas**, todas por un test que falla (0 timeouts, 0 rojos sin test) |
+| Wasm | `cargo near build non-reproducible-wasm` (lo hace `compile_project` del sandbox) | 231.516 bytes |
 
 ## Auto-refutacion
 
@@ -412,7 +422,11 @@ otra; script en el scratchpad de la sesion). Ronda 0: 77, 76 muertas; M02 (`colo
 por equivalente (`b[0]` letra lo implica): se saco la guarda redundante. Ronda 1, despues de la RESPUESTA (los mutantes
 de `has_released` reescritos para la regla nueva, entre ellos M53, que vuelve a la regla vieja): 79 de 79 muertas.
 Ronda 2, despues del resumen por operador (M81..M87 nuevos; M63, M67 y M74..M77 movidos a `Summary::add`/`revoke`):
-**86 de 86 muertas** (las de `wr*` corren el sandbox).
+86 de 86 muertas. **Ronda 3, la RONDA 1 de c0der**: las 86 (M51, M52..M55, M78..M80 reescritos para el codigo nuevo:
+M51 vuelve a la regla vieja del `operator_id`, `released` es `u128`, `status` es enum), los tres del refutador (R04,
+R05, R11) con sus vecinos (R04b `revoke_feedback`, R05b `update`, R11W en el sandbox) y una por cada guarda nueva del
+espejo estricto (N01..N22, N01W en el sandbox). Desde esta ronda solo cuenta como muerta la que hace FALLAR un test
+(como mide el refutador de c0der: un timeout o un rojo sin test no cuentan).
 
 | # | Mutacion (guarda) | Resultado | Un test que la mata |
 |---|---|---|---|
@@ -444,7 +458,7 @@ Ronda 2, despues del resumen por operador (M81..M87 nuevos; M63, M67 y M74..M77 
 | M27 | new: 9 escrows | muerta | `init::new_con_nueve_escrows` |
 | M28 | new: repetidos aceptados | muerta | `init::new_con_escrow_repetido` |
 | M29 | new: el propio registro aceptado | muerta | `init::new_con_el_propio_registro` |
-| M30 | give: sin E10 (escrow fuera de la lista) | muerta | `reputacion::escrow_fuera_de_la_lista_es_e10` |
+| M30 | give: sin E10 (escrow fuera de la lista) | muerta | `reputacion::el_propio_registro_como_escrow_es_e10` |
 | M31 | give: sin E11 | muerta | `reputacion::payment_id_con_espacio_es_e11` |
 | M32 | give: score 101 aceptado | muerta | `reputacion::score_101_es_e12` |
 | M33 | give: tag1 sin validar | muerta | `reputacion::tag1_invalido_es_e13` |
@@ -457,21 +471,21 @@ Ronda 2, despues del resumen por operador (M81..M87 nuevos; M63, M67 y M74..M77 
 | M40 | give: TTL `<` -> `<=` | muerta | `reputacion::candado_vencido_se_pisa_y_el_callback_viejo_es_e26` |
 | M41 | give: candado que nunca frena (E19) | muerta | `reputacion::dos_give_feedback_en_vuelo_es_e19` |
 | M42 | give: sin escribir el candado | muerta | `reputacion::calificarse_a_si_mismo_es_e25` |
-| M43 | give: nonce distinto del candado | muerta | `reputacion::calificarse_a_si_mismo_es_e25` |
-| M44 | give: gas de get_payment = el del callback | muerta | `reputacion::gas_minimo_justo_pasa` |
+| M43 | give: nonce distinto del candado | muerta | `reputacion::el_callback_vuelve_a_mirar_si_ya_califico_e18` |
+| M44 | give: gas de get_payment = el del callback | muerta | `reputacion::give_feedback_llama_get_payment_y_el_callback_con_su_gas` |
 | M45 | callback: sin chequear el nonce (E26) | muerta | `reputacion::callback_sin_candado_es_e26` |
 | M46 | callback: no libera el candado | muerta | `reputacion::calificarse_a_si_mismo_es_e25` |
 | M47 | callback: Failed -> E21 | muerta | `reputacion::get_payment_que_falla_es_e20` |
 | M48 | callback: tope de respuesta 16 KiB | muerta | `reputacion::respuesta_de_mas_de_8_kib_es_e21` |
-| M49 | callback: JSON roto como `null` | muerta | `reputacion::respuesta_que_no_deserializa_es_e21` |
+| M49 | callback: JSON roto como `null` | muerta | `reputacion::los_demas_tipos_de_v1_son_estrictos` |
 | M50 | callback: `null` -> E21 | muerta | `reputacion::pago_inexistente_es_e22` |
-| M51 | callback: operator_id de 64 rechazado | muerta | `reputacion::operator_id_de_64_vale` |
+| M51 | operator_id: vuelve la regla vieja (largo <= 64, sin charset) | muerta | `reputacion::operator_id_fuera_del_charset_de_v1_es_e21` |
 | M52 | has_released: `true` (released == 0 vale) | muerta | `reputacion::pago_sin_plata_liberada_es_e23` |
-| M53 | has_released: vuelve la regla vieja (solo Released/PartiallyReleased) | muerta | `reputacion::con_plata_liberada_vale_en_cualquier_estado` |
+| M53 | has_released: regla vieja (solo Released/PartiallyReleased) | muerta | `reputacion::con_plata_liberada_vale_en_cualquier_estado` |
 | M54 | has_released: `> 1` | muerta | `reputacion::con_plata_liberada_vale_en_cualquier_estado` |
 | M55 | has_released: Refunded rechazado | muerta | `reputacion::con_plata_liberada_vale_en_cualquier_estado` |
 | M56 | callback: rol de la calificada cambiado | muerta | `reputacion::payer_califica_al_receiver_de_un_pago_released` |
-| M57 | callback: tercero tratado como payer (sin E24) | muerta | `reputacion::un_tercero_es_e24` |
+| M57 | callback: tercero tratado como payer (sin E24) | muerta | `reputacion::el_rater_es_el_predecessor_no_el_signer` |
 | M58 | callback: sin E25 | muerta | `reputacion::calificarse_a_si_mismo_es_e25` |
 | M59 | callback: sin E18 | muerta | `reputacion::el_callback_vuelve_a_mirar_si_ya_califico_e18` |
 | M60 | accept: cobro sin tope en el deposito | muerta | `reputacion::el_cobro_no_pasa_del_deposito` |
@@ -492,16 +506,45 @@ Ronda 2, despues del resumen por operador (M81..M87 nuevos; M63, M67 y M74..M77 
 | M75 | Summary::add: no actualiza last_feedback_id | muerta | `reputacion::revocar_marca_y_descuenta_del_resumen` |
 | M76 | Summary::revoke: no suma revoked | muerta | `reputacion::revocar_la_del_payer_descuenta_del_rol_payer` |
 | M77 | Summary::revoke: no resta score_sum | muerta | `reputacion::revocar_la_del_payer_descuenta_del_rol_payer` |
-| M78 | EscrowPayment: `status` opcional | muerta | `reputacion::un_payment_sin_status_es_e21` |
-| M79 | has_released: Reclaimed rechazado (sandbox, v1 real) | muerta | `wr04_reclaimed` |
-| M80 | has_released: Refunded rechazado (sandbox, v1 real) | muerta | `wr03_rechazos_con_v1_real` |
-| M81 | accept: no suma al resumen por operador | muerta | `storage::ust1_peor_caso_de_una_calificacion_es_feedback_max_bytes` |
+| M78 | EscrowPayment: `status` opcional (`Option`) | muerta | `reputacion::un_campo_de_menos_es_e21` |
+| M79 | has_released: Reclaimed rechazado (sandbox, v1 compilada y de mainnet) | muerta | `wr04m_reclaimed_v1_de_mainnet` |
+| M80 | has_released: Refunded rechazado (sandbox, v1 compilada y de mainnet) | muerta | `wr03m_rechazos_con_v1_de_mainnet` |
+| M81 | accept: no suma al resumen por operador | muerta | `storage::ust1_peor_caso_de_una_calificacion_y_el_margen_de_feedback_max_bytes` |
 | M82 | revoke: no descuenta del resumen por operador | muerta | `vistas::resumen_por_operador` |
-| M83 | accept: resumen por operador con la clave equivocada | muerta | `storage::ust1_peor_caso_de_una_calificacion_es_feedback_max_bytes` |
+| M83 | accept: resumen por operador con la clave equivocada | muerta | `storage::ust1_peor_caso_de_una_calificacion_y_el_margen_de_feedback_max_bytes` |
 | M84 | get_summary_by_operator: lee otra clave | muerta | `vistas::resumen_por_operador_en_json` |
-| M85 | FEEDBACK_MAX_BYTES sin el resumen por operador | muerta | `storage::ust1_peor_caso_de_una_calificacion_es_feedback_max_bytes` |
+| M85 | FEEDBACK_MAX_BYTES sin el resumen por operador | muerta | `storage::ust1_peor_caso_de_una_calificacion_y_el_margen_de_feedback_max_bytes` |
 | M86 | accept: no suma al resumen global | muerta | `reputacion::payer_califica_al_receiver_de_un_pago_released` |
 | M87 | revoke: no descuenta del resumen global | muerta | `reputacion::revocar_la_del_payer_descuenta_del_rol_payer` |
+| R04 | give_feedback: rater = signer | muerta | `reputacion::el_rater_es_el_predecessor_no_el_signer` |
+| R04b | revoke_feedback: rater = signer | muerta | `reputacion::revocar_es_del_predecessor_no_del_signer` |
+| R05 | register: cuenta = signer | muerta | `identidad::register_y_update_son_del_predecessor_no_del_signer` |
+| R05b | update: cuenta = signer | muerta | `identidad::register_y_update_son_del_predecessor_no_del_signer` |
+| R11 | rechazo: devuelve `feedback_deposit`, no lo adjuntado | muerta | `reputacion::un_rechazo_devuelve_todo_lo_adjuntado` |
+| R11W | lo mismo, en el sandbox | muerta | `wr05_get_payment_que_falla_y_respuestas_raras` |
+| N01 | EscrowPayment sin `deny_unknown_fields` | muerta | `reputacion::un_campo_de_mas_es_e21` |
+| N01W | lo mismo, en el sandbox (los campos de v2 del mock) | muerta | `wr05_get_payment_que_falla_y_respuestas_raras` |
+| N02 | status: cualquier string vale | muerta | `reputacion::un_rechazo_devuelve_todo_lo_adjuntado` |
+| N03 | status: tambien la forma objeto (`{"Released":null}`) | muerta | `reputacion::un_status_que_no_es_de_v1_es_e21` |
+| N04 | operator_id: sin charset (solo no vacio) | muerta | `reputacion::operator_id_fuera_del_charset_de_v1_es_e21` |
+| N05 | numero: ceros a la izquierda | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N06 | numero: sin chequeo canonico | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N07 | numero: sin exigir solo digitos | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N08 | numero: vacio (sin `!is_empty`) | muerta | `validate::tests::enteros_canonicos` |
+| N09 | amount: `U128` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N10 | released: `U128` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N11 | refunded: `U128` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N12 | created_at: `U64` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N13 | release_deadline: `U64` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N14 | reclaim_after: `U64` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N15 | storage_charged: `U128` laxo | muerta | `reputacion::un_numero_no_canonico_es_e21` |
+| N16 | fee_bps: opcional (`serde(default)`) | muerta | `reputacion::un_campo_de_menos_es_e21` |
+| N17 | sponsored: opcional | muerta | `reputacion::un_campo_de_menos_es_e21` |
+| N18 | terms_hash: opcional | muerta | `reputacion::un_campo_de_menos_es_e21` |
+| N19 | fee_recipient: `String` (sin validar la cuenta) | muerta | `reputacion::los_demas_tipos_de_v1_son_estrictos` |
+| N20 | fee_bps: `u32` | muerta | `reputacion::los_demas_tipos_de_v1_son_estrictos` |
+| N21 | sponsored: cualquier JSON | muerta | `reputacion::los_demas_tipos_de_v1_son_estrictos` |
+| N22 | fee_bps_max: cualquier JSON | muerta | `reputacion::los_demas_tipos_de_v1_son_estrictos` |
 
 **Refutador** (un subagente opus/xhigh sobre el diff, el encargo, la RESPUESTA y estos borradores). Ronda 1: sin P1;
 corrio la suite (101 + 10 en verde), una sonda en WR-06 (la segunda tx cae en `E19`, no por un `E18` secuencial) y
@@ -519,6 +562,23 @@ candado, el costo del ataque del owner, "a cualquier receiver", el saldo del pad
 `sign-with-keychain` del payer en el 3b, "must filter" en el README) estan arreglados. **El resumen por
 `(ratee, operator_id)` (RESPUESTA de 00:06Z, la respuesta a su P2-2) se hizo despues de sus dos rondas**: lo cubren
 U-ST1, U-ST5, `resumen_por_operador*`, WR-02, WR-05 y los mutantes M81..M87, no el refutador.
+
+**RONDA 1 de c0der** (refutador de RARRAS-7 sobre 651fa341: MERGEABLE CON RONDA, sin P1). Lo que pidio y donde quedo:
+- P2-1, opcion (a) de c0der: espejo estricto del `Payment` de v1 (decision 5; tests `un_campo_de_menos_es_e21`,
+  `un_campo_de_mas_es_e21`, `una_clave_repetida_es_e21`, `un_status_que_no_es_de_v1_es_e21`,
+  `un_numero_no_canonico_es_e21`, `los_demas_tipos_de_v1_son_estrictos`, `operator_id_fuera_del_charset_de_v1_es_e21`,
+  `los_numeros_canonicos_al_borde_valen`; mutantes N01..N22). WR-02..WR-04 contra la wasm exacta de mainnet, con
+  `assert_espejo` en los 5 estados: el `get_payment` real de las dos v1 tiene los 16 campos y entra en el espejo.
+- P2-2: los eventos cuentan solo si el recibo lo ejecuto el registro y termino con exito (con el MENSAJE de c0der de
+  02:28Z); WR-10 lo muestra en el sandbox ("Modelo de confianza", flujo 4, README).
+- P2-3: `el_rater_es_el_predecessor_no_el_signer`, `register_y_update_son_del_predecessor_no_del_signer`,
+  `revocar_es_del_predecessor_no_del_signer` y `un_rechazo_devuelve_todo_lo_adjuntado` (y WR-05 con 3 depositos):
+  R04, R05 y R11 mueren, y sus vecinos R04b, R05b y R11W tambien.
+- P3-1 (`compact` lo puede llamar la calificada): "Modelo de confianza" y flujo 3. P3-2 (dos builds reproducibles,
+  mismo sha256, `wc -c` con el umbral de ~245.000 bytes): paso 0 y 1b. P3-3 (humo obligatorio): paso 3b con el pago
+  de R679. P3-4 (el resumen por operador sin el escrow en la clave): `lib.rs` y "Modelo de confianza". P3-5: README.
+- En esta ronda no use un subagente refutador propio: la regla es como mucho uno y ya lo use en las rondas 1 y 2. Lo
+  que respalda lo nuevo es mecanico: las dos wasm de v1 en el sandbox, WR-10 y los 115 mutantes.
 
 ## Trampas que encontre
 
