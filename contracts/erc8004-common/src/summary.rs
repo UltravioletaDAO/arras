@@ -10,9 +10,22 @@
 //! no entra en `int128` (p. ej. un `1e38` con 0 decimales y la moda en 18). Aca el resultado es el numero exacto, como
 //! string decimal.
 
-/// Entero sin signo de 256 bits, cuatro palabras de 64 bits en little-endian.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+/// Entero sin signo de 256 bits, cuatro palabras de 64 bits en little-endian. El orden NO se deriva: el derivado
+/// compararia primero la palabra menos significativa (refutador, P1); [`Ord`] compara desde la mas significativa.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct U256([u64; 4]);
+
+impl Ord for U256 {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        self.0.iter().rev().cmp(o.0.iter().rev())
+    }
+}
+
+impl PartialOrd for U256 {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
 
 impl U256 {
     pub const ZERO: Self = Self([0; 4]);
@@ -281,6 +294,63 @@ mod tests {
                 (s.count, s.value.clone(), s.decimals),
                 (n, v.to_string(), d),
                 "{c:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn signos_mezclados_de_mas_de_una_palabra() {
+        // Refutador, P1: con 0 decimales, un value >= 19 normalizado pasa de 2^64.
+        assert_eq!(summary(&[(19, 0), (-1, 0)]).value, "9");
+        assert_eq!(summary(&[(5, 0), (-19, 0)]).value, "-7");
+        assert_eq!(summary(&[(87, 0), (-87, 0), (13, 0)]).value, "4");
+        assert_eq!(summary(&[(-100, 0), (100, 0)]).value, "0");
+        assert_eq!(summary(&[(100, 0), (-99, 0), (-100, 0)]).value, "-33");
+    }
+
+    #[test]
+    fn u256_ordena_desde_la_palabra_mas_significativa() {
+        let alto = U256([0, 1, 0, 0]);
+        let bajo = U256([u64::MAX, 0, 0, 0]);
+        assert!(alto > bajo);
+        assert!(U256([0, 0, 0, 1]) > U256([u64::MAX, u64::MAX, u64::MAX, 0]));
+        assert!(U256([1, 2, 3, 4]) < U256([0, 3, 3, 4]));
+        assert_eq!(
+            U256([1, 2, 3, 4]).cmp(&U256([1, 2, 3, 4])),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    #[test]
+    fn diferencial_aleatorio_contra_la_referencia() {
+        // |value| <= 10^18 y hasta 100 calificaciones: la referencia en i128 no desborda (100 * 10^18 * 10^18 < 2^127).
+        let mut semilla: u64 = 0x8004;
+        let mut rnd = |n: u64| {
+            semilla = semilla
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (semilla >> 33) % n
+        };
+        for _ in 0..2_000 {
+            let n = 1 + rnd(100) as usize;
+            let items: Vec<(i128, u8)> = (0..n)
+                .map(|_| {
+                    let mag = match rnd(3) {
+                        0 => rnd(101) as i128,
+                        1 => rnd(1_000_000) as i128,
+                        _ => (rnd(1_000_000_000) as i128) * (rnd(1_000_000_000) as i128 + 1),
+                    }
+                    .min(10i128.pow(18));
+                    let v = if rnd(2) == 0 { -mag } else { mag };
+                    (v, rnd(19) as u8)
+                })
+                .collect();
+            let s = summary(&items);
+            let (c, v, d) = reference(&items);
+            assert_eq!(
+                (s.count, s.value.clone(), s.decimals),
+                (c, v.to_string(), d),
+                "{items:?}"
             );
         }
     }

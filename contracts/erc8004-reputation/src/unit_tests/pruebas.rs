@@ -497,3 +497,35 @@ fn is_proof_pending_vence_con_el_ttl() {
     assert!(!c.is_proof_pending(acc(VERIFIER), PID.into(), acc(CLIENT)));
     assert!(!c.is_proof_pending(acc(VERIFIER), PID.into(), acc(CLIENT2)));
 }
+
+#[test]
+fn get_verified_summary_con_signos_mezclados() {
+    // Refutador, P1: la vista que lee EM.
+    let mut c = new_contract();
+    for (client, proof, v) in [(CLIENT, "p1", "19"), (CLIENT2, "p2", "-1")] {
+        ctx(client, dep());
+        let p = Pedido {
+            value: v.into(),
+            ..Pedido::default()
+        };
+        call_give_proof(&mut c, &p, VERIFIER, proof);
+        let a = call_args("on_feedback_proof_checked");
+        ctx_callback(vec![agent_ok(), trato()], HEIGHT + 3);
+        c.on_feedback_proof_checked(
+            serde_json::from_value(a["p"].clone()).unwrap(),
+            acc(VERIFIER),
+            proof.into(),
+            serde_json::from_value(a["nonce"].clone()).unwrap(),
+        )
+        .unwrap();
+    }
+    let v = c.get_verified_summary("7".into(), acc(VERIFIER), None, None, None, None);
+    assert_eq!(
+        (
+            v.count.0,
+            v.summary_value.as_str(),
+            v.summary_value_decimals
+        ),
+        (2, "9", 0)
+    );
+}

@@ -201,3 +201,21 @@ fn config() {
     assert_eq!(c.get_identity_registry(), acc(IDENTITY));
     assert_eq!(c.get_version(), "2.0.0");
 }
+
+#[test]
+fn get_summary_con_signos_mezclados() {
+    // Refutador, P1: calificaciones de 0..100 positivas y negativas mezcladas.
+    let mut c = new_contract();
+    rate(&mut c, CLIENT, &pedido("7", "19", 0, "starred", ""));
+    rate(&mut c, CLIENT2, &pedido("7", "-1", 0, "starred", ""));
+    assert_eq!(
+        summary(&c, &[CLIENT, CLIENT2], None, None),
+        (2, "9".into(), 0)
+    );
+    rate(&mut c, CLIENT2, &pedido("7", "-100", 0, "starred", ""));
+    // (19 - 1 - 100) / 3 = -27,33 -> -27
+    assert_eq!(
+        summary(&c, &[CLIENT, CLIENT2], None, None),
+        (3, "-27".into(), 0)
+    );
+}

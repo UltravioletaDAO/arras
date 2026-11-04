@@ -167,9 +167,9 @@ hace: el camino de dos pasos cubre a todas.
 ### 2.4 Storage del NFT: la reserva del token
 
 NEP-171 exige **exactamente 1 yocto** en `nft_transfer` (las wallets y los marketplaces mandan eso): una transferencia
-no puede cobrar storage. Si una transferencia pudiera hacer crecer el estado (el indice por dueno de NEP-181 crea un
-registro para un dueno nuevo), cualquiera podria vaciar el saldo del contrato transfiriendo a cuentas nuevas, y un
-contrato inmutable sin saldo para su storage queda congelado. Por eso:
+no puede cobrar storage. Requisito: que ninguna transferencia haga crecer el estado sin que ese storage ya este
+pagado (el indice por dueno de NEP-181 crea un registro para un dueno nuevo), porque el saldo del contrato tiene que
+cubrir siempre su storage: un contrato inmutable sin ese saldo no podria escribir mas. Por eso:
 
 - lo que cambia en una transferencia es de **largo fijo**: el dueno, `agentWallet` y la pendiente se guardan en 65
   bytes fijos cada uno (largo + 64 bytes), y las claves del indice por dueno usan el sha256 de la cuenta;
