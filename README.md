@@ -137,17 +137,39 @@ The shape of ERC-8004 (Identity Registry + Reputation Registry) on NEAR, with re
 
 Interface, events, measured gas and the exact deployment commands: `docs/handoffs/registry-v1.md`.
 
+## ERC-8004 on NEAR (Identity, Reputation and Validation registries)
+
+A faithful port of [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents", reference implementation
+2.0.0 of `erc-8004/erc-8004-contracts`) to NEAR, in new crates; `contracts/registry-v1` and its live deployment are not
+touched. Plan and the full EVM -> NEAR table: [docs/plans/erc8004-near-port.md](docs/plans/erc8004-near-port.md);
+interface, deploy plan and what was run: [docs/handoffs/erc8004-near.md](docs/handoffs/erc8004-near.md). **Not deployed
+yet** (testnet first; the mainnet singleton is coordinated with the ERC-8004 team). **Unaudited.**
+
+| Crate | Account (planned) | What it is |
+|---|---|---|
+| `contracts/erc8004-identity` | `identity-registry.erc-8004.near` | each agent is an NFT (NEP-171/177/178/181): `agentId` = `token_id`, `agentURI` = `metadata.reference`, on-chain metadata key -> bytes, `agentWallet` (the new wallet confirms by calling the contract itself; cleared on every transfer) |
+| `contracts/erc8004-reputation` | `reputation-registry.erc-8004.near` | open feedback (`value`/`valueDecimals`, tags, endpoint, `revokeFeedback`, `appendResponse`, `getSummary` with a mandatory client filter); the "agent exists and the rater is not its owner or an approved operator" check is a cross-contract call whose callback fails closed and refunds the whole deposit. Optional extension (cargo feature `feedback-proofs`, on by default): `give_feedback_with_proof` with an on-chain proof from any verifier contract |
+| `contracts/erc8004-arras-verifier` | `erc8004-verifier.arras-escrow.near` | the Arras proof verifier: one escrow fixed at init (`v1.arras-escrow.near`); a proof is a released Arras payment between the rater and the agent's owner or `agentWallet` |
+| `contracts/erc8004-validation` | `validation-registry.erc-8004.near` (account reserved) | **draft, not deployable**: the ERC-8004 team has not finalized the Validation section |
+| `contracts/erc8004-common` | - | shared validation, canonical integers, the 256-bit summary, NEP-297 envelope and the cross-contract schemas |
+
+All are immutable (private `new` in the deploy transaction, no `migrate`, no owner, keys deleted). Events are NEP-297
+`erc8004` 1.0.0 (`registered`, `metadata_set`, `uri_updated`, `new_feedback`, `feedback_revoked`, `response_appended`,
+`validation_request`, `validation_response`) plus NEP-171 `nft_mint`/`nft_transfer`. The NEAR `agentRegistry` in a
+registration file is `near:mainnet:identity-registry.erc-8004.near` (CAIP-2 has no `near` namespace registered yet).
+
 ## Try it
 
 | Do | See |
 |---|---|
-| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached, or with `NEAR_SANDBOX_BIN_PATH` pointing at a `near-sandbox` 2.13.4 binary) | v1: 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests, 3 more `ignored` because they need network; v2: its unit tests incl. its own U-16 (10,000 sequences) and the vectors read from `docs/vectores.json`, and 11 sandbox tests (W2-01..W2-10, U-24); the registry: its unit and sandbox tests (next rows) |
+| `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached, or with `NEAR_SANDBOX_BIN_PATH` pointing at a `near-sandbox` 2.13.4 binary) | v1: 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests, 3 more `ignored` because they need network; v2: its unit tests incl. its own U-16 (10,000 sequences) and the vectors read from `docs/vectores.json`, and 11 sandbox tests (W2-01..W2-10, U-24); the registry and the ERC-8004 port: their unit and sandbox tests (next rows) |
 | `cargo test -p arras-escrow-v2 --test workspaces -- --nocapture` | the v2 `MEDIDA` lines: gas per method (W2-09), minimum callback gas (W2-06) |
 | `scripts/test_mainnet.sh` (offline: `near` and the RPC are test doubles) | the guards of `scripts/mainnet.sh`, under every `bash` installed (macOS 3.2 and 5.x) |
 | `scripts/mainnet.sh plan` / `scripts/mainnet.sh todo` | the mainnet deployment as a dry run: accounts, amounts, caps, the pinned wasm and every command, with no network call |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
 | `cargo test -p arras-registry-v1` | the registry: 115 unit tests (every guard, the callback with each `get_payment` result and every way an answer can differ from v1's `Payment`, the lock, caller vs signer, storage of the worst case) and 14 sandbox tests (WR-00..WR-10; WR-02..WR-04 twice: against v1 built here and against the exact mainnet wasm of `v1.arras-escrow.near` in `contracts/registry-v1/tests/fixtures`, sha256-checked) with real Arras v1 payments, a mock escrow and an allowlisted account without code |
+| `cargo test -p erc8004-common -p erc8004-identity -p erc8004-reputation -p erc8004-arras-verifier -p erc8004-validation` (and `-p erc8004-reputation --no-default-features --lib` for the pure port) | the ERC-8004 port: every guard, every result of every callback, the worst-case storage and log size of each call, the token reserve invariant, and 13 sandbox tests (WE-00..WE-11; WE-05 twice, against v1 built here and against the exact mainnet wasm) with the three contracts and real Arras v1 payments. `-- --nocapture` on `--test workspaces` prints the `MEDIDA` lines (gas per call, storage per account) |
 | `cargo test -p arras-registry-v1 --test workspaces -- --nocapture` | the registry `MEDIDA` lines: gas per receipt of `give_feedback`, worst-case callback, storage per rating |
 | `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml` (Docker) | `target/near/arras_escrow_v1/arras_escrow_v1.wasm`; checked out at commit `8da7174` (the demo contract) it has sha256 `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` |
 | `near account list-keys arras-v1b-1101.testnet network-config testnet now` | an empty table: nobody can redeploy or touch the contract account |
@@ -360,11 +382,14 @@ went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 | `contracts/test-ft` | near-contract-standards fungible token, only for the sandbox tests |
 | `contracts/registry-v1` | the agent registry (identity + reputation tied to Arras payments); `src/unit_tests/`, `tests/workspaces.rs` (WR-*) |
 | `contracts/test-escrow` | a mock escrow whose `get_payment` returns raw JSON, only for the registry's sandbox tests |
+| `contracts/erc8004-common`, `erc8004-identity`, `erc8004-reputation`, `erc8004-arras-verifier`, `erc8004-validation` | the ERC-8004 port (see "ERC-8004 on NEAR"); unit tests in each `src/unit_tests/`, the sandbox cycle across all of them in `contracts/erc8004-reputation/tests/workspaces.rs` (WE-*) |
+| `contracts/test-nft-receiver` | a mock NFT receiver, only for the Identity Registry's sandbox tests |
 | `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7; section `v2`: v2 `msg`s, VB-1, tickets T-1/T-2 |
 | `scripts/testnet.sh` | the v1 testnet sequence |
 | `scripts/testnet-v2.sh` | the v2 testnet walkthrough |
 | `scripts/mainnet.sh`, `scripts/test_mainnet.sh` | the mainnet deployment (dry run by default; the same script rehearsed on testnet) and its offline tests |
 | `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal |
+| `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`) |
 | `docs/handoffs/` | handoffs between workers (decisions and what is left) |
 | `HACKATHON.md` | what existed before the hackathon and what was built during it |
 

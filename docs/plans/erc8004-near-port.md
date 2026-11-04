@@ -352,7 +352,7 @@ final es exito; cualquier contrato puede emitir el mismo `EVENT_JSON` en su prop
 | R-6 | `get_clients` con paginacion opcional | las vistas de NEAR tienen tope de gas |
 | V-1 | `validation_request` asincrono, con candado sobre `request_hash` | llamada cruzada + unicidad global |
 
-### 6.1 Topes (propuestos; los fija la fase 2 con el peor caso medido de logs y de storage)
+### 6.1 Topes (fijados en la fase 2; el peor caso de logs y de storage de cada uno esta medido en los tests U-ST)
 
 `agent_uri` 8.192 bytes (deja subir un registration file entero como `data:` base64, como sugiere la EIP); clave de
 metadata 1..64 bytes `[A-Za-z0-9._:/-]`; valor de metadata 0..1.024 bytes; hasta 4 entradas en `register` (el peor caso
@@ -429,11 +429,12 @@ de Arras es `give_feedback_with_proof` (3.3), y el archivo puede repetirla como
 `"arras": {"escrow": "v1.arras-escrow.near", "paymentId": "..."}`. `feedbackHash` es KECCAK-256 del archivo, como en
 la EIP (el contrato no lo verifica).
 
-## 9. Fases que siguen
+## 9. Fases (2 a 5: hechas; el detalle y lo medido esta en `docs/handoffs/erc8004-near.md`)
 
 2. Crates: `contracts/erc8004-common` (sin estado: validaciones, enteros canonicos, la cuenta de 256 bits, eventos, el
    esquema de `check_agent`), `erc8004-identity`, `erc8004-reputation` (feature `feedback-proofs`),
-   `erc8004-arras-verifier`, `erc8004-validation` (BORRADOR). near-sdk 5.29.1 como registry-v1, NEP-330 con
+   `erc8004-arras-verifier`, `erc8004-validation` (BORRADOR), y `test-nft-receiver` (solo sandbox). near-sdk 5.29.1
+   como registry-v1, NEP-330 con
    `repository = "https://github.com/UltravioletaDAO/arras"` (el repo hoy es `0xultravioleta/arras` y va a pasar ahi).
 3. Tests: unitarios (cada guarda, cada resultado de cada callback, el storage del peor caso, la invariante de la
    reserva) y sandbox (el ciclo entero, con un pago `Released` real de escrow-v1 compilado y de la wasm de mainnet que

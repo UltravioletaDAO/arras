@@ -1274,3 +1274,55 @@ async fn we10_transferir_a_cuentas_nuevas_no_vacia_el_contrato() -> anyhow::Resu
     assert!(s1 - s0 <= 6 * 77);
     Ok(())
 }
+
+/// WE-11: lo que ocupa cada cuenta recien desplegada (codigo + estado de `new` + la cuenta), con su llave y sin ella:
+/// el piso de NEAR de cada cuenta del plan de deploy (1 NEAR por 100 KB).
+#[tokio::test]
+async fn we11_storage_de_cada_cuenta_recien_desplegada() -> anyhow::Result<()> {
+    let _p = SANDBOXES.acquire().await?;
+    let w = near_workspaces::sandbox().await?;
+    let root = w.root_account()?;
+    for (name, code, args) in [
+        (
+            "identity",
+            wasm(&WASM_ID, "../erc8004-identity").await?,
+            json!({}),
+        ),
+        (
+            "reputation",
+            wasm(&WASM_REP, "./").await?,
+            json!({ "identity_registry": "identity.test.near" }),
+        ),
+        (
+            "verifier",
+            wasm(&WASM_VER, "../erc8004-arras-verifier").await?,
+            json!({ "escrow": "arras.test.near" }),
+        ),
+        (
+            "validation",
+            wasm(&WASM_VAL, "../erc8004-validation").await?,
+            json!({ "identity_registry": "identity.test.near" }),
+        ),
+    ] {
+        let acc = deploy_init(&root, name, code, args).await?;
+        let con_llave = w.view_account(acc.id()).await?.storage_usage;
+        let keys = w.view_access_keys(acc.id()).await?;
+        assert!(
+            acc.batch(acc.id())
+                .delete_key(keys[0].public_key.clone())
+                .transact()
+                .await?
+                .is_success()
+        );
+        let sin_llave = w.view_account(acc.id()).await?.storage_usage;
+        assert!(sin_llave < con_llave);
+        assert!(sin_llave > code.len() as u64);
+        println!(
+            "MEDIDA WE-11 {name}: codigo {} bytes; la cuenta ocupa {con_llave} bytes con la llave y {sin_llave} sin ella \
+             ({:.5} NEAR bloqueados)",
+            code.len(),
+            sin_llave as f64 / 1e5
+        );
+    }
+    Ok(())
+}
