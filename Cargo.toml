@@ -2,7 +2,16 @@
 resolver = "3"
 # contracts/escrow-v2: H-9 (disputa, presupuesto de agente y ticket del operador); usa escrow-core sin tocarlo.
 # contracts/test-ft: FT de prueba, solo para el sandbox de near-workspaces.
-members = ["contracts/escrow-core", "contracts/escrow-v1", "contracts/escrow-v2", "contracts/test-ft"]
+# contracts/registry-v1: identidad y reputacion de agentes (la forma de ERC-8004), atada a pagos liberados de Arras.
+# contracts/test-escrow: escrow de mentira, solo para el sandbox del registro (respuestas de get_payment a medida).
+members = [
+    "contracts/escrow-core",
+    "contracts/escrow-v1",
+    "contracts/escrow-v2",
+    "contracts/test-ft",
+    "contracts/registry-v1",
+    "contracts/test-escrow",
+]
 
 [workspace.lints.rust.unexpected_cfgs]
 # `cfg(near)` existe desde near-sdk 5.27.0 (bloque copiado de `cargo near new`, cargo-near 0.22.0).

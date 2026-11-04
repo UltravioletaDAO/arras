@@ -1,0 +1,44 @@
+[package]
+name = "arras-registry-v1"
+description = "Arras registry v1: identidad y reputacion de agentes en NEAR (la forma de ERC-8004), con la reputacion atada a pagos liberados de Arras"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/UltravioletaDAO/arras"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Build reproducible (NEP-330). El mismo bloque que contracts/escrow-v1 (cargo-near 0.22.0).
+[package.metadata.near.reproducible_build]
+# imagen docker del entorno de build; el tag es descriptivo, la imagen se identifica por el digest
+image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
+image_digest = "sha256:ccb22bb4e677ed022d8b9d1aa1b32f0af52dd0471ef1c32e48dedbf68ee6ee17"
+passed_env = []
+container_build_command = [
+    "cargo",
+    "near",
+    "build",
+    "non-reproducible-wasm",
+    "--locked",
+]
+
+[dependencies]
+near-sdk = "=5.29.1"
+# Solo el tipo `PaymentId` (sin estado de contrato: no exporta metodos a la wasm).
+arras-escrow-core = { path = "../escrow-core" }
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+# `unstable` trae `compile_project` (cargo-near-build): los tests compilan las wasm ellos mismos.
+near-workspaces = { version = "=0.23.0", features = ["unstable"] }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+anyhow = "1"
+# El sha256 de la wasm de v1 de mainnet (tests/fixtures) antes de usarla. La misma 0.10.9 que ya trae near-workspaces.
+sha2 = "0.10"
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "arras-test-escrow"
+description = "Escrow de mentira para los tests near-workspaces del registro: get_payment devuelve el JSON crudo que se le carga"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+repository = "https://github.com/UltravioletaDAO/arras"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk = "=5.29.1"
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+
+[lints]
+workspace = true
