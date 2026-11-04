@@ -1,7 +1,7 @@
 # Plan: port fiel de ERC-8004 a NEAR (Identity, Reputation y Validation Registry) bajo `erc-8004.near`
 
 Rama `0xultravioleta/c0-arras-erc8004`, desde `origin/main` 8cec4e6. Fase 1 del encargo de c0der (2026-11-04), con el
-CONTEXTO 1 de c0der (14:00Z) sumado. Este documento es el plan: lo que se porta, como, y cada desviacion que NEAR obliga.
+CONTEXTO 1 de c0der (fechado por c0der ~14:00Z) sumado. Este documento es el plan: lo que se porta, como, y cada desviacion que NEAR obliga.
 `contracts/registry-v1` y `registry.arras-escrow.near` no se tocan (siguen sirviendo a EM y a los SDK hasta que los
 registros nuevos pasen el golden flow en mainnet).
 
@@ -12,8 +12,8 @@ registros nuevos pasen el golden flow en mainnet).
 | EIP-8004 (lo que publica eips.ethereum.org) | `ethereum/ERCs`, `ERCS/erc-8004.md`, ultimo commit del archivo `503591a6e80e6e1affdd6403341e25269141f046` (2026-01-25) | la spec entera; es **identica** byte a byte (salvo espacios al final de linea) a `ERC8004SPEC.md` de los contratos oficiales |
 | Contratos oficiales | `erc-8004/erc-8004-contracts` `b9e466c250744a7e06b13dff9d3c2844ed64f825` (2026-08-15) | `IdentityRegistryUpgradeable.sol`, `ReputationRegistryUpgradeable.sol`, `ValidationRegistryUpgradeable.sol`, `MinimalUUPS*.sol`, `scripts/addresses.ts`, `README.md` |
 | Buenas practicas oficiales (CONTEXTO 1, punto 3) | `erc-8004/best-practices` `8a99b86e9b3b518138187686fa8f757beb01cea8` (2026-01-25) | `Registration.md`, `Reputation.md`, `src/ERC8004SPEC.md` (una copia algo anterior de la spec: sin la mencion de `data:` en el agentURI y con la seccion de feedback en otro orden) |
-| Base mainnet (RPC publica `mainnet.base.org`, 2026-11-04 ~13:55Z) | `getVersion()` en las tres direcciones | Identity `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, Reputation `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` y Validation `0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58` devuelven `"2.0.0"`; Validation tiene 130 bytes de codigo (proxy ERC-1967, implementacion `0xdb31f5d9...7f99`) y su `getIdentityRegistry()` es `0x8004A169...` |
-| NEAR mainnet (RPC publica, 2026-11-04 14:02Z, bloque ~223.026.250) | `view_account`, `view_access_key_list`, `call_function` | `erc-8004.near` existe (0,0729 NEAR, 1 llave FullAccess); `validation-registry.erc-8004.near` existe (0,02 NEAR, sin codigo, la misma llave); `identity-registry.erc-8004.near` y `reputation-registry.erc-8004.near` **no existen**; `8004.near` es de un tercero; `registry.arras-escrow.near`: `get_config` dice `agents` 0, `feedbacks` 4, sin llaves; `storage_amount_per_byte` = 10^19 yocto (protocolo 87; testnet en 88) |
+| Base mainnet (RPC publica `mainnet.base.org`, 2026-11-04 14:13:23Z a 14:13:25Z, `date -u`) | `getVersion()` y `codesize` en las tres direcciones | Identity `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`, Reputation `0x8004BAa17C55a88189AE136b182e5fdA19dE9b63` y Validation `0x8004Cc8439f36fd5F9F049D9fF86523Df6dAAB58` devuelven `"2.0.0"` y tienen 130 bytes de codigo cada una; Validation (proxy ERC-1967, implementacion `0xdb31f5d9...7f99`) y su `getIdentityRegistry()` es `0x8004A169...` |
+| NEAR mainnet (RPC publica, 2026-11-04 14:02:32Z por `date -u`, bloques 223.026.252 a 223.026.285) | `view_account`, `view_access_key_list`, `call_function` | `erc-8004.near` existe (0,0729 NEAR, 1 llave FullAccess); `validation-registry.erc-8004.near` existe (0,02 NEAR, sin codigo, la misma llave); `identity-registry.erc-8004.near` y `reputation-registry.erc-8004.near` **no existen**; `8004.near` es de un tercero; `registry.arras-escrow.near`: `get_config` dice `agents` 0, `feedbacks` 4, sin llaves; `storage_amount_per_byte` = 10^19 yocto (protocolo 87; testnet en 88) |
 | CAIP-2 | `ChainAgnostic/namespaces` en `2a9193da0e4f86b4990983e7a9a8781d6965a439` (2026-11-02) | **no hay namespace `near` registrado** (la lista de carpetas no lo trae); `status` de la RPC de NEAR da `chain_id` `mainnet` y `testnet` |
 
 La version vigente es la **2.0.0** de los contratos (la que corre en Base): feedback con `value` (`int128`) y
@@ -248,7 +248,9 @@ equipo de ERC-8004 pide un nucleo sin extensiones (0.3), la extension esta detra
 `feedback-proofs`: sin el, el wasm es el port puro. Las tres opciones, en la PREGUNTA 1.
 
 Para EM: el worker que recibe feedback tiene que tener un agente (un NFT) en el Identity Registry, porque ERC-8004
-califica `agentId`, no cuentas (registry-v1 no lo pedia). Ver PREGUNTA 2.
+califica `agentId`, no cuentas (registry-v1 no lo pedia). Precedente (verificado por c0der, RESPUESTA 1): EM ya da de
+alta a cada worker en el Identity Registry de Base con su primera tarea completada (`mcp_server/api/routers/_helpers.py:947`,
+WS-1). Decision vigente (RESPUESTA 1, mientras decide el dueno): el worker es dueno de su agente (PREGUNTA 2, opcion a).
 
 ### 3.4 Vistas
 
@@ -343,7 +345,7 @@ agente 8; `proof` 1..128 bytes ASCII imprimible; `role` y `context` 0..32 `[a-z0
 
 ## 7. Cuentas (decision f) y como se despliega
 
-| Cuenta | Estado (14:02Z) | Contrato | `new` |
+| Cuenta | Estado (14:02:32Z) | Contrato | `new` |
 |---|---|---|---|
 | `erc-8004.near` | existe, de c0der (tx `84aGt5kuYiUmsfJSLnajZCq5SH475zrC4R13YsJ28Qki`), 0,0729 NEAR | ninguno (padre) | |
 | `identity-registry.erc-8004.near` | no existe: el plan la crea desde el padre | `erc8004-identity` | `{}` |
