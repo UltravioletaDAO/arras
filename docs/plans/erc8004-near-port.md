@@ -247,10 +247,27 @@ partida en dos registros. Con verificadores, un escrow nuevo es un verificador n
 equipo de ERC-8004 pide un nucleo sin extensiones (0.3), la extension esta detras del feature de cargo
 `feedback-proofs`: sin el, el wasm es el port puro. Las tres opciones, en la PREGUNTA 1.
 
+**Decidido por el dueno (RESPUESTA 2 de c0der, respuesta del dueno de las 14:21:18Z): opcion (A)**, con el verificador
+en `erc8004-verifier.arras-escrow.near` (hija de `arras-escrow.near`; ver la seccion 7).
+
 Para EM: el worker que recibe feedback tiene que tener un agente (un NFT) en el Identity Registry, porque ERC-8004
 califica `agentId`, no cuentas (registry-v1 no lo pedia). Precedente (verificado por c0der, RESPUESTA 1): EM ya da de
 alta a cada worker en el Identity Registry de Base con su primera tarea completada (`mcp_server/api/routers/_helpers.py:947`,
-WS-1). Decision vigente (RESPUESTA 1, mientras decide el dueno): el worker es dueno de su agente (PREGUNTA 2, opcion a).
+WS-1). **El dueno (RESPUESTA 2, textual): "prrimero em paga el alta en el futuro el worker firma su alta".** Los dos
+caminos salen con los metodos del estandar, **sin metodo nuevo**:
+
+- **Hoy, EM paga:** EM llama `register({"agent_uri": ...})` (paga el storage y la reserva; EM queda dueno y
+  `agentWallet`) y despues `nft_transfer({"receiver_id": <worker>, "token_id": <agent_id>})` con 1 yocto: el worker queda
+  **dueno** de su NFT y la transferencia limpia `agentWallet` (como en EVM). El worker no firma nada. Para la prueba de
+  Arras alcanza con que el worker sea el dueno (la otra parte del pago puede ser el dueno o la `agentWallet`), asi que
+  cobra con la misma cuenta. Si el worker quiere ademas su `agentWallet`, es una tx suya: `set_agent_wallet` a si mismo
+  (1 yocto, queda puesta en el acto). Dos tx de EM (en NEAR no se puede saber el `agent_id` antes de que corra `register`:
+  meterlas en un solo batch dependeria de adivinar `nft_total_supply`).
+- **Despues, el worker firma:** el worker llama `register` y paga; queda dueno y `agentWallet`. Una tx.
+
+Un `register_for(owner, ...)` (alta a nombre de otro, pagada por quien llama) ahorraria la segunda tx de EM, pero no
+hace falta (RESPUESTA 2: "si con register + nft_transfer alcanza, no agregues nada") y no se agrega. Lo que cuesta
+cada camino (deposito, gas y tx) lo mide la fase 3 en el sandbox y queda en el handoff.
 
 ### 3.4 Vistas
 
@@ -351,7 +368,7 @@ agente 8; `proof` 1..128 bytes ASCII imprimible; `role` y `context` 0..32 `[a-z0
 | `identity-registry.erc-8004.near` | no existe: el plan la crea desde el padre | `erc8004-identity` | `{}` |
 | `reputation-registry.erc-8004.near` | no existe: el plan la crea desde el padre | `erc8004-reputation` | `{"identity_registry":"identity-registry.erc-8004.near"}` |
 | `validation-registry.erc-8004.near` | **ya existe** (0,02 NEAR, la llave del padre) | `erc8004-validation` (BORRADOR: espera a ERC-8004) | `{"identity_registry":"identity-registry.erc-8004.near"}` |
-| verificador de Arras | no existe; nombre en PREGUNTA 1 (propuesta `erc8004-verifier.arras-escrow.near`: es de Arras, no del singleton) | `erc8004-arras-verifier` | `{"escrow":"v1.arras-escrow.near"}` |
+| `erc8004-verifier.arras-escrow.near` (el dueno, RESPUESTA 2) | no existe: la crea c0der desde `arras-escrow.near` | `erc8004-arras-verifier` | `{"escrow":"v1.arras-escrow.near"}` |
 
 Inmutables: cada una se despliega con `new` en la misma tx (`with-init-call`, `#[private]`), se verifica (code hash =
 build reproducible, `get_config`, humo), y se le borran **todas** las llaves. Reputation y Validation aprenden cual es
@@ -360,9 +377,9 @@ pudiera cambiar, quien lo cambie decide que agentes existen y quien es dueno, y 
 va en una cuenta nueva con version (`reputation-registry-v2.erc-8004.near`, `identity-registry-v2...`), y lo que ya
 quedo en la vieja se queda ahi. En testnet, lo mismo bajo un padre de testnet (fase 4).
 
-El `agentRegistry` del registration file: CAIP-2 no tiene namespace `near` registrado (0); propongo el que usa la
-practica, `near:<chain_id>` con el `chain_id` de nearcore: **`near:mainnet:identity-registry.erc-8004.near`** (y
-`near:testnet:<cuenta>` en testnet). PREGUNTA 3.
+El `agentRegistry` del registration file: CAIP-2 no tiene namespace `near` registrado (0); `near:<chain_id>` con el
+`chain_id` de nearcore: **`near:mainnet:identity-registry.erc-8004.near`** (y `near:testnet:<cuenta>` en testnet).
+**Decidido por el dueno (RESPUESTA 2): asi, sin registrar el namespace en ChainAgnostic por ahora.**
 
 ## 8. Archivos fuera de cadena en NEAR (siguiendo best-practices 8a99b86)
 
