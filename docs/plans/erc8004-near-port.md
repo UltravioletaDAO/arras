@@ -32,9 +32,9 @@ el agente); no se arregla aca porque registry-v1 no se toca, pero la vigente es 
 | `setAgentURI(agentId, newURI)` | dueno, operador (`isApprovedForAll`) o aprobado (`getApproved`) | `ERC721NonexistentToken`, `"Not authorized"` | `URIUpdated(agentId, newURI, msg.sender)`; `newURI` puede ser `""` |
 | `setMetadata(agentId, key, value)` | idem | `"Not authorized"` (y `ERC721NonexistentToken` via `getApproved`), `"reserved key"` | `MetadataSet(agentId, key, key, value)`; sin tope de largo; un valor vacio deja la clave vacia |
 | `getMetadata(agentId, key)` | vista | ninguno | `bytes` (vacio si no hay) |
-| `setAgentWallet(agentId, newWallet, deadline, signature)` | dueno/operador/aprobado | `"bad wallet"` (cero), `"expired"` (`now > deadline`), `"deadline too far"` (`deadline > now + 5 min`), `"invalid wallet sig"` | firma EIP-712 `AgentWalletSet(agentId, newWallet, owner, deadline)` de `newWallet` (ECDSA, o ERC-1271 si es contrato); `MetadataSet(agentWallet)` |
+| `setAgentWallet(agentId, newWallet, deadline, signature)` | dueno/operador/aprobado | `ERC721NonexistentToken` (via `ownerOf`), `"Not authorized"`, `"bad wallet"` (cero), `"expired"` (`now > deadline`), `"deadline too far"` (`deadline > now + 5 min`), `"invalid wallet sig"` | firma EIP-712 `AgentWalletSet(agentId, newWallet, owner, deadline)` de `newWallet` (ECDSA, o ERC-1271 si es contrato); `MetadataSet(agentWallet)` |
 | `getAgentWallet(agentId)` | vista | ninguno | la direccion, o cero |
-| `unsetAgentWallet(agentId)` | dueno/operador/aprobado | `"Not authorized"` | `agentWallet = ""`, `MetadataSet(agentWallet, "")` |
+| `unsetAgentWallet(agentId)` | dueno/operador/aprobado | `ERC721NonexistentToken` (via `ownerOf`), `"Not authorized"` | `agentWallet = ""`, `MetadataSet(agentWallet, "")` |
 | `_update` (toda transferencia que no es mint ni burn) | - | - | `agentWallet = ""` y `MetadataSet(agentWallet, "")` **antes** de mover el token |
 | `isAuthorizedOrOwner(spender, agentId)` | vista | `ERC721NonexistentToken` | `_isAuthorized`: dueno, operador o aprobado |
 | `getVersion()` | vista | - | `"2.0.0"` |
@@ -122,13 +122,13 @@ de ERC-721). Codigos de panic `ERC8004_ID_Enn`.
 | `register()`, `register(uri)`, `register(uri, metadata[])` | `register({"agent_uri"?: str, "metadata"?: [{"metadata_key": str, "metadata_value": base64}]})` -> `agent_id` (string) | cualquiera | lo medido + la **reserva del token** (2.4); vuelve el sobrante | `nft_mint`, `registered`, `metadata_set` (`agentWallet` = el que registra), un `metadata_set` por entrada |
 | `setAgentURI(agentId, newURI)` | `set_agent_uri({"agent_id", "new_uri": str})` (`""` borra) | autorizado | >= 1 yocto y lo que crezca; lo liberado vuelve al **dueno** | `uri_updated` |
 | `setMetadata(agentId, key, value)` | `set_metadata({"agent_id", "metadata_key", "metadata_value": base64})` (vacio borra la clave) | autorizado | idem | `metadata_set` |
-| `setAgentWallet(agentId, newWallet, deadline, sig)` | `set_agent_wallet({"agent_id", "new_wallet": acc, "deadline": ns})` -> `bool` | autorizado | exactamente 1 yocto | si `new_wallet` es el que llama: `metadata_set` (`agentWallet`) y devuelve `true`; si no, queda **pendiente** y devuelve `false` |
+| `setAgentWallet(agentId, newWallet, deadline, sig)` | `set_agent_wallet({"agent_id", "new_wallet": acc, "deadline": ns})` -> `bool` | autorizado | exactamente 1 yocto | si `new_wallet` es el que llama: `metadata_set` (`agentWallet`) y devuelve `true`; si no, queda **pendiente**, emite `agent_wallet_pending` y devuelve `false` |
 | (la firma de la wallet) | `accept_agent_wallet({"agent_id"})` | **la wallet pendiente** | exactamente 1 yocto | `metadata_set` (`agentWallet`) |
 | `unsetAgentWallet(agentId)` | `unset_agent_wallet({"agent_id"})` (tambien borra la pendiente) | autorizado | exactamente 1 yocto | `metadata_set` (`agentWallet`, `""`) |
-| `transferFrom` / `safeTransferFrom` | `nft_transfer({"receiver_id", "token_id", "approval_id"?, "memo"?})` | dueno o aprobado (con su `approval_id` si lo pasa) | exactamente 1 yocto | `nft_transfer`, `metadata_set` (`agentWallet`, `""`) |
+| `transferFrom` / `safeTransferFrom` | `nft_transfer({"receiver_id", "token_id", "approval_id"?, "memo"?})` | dueno o aprobado (con su `approval_id` si lo pasa) | exactamente 1 yocto | `metadata_set` (`agentWallet`, `""`) y despues `nft_transfer` (el orden de `_update`) |
 | `safeTransferFrom(..., data)` | `nft_transfer_call({... , "msg"})` -> `bool` | idem | exactamente 1 yocto | idem; si el receptor devuelve `true`, `nft_resolve_transfer` lo devuelve y emite otro `nft_transfer` |
 | `approve(to, tokenId)` | `nft_approve({"token_id", "account_id", "msg"?})` | **solo el dueno** (NEP-178) | lo que crezca | (NEP-178 no tiene eventos) |
-| `approve(0, tokenId)` | `nft_revoke({"token_id", "account_id"})`, `nft_revoke_all({"token_id"})` | solo el dueno | exactamente 1 yocto; lo liberado vuelve al dueno | |
+| `approve(0, tokenId)` | `nft_revoke({"token_id", "account_id"})`, `nft_revoke_all({"token_id"})` | solo el dueno | exactamente 1 yocto; lo liberado vuelve al dueno | cancelan la `agentWallet` pendiente (I-9): si habia una, `agent_wallet_pending` con `wallet` `null` |
 | `setApprovalForAll` | **no se porta** (desviacion I-3) | | | |
 
 ### 2.2 Vistas
@@ -161,6 +161,15 @@ como el `ecrecover` es la prueba en EVM; cubre tambien a los contratos-wallet, q
 La firma de EVM ata `owner`: aca la pendiente se borra en cada transferencia, asi que una aceptacion nunca vale para
 otro dueno. `register` pone `agentWallet` = el que registra; **toda transferencia la limpia** (y la pendiente), como
 `_update`, y emite `metadata_set` con `""`. `agentWallet` sigue reservada: `set_metadata` y `register` la rechazan.
+
+En EVM `setAgentWallet` es atomico: la autorizacion del que la propone se mira al mandar la tx, y un aprobado al que se
+la revocan ya no puede poner nada. Aca la pendiente espera a la wallet, asi que **`nft_revoke` y `nft_revoke_all`
+cancelan la pendiente** (desviacion I-9): la haya propuesto el aprobado revocado, otro aprobado o el dueno (el dueno la
+vuelve a proponer si quiere), y aunque la cuenta revocada no estuviera aprobada. No hace falta guardar quien la
+propuso: el `Token` no cambia de largo y el fondeo tampoco. Como la pendiente no estaba en ningun log, `set_agent_wallet`
+emite `agent_wallet_pending {agent_id, wallet, deadline}` cuando la deja, y la revocacion que la cancela emite el mismo
+evento con `wallet` `null`. Para un indexador, una pendiente vale hasta su `deadline` salvo que la cancele un evento
+posterior del mismo agente: un `metadata_set` de `agentWallet`, un `nft_transfer`, u otro `agent_wallet_pending`.
 Para cuentas implicitas (la cuenta ES la llave ed25519) se podria verificar una firma con `env::ed25519_verify`; no se
 hace: el camino de dos pasos cubre a todas.
 
@@ -229,6 +238,11 @@ contrato aparte:
 - La calificacion queda **igual que una del nucleo** (cuenta en `get_summary`, se revoca igual) y ademas guarda
   `{verifier, proof, counterparty, role, context, weight}`. `get_verified_summary(agent_id, verifier, ...)` resume solo
   las de ese verificador, con filtro opcional por `context`, y suma `weight`.
+- La prueba ata la calificacion al **dueno o la `agentWallet` que tiene el agente cuando corre el callback**, no al
+  agente: la clave de unicidad es `(verifier, proof, cliente)`, sin el agente. Si el dueno tiene varios agentes, el
+  cliente elige a cual le suma ese pago (una sola vez); si el agente cambia de dueno, los pagos viejos del dueno nuevo
+  (o de su `agentWallet`) valen para el. Para EM (un agente por worker, el worker es el dueno) no cambia nada; quien lea
+  `get_verified_summary` de un agente que cambio de manos lo tiene que saber (`nft_transfer` en los eventos).
 - **No hay lista de verificadores** en el registro: cualquiera puede ser verificador, y quien lee filtra por el
   verificador en el que confia (como filtra por `clientAddress` en ERC-8004). Sin listas de usuarios ni aprobacion
   manual de nadie.
@@ -284,8 +298,11 @@ cada camino (deposito, gas y tx) lo mide la fase 3 en el sandbox y queda en el h
 
 `summary_value` es el **valor exacto** como string: la cuenta se hace en 256 bits (como el `int256` de Solidity; el
 orden de esos 256 bits compara desde la palabra mas significativa, ver el P1 del refutador en el handoff). EVM
-hace `int128(avg)` al final, que **trunca en silencio** si el promedio escalado no entra en `int128` (puede pasar: un
-valor de 1e38 con 0 decimales y la moda en 18); aca se devuelve el numero correcto (desviacion R-4).
+hace `int128(avg)` al final, que **trunca en silencio** si el promedio escalado no entra en `int128`, con cualquier
+moda y hasta cambiando el signo: `[(1e38, 0), (1, 1), (1, 1)]` (moda 1) da en EVM
+`-6949033587605130130041274098434878122` y aca `333333333333333333333333333333333333334`, el numero correcto
+(desviacion R-4). Los SDK tienen que leer `summary_value` como un entero con signo de **hasta 56 cifras**
+(`|summary_value| < 5 * 10^55`: el maximo sale con la moda en 18), no como `int128` ni como numero JSON.
 
 ## 4. Validation Registry (BORRADOR): `validation-registry.erc-8004.near` (crate `erc8004-validation`)
 
@@ -300,7 +317,9 @@ Diseno completo; no se despliega hasta que el equipo de ERC-8004 cierre la secci
 | `getAgentValidations`, `getValidatorRequests` | `get_agent_validations({"agent_id","from_index"?,"limit"?})`, `get_validator_requests({...})` -> hashes hex | | | |
 
 El `request_hash` es unico global, como en EVM: `validation_request` pone un candado en vuelo sobre el hash (dos pedidos
-iguales a la vez: el segundo entra en panico) y el callback vuelve a mirar que no exista.
+iguales a la vez: el segundo entra en panico) y el callback vuelve a mirar que no exista. Tres diferencias mas con EVM
+(V-2 a V-4, seccion 6): `request_uri` no puede ser vacia (EVM acepta `""`), el validador no puede ser el propio
+registro, y `get_validation_status` devuelve ademas `has_response`.
 
 ## 5. Eventos NEP-297
 
@@ -314,6 +333,7 @@ snake_case; los campos, los parametros de EVM en snake_case (sin los `indexed` d
 | `Registered` | `registered` | `{"agent_id","agent_uri","owner"}` |
 | `MetadataSet` | `metadata_set` | `{"agent_id","metadata_key","metadata_value": base64}` |
 | `URIUpdated` | `uri_updated` | `{"agent_id","new_uri","updated_by"}` |
+| (sin equivalente: en EVM no hay pendiente) | `agent_wallet_pending` | `{"agent_id","wallet","deadline"}` (`deadline` en ns, string); `wallet` `null` y `deadline` `"0"` = la cancelo una revocacion (I-9) |
 | `NewFeedback` | `new_feedback` | `{"agent_id","client_address","feedback_index","value","value_decimals","tag1","tag2","endpoint","feedback_uri","feedback_hash","proof"}` (`proof` = `null` o `{"verifier","proof","counterparty","role","context","weight"}`) |
 | `FeedbackRevoked` | `feedback_revoked` | `{"agent_id","client_address","feedback_index"}` |
 | `ResponseAppended` | `response_appended` | `{"agent_id","client_address","feedback_index","responder","response_uri","response_hash"}` |
@@ -332,7 +352,7 @@ final es exito; cualquier contrato puede emitir el mismo `EVENT_JSON` en su prop
 | G-3 | enteros grandes y `agent_id` como string decimal canonico; `int128` como string | JSON de NEAR; canonico para que no haya alias |
 | G-4 | `bytes` en base64, `bytes32` en hex de 64 | JSON |
 | G-5 | tiempos en nanosegundos | `env::block_timestamp()` |
-| G-6 | topes de largo y de listas (seccion 6.1) | storage pagado y el tope de 16.384 bytes de logs por recibo; los URIs con el charset de RFC 3986 (sin `"` ni `\`, que JSON escapa al doble) |
+| G-6 | topes de largo y de listas (seccion 6.1); los URIs con el charset de RFC 3986 y **con esquema** (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":"` y algo despues) en `agent_uri`, `endpoint`, `feedback_uri`, `response_uri` y `request_uri` (las opcionales pueden ser `""`) | storage pagado y el tope de 16.384 bytes de logs por recibo; sin `"` ni `\`, que JSON escapa al doble. EVM no mira nada: un `endpoint` sin esquema como lo manda un cliente de EVM (`"GetPrice"`) o un agentURI que es un CID pelado se rechazan (Identity `E01`; Reputation `E06`, `E07`, `E16`; Validation `E02`): el SDK los tiene que mandar como `ipfs://<cid>`, `https://...`, etc. |
 | G-7 | las vistas devuelven `null` en vez de revertir | NEAR permite `null`; menos casos de error para los SDK |
 | G-8 | eventos NEP-297 | NEAR |
 | G-9 | 1 yocto en lo que cambia dueno, wallet o aprobaciones | convencion de NEAR (NEP-171/178): fuerza una llave FullAccess |
@@ -344,7 +364,11 @@ final es exito; cualquier contrato puede emitir el mismo `EVENT_JSON` en su prop
 | I-6 | `register` no llama `nft_on_transfer` (EVM: `_safeMint` llama `onERC721Received`) | NEP-171 no lo pide en el mint |
 | I-7 | `is_authorized_or_owner` entra en panico si no existe (fiel) y `check_agent` no (para las llamadas cruzadas) | 3.2 |
 | I-8 | `metadata.reference_hash` va en `null` (NEP-177 lo pide cuando hay `reference`) | el agentURI de ERC-8004 no trae hash; el registration file se ata al agente por sus `registrations` (seccion 8) |
-| S-1 | quien llama paga lo que crece; lo liberado vuelve al **dueno** del agente | storage staking; el dueno pago la ficha |
+| I-9 | `nft_revoke` y `nft_revoke_all` cancelan la `agentWallet` pendiente; evento `agent_wallet_pending` al dejarla y al cancelarla | en EVM `setAgentWallet` es atomico y un aprobado revocado ya no puede ponerla; aca la pendiente espera a la wallet (2.3, refutador P2-1) |
+| I-10 | transferir al mismo dueno es `E20` (en EVM `transferFrom(owner, owner, id)` pasa y limpia `agentWallet`) | convencion de NEP-171 (la implementacion de referencia lo rechaza); para limpiar `agentWallet` esta `unset_agent_wallet` |
+| I-11 | hasta 8 aprobaciones por agente, que se suman (en ERC-721 hay una sola, `getApproved`, y el siguiente `approve` la pisa) | NEP-178 guarda un mapa de aprobaciones; el tope de 8 acota el storage, el gas de la transferencia y la vista `nft_token` |
+| I-12 | no hay `MetadataUpdate` de ERC-4906 (OZ 5.4 lo emite en `_setTokenURI`) | los eventos de NFT son `nep171` 1.0.0 (`nft_mint`, `nft_transfer`); el `nft_metadata_update` de NEP-171 1.2.0 no se emite; el cambio de URI esta en `uri_updated` |
+| S-1 | quien llama paga lo que crece; lo liberado vuelve al **dueno actual** del agente | storage staking. No siempre lo pago el: la URI o la metadata que pago un dueno anterior (o un aprobado) le vuelve al dueno actual cuando la borra. El contrato queda solvente igual: lo que devuelve es storage que se libera |
 | S-2 | `register` cobra la reserva del token (2.4), que no vuelve | las transferencias no pueden cobrar (1 yocto) y el contrato no puede quedar sin saldo |
 | R-1 | `give_feedback` es asincrono: devuelve `feedback_index` o `null` (rechazo con log) | llamada cruzada a Identity |
 | R-2 | la guarda de identidad mira el estado cuando corre la vista | 3.2 |
@@ -353,6 +377,9 @@ final es exito; cualquier contrato puede emitir el mismo `EVENT_JSON` en su prop
 | R-5 | extension opcional `give_feedback_with_proof` (feature `feedback-proofs`) | decision c |
 | R-6 | `get_clients` con paginacion opcional | las vistas de NEAR tienen tope de gas |
 | V-1 | `validation_request` asincrono, con candado sobre `request_hash` | llamada cruzada + unicidad global |
+| V-2 | `request_uri` obligatoria (URI con esquema, G-6); EVM acepta `""` | lo que se pide validar tiene que estar en algun lado (BORRADOR: a revisar cuando ERC-8004 cierre la seccion) |
+| V-3 | el validador no puede ser el propio registro (`E06`) | el registro no puede responder (no tiene llaves) y el pedido quedaria colgado |
+| V-4 | `get_validation_status` devuelve ademas `has_response` | EVM lo guarda pero no lo devuelve; sin el, una respuesta `0` no se distingue de "sin respuesta" |
 
 ### 6.1 Topes (fijados en la fase 2; el peor caso de logs y de storage de cada uno esta medido en los tests U-ST)
 
@@ -380,6 +407,14 @@ el Identity Registry por el argumento de `new`; **no puede cambiar despues** por
 pudiera cambiar, quien lo cambie decide que agentes existen y quien es dueno, y con eso que feedback vale. Un arreglo
 va en una cuenta nueva con version (`reputation-registry-v2.erc-8004.near`, `identity-registry-v2...`), y lo que ya
 quedo en la vieja se queda ahi. En testnet, lo mismo bajo un padre de testnet (fase 4).
+
+NEP-330: cada wasm declara en `standards` lo que implementa, ademas de `nep330` 1.3.0 (lo agrega near-sdk): Identity
+`nep171`, `nep177`, `nep178` y `nep181` en 1.0.0 (los textos de `near/NEPs` en `095fe98` no dan otra version para
+177, 178 y 181; de NEP-171 se declara 1.0.0 porque los eventos que emite son `nep171` 1.0.0, ver I-12) y `erc8004`
+1.0.0; Reputation y el verificador, `erc8004` 1.0.0 (el verificador, el lado verificador de la extension R-5).
+`erc8004` 1.0.0 es la interfaz NEAR de este port: los metodos, las vistas, los eventos de la seccion 5 y la interfaz
+del verificador. El `link` que queda grabado es el `repository` del Cargo.toml (`UltravioletaDAO/arras`): el deploy en
+mainnet espera a que el repo exista ahi (paso 0c del plan de deploy del handoff).
 
 El `agentRegistry` del registration file: CAIP-2 no tiene namespace `near` registrado (0); `near:<chain_id>` con el
 `chain_id` de nearcore: **`near:mainnet:identity-registry.erc-8004.near`** (y `near:testnet:<cuenta>` en testnet).
@@ -439,7 +474,8 @@ la EIP (el contrato no lo verifica).
    esquema de `check_agent`), `erc8004-identity`, `erc8004-reputation` (feature `feedback-proofs`),
    `erc8004-arras-verifier`, `erc8004-validation` (BORRADOR), y `test-nft-receiver` (solo sandbox). near-sdk 5.29.1
    como registry-v1, NEP-330 con
-   `repository = "https://github.com/UltravioletaDAO/arras"` (el repo hoy es `0xultravioleta/arras` y va a pasar ahi).
+   `repository = "https://github.com/UltravioletaDAO/arras"` (el repo hoy es `0xultravioleta/arras` y va a pasar ahi;
+   el deploy en mainnet espera a que exista, porque ese link queda grabado en un contrato inmutable).
 3. Tests: unitarios (cada guarda, cada resultado de cada callback, el storage del peor caso, la invariante de la
    reserva) y sandbox (el ciclo entero, con un pago `Released` real de escrow-v1 compilado y de la wasm de mainnet que
    ya esta en `contracts/registry-v1/tests/fixtures`), gas y storage medidos, una mutacion por guarda.
