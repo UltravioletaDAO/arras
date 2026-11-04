@@ -282,7 +282,8 @@ cada camino (deposito, gas y tx) lo mide la fase 3 en el sandbox y queda en el h
 | `getLastIndex(agentId, client)` | `get_last_index({"agent_id","client_address"})` -> string |
 | (extension) | `read_feedback_proof`, `get_proof_feedback({"verifier","proof","client_address"})`, `get_verified_summary`, `list_verified_feedback`, `is_proof_pending` |
 
-`summary_value` es el **valor exacto** como string: la cuenta se hace en 256 bits (como el `int256` de Solidity). EVM
+`summary_value` es el **valor exacto** como string: la cuenta se hace en 256 bits (como el `int256` de Solidity; el
+orden de esos 256 bits compara desde la palabra mas significativa, ver el P1 del refutador en el handoff). EVM
 hace `int128(avg)` al final, que **trunca en silencio** si el promedio escalado no entra en `int128` (puede pasar: un
 valor de 1e38 con 0 decimales y la moda en 18); aca se devuelve el numero correcto (desviacion R-4).
 
@@ -342,6 +343,7 @@ final es exito; cualquier contrato puede emitir el mismo `EVENT_JSON` en su prop
 | I-5 | un `nft_transfer_call` que el receptor devuelve deja `agentWallet` **limpia** (no se restaura) | en EVM el `safeTransferFrom` revertido no la toca; aca la transferencia ya ocurrio y el resolve la deshace: restaurarla agregaria estado en vuelo; queda del lado seguro y el dueno la vuelve a poner |
 | I-6 | `register` no llama `nft_on_transfer` (EVM: `_safeMint` llama `onERC721Received`) | NEP-171 no lo pide en el mint |
 | I-7 | `is_authorized_or_owner` entra en panico si no existe (fiel) y `check_agent` no (para las llamadas cruzadas) | 3.2 |
+| I-8 | `metadata.reference_hash` va en `null` (NEP-177 lo pide cuando hay `reference`) | el agentURI de ERC-8004 no trae hash; el registration file se ata al agente por sus `registrations` (seccion 8) |
 | S-1 | quien llama paga lo que crece; lo liberado vuelve al **dueno** del agente | storage staking; el dueno pago la ficha |
 | S-2 | `register` cobra la reserva del token (2.4), que no vuelve | las transferencias no pueden cobrar (1 yocto) y el contrato no puede quedar sin saldo |
 | R-1 | `give_feedback` es asincrono: devuelve `feedback_index` o `null` (rechazo con log) | llamada cruzada a Identity |
@@ -358,7 +360,9 @@ final es exito; cualquier contrato puede emitir el mismo `EVENT_JSON` en su prop
 metadata 1..64 bytes `[A-Za-z0-9._:/-]`; valor de metadata 0..1.024 bytes; hasta 4 entradas en `register` (el peor caso
 de logs de `register` tiene que entrar en 16.384 bytes); `tag1`/`tag2` 0..64 bytes de UTF-8 sin caracteres de control;
 `endpoint` 1.024; `feedback_uri`, `response_uri`, `request_uri` 4.096 (no se guardan); `memo` 256; aprobaciones por
-agente 8; `proof` 1..128 bytes ASCII imprimible; `role` y `context` 0..32 `[a-z0-9_-]`.
+agente 8; `proof` 1..128 bytes ASCII imprimible; `role` y `context` 0..32 `[a-z0-9_-]`. El `msg` de
+`nft_transfer_call` y de `nft_approve` no lleva tope propio: no se guarda ni va a un log, solo se le pasa al receptor,
+y lo acota el tope de argumentos de una tx (lo paga quien lo manda), como en NEP-171/178.
 
 ## 7. Cuentas (decision f) y como se despliega
 

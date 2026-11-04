@@ -382,7 +382,7 @@ went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 | `contracts/test-ft` | near-contract-standards fungible token, only for the sandbox tests |
 | `contracts/registry-v1` | the agent registry (identity + reputation tied to Arras payments); `src/unit_tests/`, `tests/workspaces.rs` (WR-*) |
 | `contracts/test-escrow` | a mock escrow whose `get_payment` returns raw JSON, only for the registry's sandbox tests |
-| `contracts/erc8004-common`, `erc8004-identity`, `erc8004-reputation`, `erc8004-arras-verifier`, `erc8004-validation` | the ERC-8004 port (see "ERC-8004 on NEAR"); unit tests in each `src/unit_tests/`, the sandbox cycle across all of them in `contracts/erc8004-reputation/tests/workspaces.rs` (WE-*) |
+| `contracts/erc8004-common`, `erc8004-identity`, `erc8004-reputation`, `erc8004-arras-verifier`, `erc8004-validation` | the ERC-8004 port (see "ERC-8004 on NEAR"); unit tests in each crate's `src/unit_tests/` (in `erc8004-common`, inside each module), the sandbox cycle across all of them in `contracts/erc8004-reputation/tests/workspaces.rs` (WE-*) |
 | `contracts/test-nft-receiver` | a mock NFT receiver, only for the Identity Registry's sandbox tests |
 | `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7; section `v2`: v2 `msg`s, VB-1, tickets T-1/T-2 |
 | `scripts/testnet.sh` | the v1 testnet sequence |

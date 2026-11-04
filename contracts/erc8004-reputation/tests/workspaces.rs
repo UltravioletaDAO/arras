@@ -1245,8 +1245,8 @@ async fn we09_gas_minimo_justo() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// WE-10: nadie vacia el saldo del Identity Registry transfiriendo agentes a cuentas nuevas (la reserva por token de
-/// la seccion 2.4 del plan): el saldo libre del contrato no baja.
+/// WE-10: transferir agentes a cuentas nuevas no baja el saldo libre del Identity Registry (la reserva por token de la
+/// seccion 2.4 del plan).
 #[tokio::test]
 async fn we10_transferir_a_cuentas_nuevas_no_vacia_el_contrato() -> anyhow::Result<()> {
     let _p = SANDBOXES.acquire().await?;
