@@ -27,18 +27,23 @@ atada a pagos de Arras que de verdad liberaron plata.
   - Eventos NEP-297 `arras-registry` 1.0.0: `agent_registered`, `agent_updated`, `feedback_given`, `feedback_revoked`.
   - Sin `migrate` ni owner: se despliega con `new` privado en la misma tx y se le borran las llaves.
 - `contracts/test-escrow` (crate `arras-test-escrow`): escrow de mentira **solo para el sandbox**: `get_payment`
-  devuelve el JSON crudo que se le carga (para lo que v1 no puede dar: payer == receiver, JSON roto, mas de 8 KiB, un
-  `status` de v2). No se despliega nunca.
-- `Cargo.toml` (miembros nuevos) y `Cargo.lock` (solo las dos crates nuevas; ninguna dependencia cambia de version).
-  `escrow-v1`, `escrow-v2` y `escrow-core` no se tocaron.
+  devuelve el JSON crudo que se le carga (para lo que v1 no puede dar: payer == receiver, JSON roto, mas de 8 KiB,
+  respuestas que no son exactamente un `Payment` de v1). No se despliega nunca.
+- `contracts/registry-v1/tests/fixtures/escrow-v1-mainnet-7058319d.wasm` (RONDA 1): la wasm exacta de
+  `v1.arras-escrow.near`, que c0der bajo de mainnet con `view_code` (268.839 bytes, sha256 `7058319d...0eada`, que en
+  base58 es el code hash `8ZYfMJerz9r1mh4vZH55vyyJb1SLyX7qR2xqpYPxHr5X`). WR-02, WR-03 y WR-04 corren contra ella
+  ademas de contra la v1 compilada; el test verifica el sha256 antes de usarla y el code hash despues de desplegarla.
+- `Cargo.toml` (miembros nuevos) y `Cargo.lock` (las dos crates nuevas y, desde la RONDA 1, `sha2` 0.10.9, que ya
+  estaba en el lock, como dev-dependency del registro; ninguna dependencia cambia de version). `escrow-v1`, `escrow-v2`
+  y `escrow-core` no se tocaron.
 
 ## Diseno (lo fijado por c0der y lo que decidi dentro)
 
 1. **Verificacion en el callback, que nunca entra en panico.** `on_payment_checked` lee primero el resultado de
    `get_payment` (fuera de un callback de verdad no hay resultado y el host aborta antes de tocar estado o mandar
    plata), y un rechazo devuelve el deposito **entero**, deja el log `arras-registry:rechazo:<CODIGO>`, libera el
-   candado y devuelve `null`. Falla cerrado: `get_payment` que falla (`E20`), respuesta de mas de 8 KiB o que no
-   deserializa (`E21`), `null` (`E22`).
+   candado y devuelve `null`. Falla cerrado: `get_payment` que falla (`E20`), respuesta de mas de 8 KiB o que no es
+   exactamente un `Payment` de v1 (`E21`, decision 5), `null` (`E22`).
 2. **Candado.** `give_feedback` escribe `pending[(escrow, payment_id, rater)] = block_height` antes de la llamada
    cruzada; otro `give_feedback` igual mientras vuela es `E19`. El callback solo acepta si el candado sigue siendo el
    suyo (`nonce` = esa altura; si no, `E26`) y vuelve a mirar que no exista la calificacion (`E18`). Un candado que no
@@ -46,11 +51,14 @@ atada a pagos de Arras que de verdad liberaron plata.
    la segunda cae en `E19`). El candado vence si el callback no llego en 1.000 bloques: porque se quedo sin gas (hoy
    inalcanzable: los 30 TGas se reservan al crear la promesa y el peor caso mide 3,3) o porque se demoro (lo cubre
    `E26`). Si un callback llegara a fallar, el deposito de esa llamada queda en el contrato.
-3. **Deposito.** `give_feedback` exige `feedback_deposit` = 1.864 bytes x 10^19 = **0,01864 NEAR**, el peor caso exacto
-   (U-ST1 lo mide con todo al tope, cuentas y `operator_id` de 64 caracteres, calificada y operador nuevos). El callback
+3. **Deposito.** `give_feedback` exige `feedback_deposit` = 1.864 bytes x 10^19 = **0,01864 NEAR** (igual que antes de
+   la RONDA 1). Cubre el peor caso con un `operator_id` de 64 bytes; desde la RONDA 1 el callback exige el charset de
+   v1 (`[a-z0-9_-]{1,32}`), asi que el peor caso real es **1.800 bytes** (U-ST1 lo mide exacto: cuentas de 64,
+   operador de 32, todo al tope, calificada y operador nuevos) y esos 64 bytes de margen vuelven siempre al rater. Se
+   dejo 1.864 para no cambiar la interfaz que los SDK ya implementan (`DEPOSIT_OPERATOR_ID_LEN` = 64). El callback
    cobra lo medido (una calificacion tipica con tags, URI y hash, calificada nueva, sobre v1: 746 bytes, 0,00746 NEAR) y
-   devuelve el resto. El resumen por operador nuevo cuesta 221 bytes en el peor caso y 109 con `worker.testnet` y `em`
-   (U-ST5), solo la primera vez por `(calificada, operador)`; lo paga el rater. `register`: `register_deposit` = 1.751 bytes
+   devuelve el resto. El resumen por operador nuevo cuesta 189 bytes en el peor caso (operador de 32) y 109 con
+   `worker.testnet` y `em` (U-ST5), solo la primera vez por `(calificada, operador)`; lo paga el rater. `register`: `register_deposit` = 1.751 bytes
    (0,01751 NEAR) cubre el peor caso; se cobra lo medido.
 4. **Lo que guarda una calificacion:** rater, ratee, `ratee_role` (`payer` o `receiver`: el rol de la calificada en el
    pago), escrow, payment_id, `operator_id` y `released` del pago (leidos en cadena; sirven para filtrar por operador y
@@ -67,6 +75,11 @@ atada a pagos de Arras que de verdad liberaron plata.
    `payment_id` de 1 a 64 bytes imprimibles; `feedback_hash` 64 hex en minusculas sin `0x` (como `terms_hash`).
 7. **No se exige** que la calificada (ni el rater) este registrada: la identidad es la cuenta y el worker de EM no
    tiene por que darse de alta para recibir calificaciones.
+8. **Quien actua es el `predecessor`, no el `signer`**: `register`, `update`, `give_feedback` y `revoke_feedback` usan
+   `env::predecessor_account_id()`. Un contrato intermedio al que el usuario le firma una tx no registra, califica ni
+   revoca en su nombre (califica como si mismo: no es parte, `E24`, y el deposito le vuelve a el). Lo fijan
+   `el_rater_es_el_predecessor_no_el_signer`, `register_y_update_son_del_predecessor_no_del_signer` y
+   `revocar_es_del_predecessor_no_del_signer` (RONDA 1, P2-3).
 
 Decidido por c0der (RESPUESTA del 2026-11-03 23:30Z, a mi PREGUNTA de las 23:29Z):
 
@@ -75,8 +88,8 @@ Decidido por c0der (RESPUESTA del 2026-11-03 23:30Z, a mi PREGUNTA de las 23:29Z
    en un registro nuevo: este es inmutable a proposito.
 2. **Vale todo pago con `released > 0`**, cualquiera sea su estado (`Released`, `PartiallyReleased`, y tambien
    `Refunded` o `Reclaimed` despues de una liberacion parcial): una entrega parcial es un trato real. Sigue rechazado
-   `released == 0` (`E23`), el tercero, la autocalificacion y la segunda del mismo rater y pago. El `status` se exige
-   en la respuesta (sin el, `E21`) pero no decide nada.
+   `released == 0` (`E23`), el tercero, la autocalificacion y la segunda del mismo rater y pago. El `status` no decide
+   nada, pero tiene que ser uno de los 5 de v1 (decision 5).
 3. **Ventana**: hasta la compactacion del pago en v1 (`reclaim_after + 7 dias`); EM califica apenas se libera el
    pago.
 
@@ -85,6 +98,30 @@ Y en la RESPUESTA del 2026-11-04 00:06Z (al punto 4 de la PREGUNTA, el resumen p
 4. **Resumen por `(ratee, operator_id)` en el contrato**, ademas del global, con su vista
    `get_summary_by_operator(account_id, operator_id)`; cada calificacion guarda el `operator_id` y el `released` del
    pago (lo que devuelve `get_payment` al calificar) para filtrar por operador y pesar por plata.
+
+Y en la RONDA 1 (2026-11-04 02:05Z, sobre el informe del refutador de RARRAS-7, que dio MERGEABLE CON RONDA sin P1):
+
+5. **La respuesta de `get_payment` es estricta (P2-1, opcion (a): falla cerrado).** `EscrowPayment` es el espejo
+   exacto del `Payment` de v1 (`contracts/escrow-v1/src/lib.rs:82-105`), y todo lo que no lo sea es `E21` con el
+   deposito entero de vuelta:
+   - los 16 campos con `deny_unknown_fields`: ni uno de mas (los de v2 tampoco) ni uno de menos, ninguno `null`, sin
+     claves repetidas;
+   - `status`: uno de los 5 strings de v1 (`Authorized`, `PartiallyReleased`, `Released`, `Refunded`, `Reclaimed`),
+     solo como string (no la forma `{"Released":null}`, que serde acepta para una variante unitaria);
+   - `amount`, `released`, `refunded`, `storage_charged` (`U128`) y `created_at`, `release_deadline`, `reclaim_after`
+     (`U64`): string decimal canonico, solo digitos, sin signo ni ceros a la izquierda salvo `"0"`, dentro del rango
+     del tipo (`"+1"` y `"01"` pasaban antes: `u128::from_str` los acepta). v1 serializa siempre asi;
+   - `fee_bps`/`fee_bps_max` numero `u16`, `sponsored` booleano, `payer`/`receiver`/`fee_recipient` `AccountId`
+     validos, `terms_hash` string;
+   - `operator_id` con el charset de v1, `[a-z0-9_-]{1,32}` (`is_valid_operator_id` de `escrow-core`, el mismo con el
+     que v1 los da de alta).
+
+   Por contenido solo se valida lo que el registro guarda o usa (`operator_id`, `released`, las partes); `terms_hash` y
+   `fee_recipient` se exigen con su tipo y nada mas. Lo que prueba que el espejo coincide con v1: WR-02, WR-03 y WR-04
+   corren contra la v1 compilada y contra la wasm exacta de mainnet (`tests/fixtures`), pasan por los 5 estados, y en
+   cada uno el `get_payment` real tiene exactamente los 16 campos y deserializa en `EscrowPayment` (`assert_espejo`).
+   El riesgo de (a) es que un espejo que no coincidiera rechazaria todas las calificaciones para siempre: por eso el
+   humo del paso 3b del plan de deploy es **obligatorio** antes de borrar las llaves.
 
 ## Modelo de confianza (lo que EM y los SDK tienen que saber)
 
@@ -101,6 +138,19 @@ Y en la RESPUESTA del 2026-11-04 00:06Z (al punto 4 de la PREGUNTA, el resumen p
   `list_feedback` (o los eventos `feedback_given`) filtrado por `escrow == "v1.arras-escrow.near"` y
   `operator_id == "em"`, pesando por `released` (asi 1e-6 USDC no pesa como un pago real) y por raters distintos
   (ERC-8004 le pide un filtro de clientes a `getSummary` justo por esto).
+- **Un indexador cuenta solo los eventos `feedback_given` y `feedback_revoked` de recibos cuyo `executor_id` (el
+  receiver del recibo) es `registry.arras-escrow.near`.** Los filtros de arriba son campos de `data`: cualquier
+  contrato puede emitir en su propio recibo el mismo
+  `EVENT_JSON:{"standard":"arras-registry",...,"data":[{"escrow":"v1.arras-escrow.near","operator_id":"em",...}]}` con
+  datos inventados. Ante la duda, se relee la calificacion del contrato con `get_feedback(feedback_id)` (o
+  `get_feedback_for_payment`).
+- **La ventana de calificacion la puede cerrar cualquiera, tambien la calificada.** `compact` de v1
+  (`contracts/escrow-v1/src/withdraw.rs:60-66`) no tiene permisos: desde `reclaim_after + 7 dias` cualquiera borra el
+  pago, y despues `get_payment` da `null` y toda calificacion es `E22`. Un worker o un agente que espera una mala nota
+  puede compactar apenas se cumple el plazo. Por eso EM califica al liberar.
+- **El resumen por operador no lleva el escrow en la clave** (`(ratee, operator_id)`, `lib.rs`): vale porque la lista
+  de `new` es un solo escrow para siempre. Quien copie el crate para un registro de varios escrows tiene que sumar el
+  escrow a la clave (dos escrows pueden tener operadores con el mismo nombre).
 - La identidad es la cuenta: una cuenta `.near` de primer nivel borrada la puede volver a crear cualquiera desde el
   registrador `near` (y una sub-cuenta, su padre); el nuevo dueno hereda la ficha y la reputacion recibida, y puede
   hacer `update`.
@@ -117,7 +167,7 @@ inexistente (o de otro rater), `E31` ya revocada, `E40` lista de `new` invalida 
 propio registro). Formato: `ARRAS_REG_E16: deposito insuficiente para la calificacion: se necesitan N yocto`.
 
 Rechazo del callback (la tx sale bien, devuelve `null`, el deposito vuelve entero): `E18`, `E20` get_payment fallo,
-`E21` respuesta invalida (mas de 8 KiB, no deserializa, sin `status`, `operator_id` de mas de 64), `E22` pago
+`E21` respuesta invalida (mas de 8 KiB, JSON roto, o no es exactamente un `Payment` de v1: decision 5), `E22` pago
 inexistente, `E23` `released == 0` (no paso plata, en cualquier estado), `E24` no es parte, `E25` se califica a si mismo, `E26` el candado ya no es suyo. Log:
 `arras-registry:rechazo:E23_PAGO_SIN_LIBERAR`.
 
@@ -125,25 +175,39 @@ inexistente, `E23` `released == 0` (no paso plata, en cualquier estado), `E24` n
 
 Cuenta `registry.arras-escrow.near`, creada desde `arras-escrow.near`. near-cli-rs 0.30.1, firmando con el llavero
 legacy como `scripts/mainnet.sh`. Medido en el sandbox: la wasm de `cargo near build non-reproducible-wasm` ocupa
-223.893 bytes en 31c9f3e (2,24 NEAR de storage; la reproducible va a medir distinto); el estado inicial es chico (la lista de escrows). Los usuarios pagan su storage,
-asi que el contrato solo necesita el codigo y un margen.
+**231.516 bytes** con la RONDA 1 (2,32 NEAR de storage; antes de la RONDA, 223.893: el espejo estricto suma ~7,6 KB); la
+reproducible la construye c0der al desplegar y puede medir distinto (yo no la construi: necesita Docker con red). El
+estado inicial es chico (la lista de escrows). Los usuarios pagan su storage, asi que el contrato solo necesita el
+codigo y un margen.
 
 ```sh
-# 0. Wasm reproducible (NEP-330) desde un clon limpio en el merge commit de este PR, SIN CARGO_TARGET_DIR (cargo-near
-#    0.22.0 borra el artefacto con CARGO_TARGET_DIR seteado). Necesita docker (imagen sourcescan/cargo-near del
-#    Cargo.toml del crate, por digest). Antes, `git fetch` en el checkout de origen: tiene que tener el merge commit.
+# 0. Wasm reproducible (NEP-330), DOS veces desde DOS clones limpios del merge commit de este PR, SIN CARGO_TARGET_DIR
+#    (cargo-near 0.22.0 borra el artefacto con CARGO_TARGET_DIR seteado). Necesita docker (imagen sourcescan/cargo-near
+#    del Cargo.toml del crate, por digest). Antes, `git fetch` en el checkout de origen: tiene que tener el merge commit.
+#    No hay hash fijado de antemano (NEP-330 embebe el commit): lo que se exige es que las dos construcciones den el
+#    MISMO sha256, como se hizo con v1 (docs/MAINNET.md).
 REV=<MERGE_SHA>                     # el merge commit de este PR en main
-git clone -q "$(git -C <tu checkout de arras> rev-parse --show-toplevel)" "$HOME/arras-build/registry-$REV"
-cd "$HOME/arras-build/registry-$REV" && git checkout -q "$REV" && test -z "$(git status --porcelain)"
-env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/registry-v1/Cargo.toml
-WASM=target/near/arras_registry_v1/arras_registry_v1.wasm
-shasum -a 256 "$WASM"     # anotar: es el code hash que se verifica en el paso 3
+ORIGEN="$(git -C <tu checkout de arras> rev-parse --show-toplevel)"
+for n in 1 2; do
+  git clone -q "$ORIGEN" "$HOME/arras-build/registry-$REV-$n"
+  ( cd "$HOME/arras-build/registry-$REV-$n" && git checkout -q "$REV" && test -z "$(git status --porcelain)" \
+    && env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/registry-v1/Cargo.toml )
+done
+shasum -a 256 "$HOME"/arras-build/registry-"$REV"-{1,2}/target/near/arras_registry_v1/arras_registry_v1.wasm
+#    -> los dos sha256 IGUALES; si difieren, se para aca. Ese sha256 es el code hash que se verifica en el paso 3.
+WASM="$HOME/arras-build/registry-$REV-1/target/near/arras_registry_v1/arras_registry_v1.wasm"
+wc -c < "$WASM"
+#    -> por debajo de ~245.000 bytes (la no reproducible mide 231.516): entra en los 2,5 NEAR del paso 1b (2,45 de
+#       codigo y ~0,05 para el estado, la llave y el gas del deploy y del borrado de llaves). Si mide mas, el 1b sube a
+#       bytes / 100.000 + 0,05 NEAR, redondeado hacia arriba a la decena (p. ej. 251.000 bytes -> 2,6 NEAR), y el 1a
+#       pide ese monto + 0,03 libres en el padre.
 
-# 1a. El padre tiene que tener 2,53 NEAR libres (2,5 + el gas de crear la cuenta). Despues del deploy de v1 le quedaron
-#     ~0,074 en el ensayo de testnet (docs/MAINNET.md, sec. 3): hay que fondearlo antes (el owner, a arras-escrow.near). Mirar el saldo:
+# 1a. El padre tiene que tener 2,53 NEAR libres (2,5 + el gas de crear la cuenta; mas si el paso 0 subio el monto).
+#     Despues del deploy de v1 le quedaron ~0,074 en el ensayo de testnet (docs/MAINNET.md, sec. 3): hay que fondearlo
+#     antes (el owner, a arras-escrow.near). Mirar el saldo:
 near account view-account-summary arras-escrow.near network-config mainnet now
 
-# 1b. La cuenta del registro (2,5 NEAR: 2,24 de codigo y margen). La llave del padre esta en SSM
+# 1b. La cuenta del registro (2,5 NEAR, o lo que dijo el paso 0). La llave del padre esta en SSM
 #     (/arras/mainnet/padre, us-east-2; `secretos` borro el archivo local): va por un pipe, como en scripts/mainnet.sh,
 #     sin tocar el disco. La llave nueva del registro queda en el llavero legacy (la usan los pasos 2 y 4).
 near account create-account fund-myself registry.arras-escrow.near '2.5 NEAR' autogenerate-new-keypair \
@@ -157,7 +221,7 @@ near contract deploy registry.arras-escrow.near use-file "$WASM" \
   prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' network-config mainnet sign-with-legacy-keychain send
 #    Solo v1 (RESPUESTA 1): v2, cuando este desplegado y sin llaves, va en un registro nuevo.
 
-# 3. Verificar ANTES de borrar llaves: code hash == shasum del paso 0, y la config.
+# 3. Verificar ANTES de borrar llaves: code hash == el sha256 del paso 0, y la config.
 near account view-account-summary registry.arras-escrow.near network-config mainnet now
 near contract call-function as-read-only registry.arras-escrow.near get_config json-args '{}' \
   network-config mainnet now
@@ -167,16 +231,36 @@ near contract call-function as-read-only registry.arras-escrow.near get_config j
 near contract call-function as-read-only registry.arras-escrow.near contract_source_metadata json-args '{}' \
   network-config mainnet now        # NEP-330: imagen, digest y commit
 
-# 3b. Opcional (lo sugirio el refutador): una calificacion de humo contra v1 de mainnet ANTES de borrar llaves (con
-#     llave todavia se redespliega si algo difiere). Necesita un pago liberado de EM cuyo payer o receiver firme
-#     c0der (p. ej. el de R679); la calificacion queda para siempre. Si el payer firma desde el llavero del sistema
-#     (ARRAS_PAYER_KEYCHAIN en mainnet.sh), va `sign-with-keychain` en vez de `sign-with-legacy-keychain`.
-#   near contract call-function as-transaction registry.arras-escrow.near give_feedback \
-#     json-args '{"escrow":"v1.arras-escrow.near","payment_id":"<id>","score":100}' \
-#     prepaid-gas '100.0 Tgas' attached-deposit '0.01864 NEAR' sign-as <payer o receiver> network-config mainnet \
-#     sign-with-legacy-keychain send       # -> devuelve el feedback_id; con null, mirar el log de rechazo
+# 3b. OBLIGATORIO (RONDA 1), ANTES de borrar llaves: las dos partes del pago real de R679 se califican entre si contra
+#     v1 de mainnet. Es la prueba de que el espejo estricto (decision 5) lee el `Payment` real; las calificaciones
+#     quedan para siempre. Cada parte necesita ~0,02 NEAR libres (vuelve casi todo: se cobra el storage medido).
+PID=EbkEtGaM7ZwY6aHSdHSqxdFx9cJV13KPT7fYBWjxbfd9
+PAYER=fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079      # la implicita de fondeo (SSM /arras/mainnet/fondeo)
+RECEIVER=826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af
+near contract call-function as-read-only v1.arras-escrow.near get_payment \
+  json-args "{\"payment_id\":\"$PID\"}" network-config mainnet now
+#    -> "operator_id": "em", "payer": $PAYER, "receiver": $RECEIVER, "released": "100000", "status": "Released".
+#       Si da null (el pago ya se compacto: cualquiera puede desde reclaim_after + 7 dias), el humo va con otro pago
+#       liberado de em sin compactar cuyas dos partes firme c0der; sin uno, no se borran las llaves.
+near contract call-function as-transaction registry.arras-escrow.near give_feedback \
+  json-args "{\"escrow\":\"v1.arras-escrow.near\",\"payment_id\":\"$PID\",\"score\":100}" \
+  prepaid-gas '100.0 Tgas' attached-deposit '0.01864 NEAR' sign-as "$PAYER" network-config mainnet \
+  sign-with-access-key-file <(aws ssm get-parameter --region us-east-2 --name /arras/mainnet/fondeo \
+    --with-decryption --output json | jq -j '.Parameter.Value') send
+#    -> 0 (el feedback_id: el payer califico al receiver)
+near contract call-function as-transaction registry.arras-escrow.near give_feedback \
+  json-args "{\"escrow\":\"v1.arras-escrow.near\",\"payment_id\":\"$PID\",\"score\":100}" \
+  prepaid-gas '100.0 Tgas' attached-deposit '0.01864 NEAR' sign-as "$RECEIVER" network-config mainnet \
+  <la firma de $RECEIVER que uso R679> send
+#    -> 1 (el receiver califico al payer)
+near contract call-function as-read-only registry.arras-escrow.near get_summary_by_operator \
+  json-args "{\"account_id\":\"$RECEIVER\",\"operator_id\":\"em\"}" network-config mainnet now
+#    -> "operator_id": "em", "count": 1, "as_receiver": {"count": 1, ...}
+#    SI ALGUNA DE LAS DOS DEVUELVE null, NO SE BORRAN LAS LLAVES Y SE REDESPLIEGA. El motivo esta en el log
+#    `arras-registry:rechazo:<CODIGO>` de la tx (un E21 es que el espejo no coincide con lo que serializa v1).
 
-# 4. Sin llaves (irreversible: el registro queda inmutable). Todas las de list-keys, separadas por coma.
+# 4. Solo si el 3b dio los dos feedback_id. Sin llaves (irreversible: el registro queda inmutable). Todas las de
+#    list-keys, separadas por coma.
 near account list-keys registry.arras-escrow.near network-config mainnet now
 near account delete-keys registry.arras-escrow.near public-keys '<todas las de list-keys, separadas por coma>' \
   network-config mainnet sign-with-legacy-keychain send
@@ -198,6 +282,10 @@ Contrato: `registry.arras-escrow.near` (mainnet). Todo JSON; `U128`/`U64` van co
 | `update` | `{"agent_uri": str, "metadata": str?}` (reemplaza las dos) | >= 1 yocto, mas lo que crezca (vuelve el sobrante y lo liberado) | 30 TGas | `AgentView` |
 | `give_feedback` | `{"escrow": acc, "payment_id": str, "score": 0..100, "tag1": str?, "tag2": str?, "feedback_uri": str?, "feedback_hash": hex64?}` | `feedback_deposit` (0,01864 NEAR; vuelve el sobrante, o todo si se rechaza) | >= 60 TGas (recomendado 100; mide 8,0 total) | `feedback_id` (u32) o `null` + log de rechazo |
 | `revoke_feedback` | `{"escrow": acc, "payment_id": str}` (la propia) | exactamente 1 yocto | 30 TGas | `FeedbackView` |
+
+**RONDA 1: la interfaz no cambio.** Metodos, argumentos, depositos (`feedback_deposit` sigue en 0,01864 NEAR), gas,
+vistas, eventos y codigos son los mismos; lo unico nuevo son rechazos `E21` cuando la respuesta de `get_payment` no es
+exactamente un `Payment` de v1, que con `v1.arras-escrow.near` no pasa (lo prueban WR-02..WR-04 contra su wasm).
 
 Vistas (sin deposito): `get_config()`; `get_agent({"account_id"})` -> `AgentView | null`;
 `list_agents({"from_index"?: u32, "limit"?: u32})` (orden de alta, `limit` <= 50); `get_feedback({"feedback_id": u32})`;
@@ -241,12 +329,13 @@ Flujo en EM (payer = la cuenta NEAR del agente, receiver = la cuenta de cobro de
    alcanza.
 2. EM lee el resultado: un numero es el `feedback_id`; `null` es un rechazo y el motivo esta en el log
    `arras-registry:rechazo:<CODIGO>`. Un panic (`ARRAS_REG_Enn`) es un error de entrada o de deposito/gas.
-3. Ventana: hasta que el pago se compacte en v1 (cualquiera puede desde `reclaim_after + 7 dias`); despues
-   `get_payment` da `null` y es `E22`. EM califica apenas se libera el pago.
+3. Ventana: hasta que el pago se compacte en v1 (cualquiera puede desde `reclaim_after + 7 dias`, tambien la
+   calificada, para esquivar una nota tardia); despues `get_payment` da `null` y es `E22`. EM califica apenas se
+   libera el pago.
 4. Para mostrar reputacion: `get_summary_by_operator(cuenta, "em")`, y para el detalle `list_feedback` (o el indexador
-   de `feedback_given`/`feedback_revoked`) filtrado por `escrow == "v1.arras-escrow.near"` y `operator_id == "em"`,
-   pesado por `released` y por raters distintos; `get_summary` mezcla operadores y raters y sirve solo de referencia
-   (ver "Modelo de confianza").
+   de `feedback_given`/`feedback_revoked`, contando solo los recibos que ejecuto `registry.arras-escrow.near`)
+   filtrado por `escrow == "v1.arras-escrow.near"` y `operator_id == "em"`, pesado por `released` y por raters
+   distintos; `get_summary` mezcla operadores y raters y sirve solo de referencia (ver "Modelo de confianza").
 
 Equivalencias con ERC-8004: `agentId` (NFT) -> la cuenta NEAR; `register(tokenURI, metadata)` -> `register(agent_uri,
 metadata?)`; `giveFeedback(agentId, score, tag1, tag2, feedbackURI, feedbackHash, feedbackAuth)` ->
@@ -298,10 +387,18 @@ puede ir en mayusculas; un `feedback_hash` en mayusculas es `E15`), espacios ade
 `payment_id`), `0x`/`0X` en el hash, vacios (`""` en cada campo opcional, respuesta vacia de `get_payment`), nulos
 (campos opcionales en `null`; `get_payment` = `null` es `E22`; un `Payment` sin `status` es `E21`), unicode (URI, tag
 y `payment_id` solo ASCII; `metadata` acepta `ñandú` y rechaza control), topes exactos y tope+1 (URI 512/513, metadata
-1024/1025, tag 64/65, `payment_id` 64/65, `operator_id` 64/65, respuesta 8.192 bytes / 9 KiB, score 100/101, deposito
+1024/1025, tag 64/65, `payment_id` 64/65, `operator_id` 32/33, respuesta 8.192 bytes / 9 KiB, score 100/101, deposito
 `need`/`need-1`, gas 60 TGas / 60 TGas - 1, TTL `at+999`/`at+1000`, escrows 8/9), `released` como numero JSON en vez
-de string (`E21`), `status` como objeto (`E21`). Parser: `serde_json` de near-sdk (`U128` solo desde string); no se usa
-ningun parser de URL.
+de string (`E21`), `status` como objeto (`E21`). Parser: `serde_json` de near-sdk; no se usa ningun parser de URL.
+
+**La respuesta de `get_payment` (RONDA 1, cada caso `E21` con el deposito entero, por el payer y por el receiver):**
+cada uno de los 16 campos ausente y en `null`; campos de mas (los 3 de v2, uno cualquiera, `Status` con mayuscula);
+una clave repetida; `status` fuera de los 5 (`Disputed`, `Resolved`, `released`, `RELEASED`, con espacios, vacio,
+`{"Released":null}`, `{"Released":{}}`, arreglo, numero, booleano); los 7 numeros con `+1`, `01`, `00`, `-1`, espacios
+adelante y atras, vacio, `0x1`, `1e0`, `1.0`, `1_000`, numero JSON y uno mas que el maximo del tipo; `u16` como
+string, negativo, 65.536 y 13,5; `sponsored` como string y como numero; cuentas invalidas; `operator_id` vacio, de 33 y
+65, con mayusculas, espacios, `.`, `/`, `:`, NUL, no ASCII, numero y `null`. Y lo que vale: `operator_id` de 1 y de 32,
+`"0"` y los maximos de cada numero, `fee_bps` 0 y `u16::MAX`, `sponsored: true`.
 
 **Mutaciones a mano** (cada una aplicada, corrida con `timeout`, revertida con `git checkout`, arbol limpio entre una y
 otra; script en el scratchpad de la sesion). Ronda 0: 77, 76 muertas; M02 (`colon >= 1` en `is_valid_uri`) sobrevivia
@@ -417,6 +514,9 @@ candado, el costo del ataque del owner, "a cualquier receiver", el saldo del pad
 U-ST1, U-ST5, `resumen_por_operador*`, WR-02, WR-05 y los mutantes M81..M87, no el refutador.
 
 ## Trampas que encontre
+
+- serde acepta una variante unitaria de un enum tambien como objeto (`{"Released":null}`), y `u128::from_str` acepta
+  `+1` y `01`: por eso `EscrowStatus` se lee con `try_from = "String"` y los numeros con `canonical` (RONDA 1).
 
 - El mock de near-sdk (5.29.1) vuelve `env::storage_usage()` a su valor inicial (307.200) en cada `testing_env!`: un
   test que mide storage antes y despues tiene que hacerlo dentro del mismo contexto (anotado en
