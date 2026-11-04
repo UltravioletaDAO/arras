@@ -1,0 +1,42 @@
+[package]
+name = "erc8004-reputation"
+description = "ERC-8004 Reputation Registry en NEAR: feedback abierto (value/valueDecimals, tags, endpoint, revokeFeedback, appendResponse, getSummary con filtro de clientes) con la guarda de identidad por llamada cruzada que falla cerrado; extension opcional de pruebas de verificadores (feature feedback-proofs). Inmutable."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+# El repo hoy es 0xultravioleta/arras y va a pasar a UltravioletaDAO/arras (lo que embebe NEP-330).
+repository = "https://github.com/UltravioletaDAO/arras"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# La extension `give_feedback_with_proof` (decision c del plan, opcion A elegida por el dueno). Sin este feature, el
+# wasm es el port puro de ERC-8004 (`cargo near build ... --no-default-features`).
+default = ["feedback-proofs"]
+feedback-proofs = []
+
+# Build reproducible (NEP-330). El mismo bloque que contracts/registry-v1 (cargo-near 0.22.0).
+[package.metadata.near.reproducible_build]
+image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
+image_digest = "sha256:ccb22bb4e677ed022d8b9d1aa1b32f0af52dd0471ef1c32e48dedbf68ee6ee17"
+passed_env = []
+container_build_command = [
+    "cargo",
+    "near",
+    "build",
+    "non-reproducible-wasm",
+    "--locked",
+]
+
+[dependencies]
+near-sdk = "=5.29.1"
+erc8004-common = { path = "../erc8004-common" }
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+
+[lints]
+workspace = true

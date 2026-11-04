@@ -15,6 +15,7 @@ members = [
     "contracts/test-escrow",
     "contracts/erc8004-common",
     "contracts/erc8004-identity",
+    "contracts/erc8004-reputation",
 ]
 
 [workspace.lints.rust.unexpected_cfgs]
