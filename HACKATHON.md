@@ -24,7 +24,8 @@
 ## What was built from 2026-11-01 on (this repo)
 
 Everything after the start SHA: the `arras-escrow-core`, `arras-escrow-v1` and `arras-escrow-v2` crates, their unit
-tests, the near-workspaces tests, the reproducible builds, `scripts/testnet.sh` and `scripts/testnet-v2.sh`. `git log --format='%h %aI %s' 3a2ebdf..HEAD`
+tests, the near-workspaces tests, the reproducible builds, `scripts/testnet.sh` and `scripts/testnet-v2.sh`; the
+agent registry (`arras-registry-v1`, 2026-11-03) and the ERC-8004 port (`erc8004-*` crates, from 2026-11-04). `git log --format='%h %aI %s' 3a2ebdf..HEAD`
 lists each commit with its timestamp.
 
 ## Deployed during the hackathon (testnet)
