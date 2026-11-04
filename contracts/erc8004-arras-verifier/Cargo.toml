@@ -1,0 +1,38 @@
+[package]
+name = "erc8004-arras-verifier"
+description = "Verificador de pruebas de feedback de ERC-8004 en NEAR para pagos de Arras: un escrow fijo en new; verify_feedback_proof(client, payment_id) devuelve la otra parte de un pago con plata liberada. Inmutable."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+# El repo hoy es 0xultravioleta/arras y va a pasar a UltravioletaDAO/arras (lo que embebe NEP-330).
+repository = "https://github.com/UltravioletaDAO/arras"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# Build reproducible (NEP-330). El mismo bloque que contracts/registry-v1 (cargo-near 0.22.0).
+[package.metadata.near.reproducible_build]
+image = "sourcescan/cargo-near:0.21.1-rust-1.96.0"
+image_digest = "sha256:ccb22bb4e677ed022d8b9d1aa1b32f0af52dd0471ef1c32e48dedbf68ee6ee17"
+passed_env = []
+container_build_command = [
+    "cargo",
+    "near",
+    "build",
+    "non-reproducible-wasm",
+    "--locked",
+]
+
+[dependencies]
+near-sdk = "=5.29.1"
+erc8004-common = { path = "../erc8004-common" }
+# Solo `PaymentId` e `is_valid_operator_id` (sin estado de contrato: no exporta metodos a la wasm).
+arras-escrow-core = { path = "../escrow-core" }
+
+[dev-dependencies]
+near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
+
+[lints]
+workspace = true

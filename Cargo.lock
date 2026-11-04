@@ -1096,6 +1096,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "erc8004-arras-verifier"
+version = "0.1.0"
+dependencies = [
+ "arras-escrow-core",
+ "erc8004-common",
+ "near-sdk",
+]
+
+[[package]]
 name = "erc8004-common"
 version = "0.1.0"
 dependencies = [
