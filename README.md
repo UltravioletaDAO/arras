@@ -10,9 +10,91 @@ immutable (no `migrate`, no upgrade path) and its account has **no access keys**
 > In English: the design and the test vectors were written before the hackathon in a private repo (2026-10-26); all
 > code was written from 2026-11-01 on, starting at commit `3a2ebdf`. Details in [HACKATHON.md](HACKATHON.md).
 
-Status: v1 contract, unit tests, near-workspaces tests and testnet deployment (hackathon days 1-3); v2 (agent budgets,
-disputes, operator tickets) with its tests and a testnet deployment (day 3). The v1 mainnet deployment is prepared and
-rehearsed on testnet, not yet run: [docs/MAINNET.md](docs/MAINNET.md). **Unaudited.**
+Status: v1 is **live on NEAR mainnet** (`v1.arras-escrow.near`, keyless, since 2026-11-03) and Execution Market's
+production deployment settles NEAR tasks through it (so far, the team's own end-to-end tests); the ERC-8004 port
+(Identity and Reputation registries plus the Arras proof verifier) is live since 2026-11-04 and is Execution Market's
+NEAR registry since 2026-11-06. v2 (agent budgets, disputes, operator tickets) runs on testnet only. **Unaudited.**
+
+## For NEAR HACKATHON judges
+
+**What it is.** A non-custodial USDC escrow on NEAR for paying people, AI agents and robots for work, plus a port of
+[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents": agent identity and reputation registries) in
+which a rating can carry an on-chain proof that the two sides really did business through Arras. Execution Market, a
+marketplace where agents hire humans and other agents for tasks, uses it in production for NEAR tasks. The 13 mainnet
+payments so far (0.10 USDC each) are the team's own end-to-end tests, with a test agent and test workers.
+
+**The problem.** Over x402 on NEAR, an agent could only pay up front (`exact`): nothing held the money until the work
+was checked, and nothing tied a rating to a real deal, so reputation was free to fake. With Arras the payer's own
+signature locks the USDC in a contract that can only send it to the worker or back to the payer. A rating whose proof
+names the Arras verifier is accepted only if an Arras payment between the two accounts released money. Plain ERC-8004
+feedback without a proof stays possible, as in the standard, and readers filter by verifier.
+
+**How NEAR is used.**
+
+- **NEP-141 `ft_transfer_call`** on Circle's native USDC: one signed call moves the money and opens the escrow. The x402
+  facilitator relays it as a **NEP-366 meta-transaction**, so the payer needs no NEAR for gas.
+- **Function-call access keys**: Execution Market's capturer, `em-capturer.arras-escrow.near`, has a single key that
+  can only call `release`, `refund` and `withdraw_for` on the escrow, with a 0.5 NEAR allowance. Even if it leaks, the
+  money can only go to the worker or back to the payer. (In v2, on testnet, an AI agent holding only a function-call
+  key spends from a budget a human funded and capped.)
+- **Keyless, immutable contracts**: each contract was deployed together with a private `new` in a single transaction,
+  then every access key on its account was deleted. There is no `migrate`, so nobody can change the code.
+- **Cross-contract calls whose callbacks fail closed**: `give_feedback_with_proof` asks the Identity Registry
+  (`check_agent`) and the Arras verifier, which reads the payment from the escrow (`get_payment`). If any answer is
+  wrong, the rating is refused and the whole deposit goes back.
+- **NEP-171 NFTs** as agent identities (ERC-8004 `agentId` = `token_id`), **named accounts and sub-accounts**
+  (`erc-8004.near`, `arras-escrow.near`), **NEP-145** storage (Execution Market's sponsorship pool pays the
+  storage of a payer without its own deposit, up to 0.02 NEAR each), **NEP-297** events and **NEP-330** source metadata that points at the exact commit.
+
+**Live on NEAR mainnet.** Every transaction behind this table is in [docs/EVIDENCE.md](docs/EVIDENCE.md), with
+explorer links.
+
+| Account | What it is | Deployed (UTC) | Code (sha256 of the reproducible wasm, commit) |
+|---|---|---|---|
+| [`v1.arras-escrow.near`](https://nearblocks.io/address/v1.arras-escrow.near) | Arras v1 escrow: 10 USDC per payment, 1,000 USDC total, operator `em` (Execution Market, 13 % fee) | 2026-11-03 02:31 | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada`, `8da7174` |
+| [`identity-registry.erc-8004.near`](https://nearblocks.io/address/identity-registry.erc-8004.near) | ERC-8004 Identity Registry (each agent is an NFT) | 2026-11-04 21:47 | `fe284122f04f319117b47234c1daafa11830862312ad138f3463683fb498d3d5`, `f18e25c` |
+| [`reputation-registry.erc-8004.near`](https://nearblocks.io/address/reputation-registry.erc-8004.near) | ERC-8004 Reputation Registry, with `give_feedback_with_proof` | 2026-11-04 21:48 | `dfe715d087517617811c1155bba9c8b6e71b23cbe63481b5afbf484bcbabd56e`, `f18e25c` |
+| [`erc8004-verifier.arras-escrow.near`](https://nearblocks.io/address/erc8004-verifier.arras-escrow.near) | the proof verifier: a proof is a released Arras v1 payment between the rater and the agent | 2026-11-04 21:48 | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba`, `f18e25c` |
+| [`registry.arras-escrow.near`](https://nearblocks.io/address/registry.arras-escrow.near) | `registry-v1`, the first agent registry; Execution Market used it until 2026-11-06 | 2026-11-04 03:47 | `b7b4593025769e5a12e70ebad7a78faecf523eb834b2f01338727e2833933197`, `8cec4e6` |
+
+The run that shows it all together is Execution Market's golden flow on 2026-11-06 at 01:17Z
+([docs/EVIDENCE.md](docs/EVIDENCE.md), section 5). A test agent that has only a NEAR wallet registered its identity
+and locked 0.10 USDC for a task ([`Bcri1ZNj...`](https://nearblocks.io/txns/Bcri1ZNj4Agrv9QqwFneTcVMfwH1tJsKnLpmMjBijzUW):
+its `ft_transfer_call` inside a NEP-366 delegate action, relayed by the facilitator `uvd-facilitator.near`). On
+approval the capturer released it ([`2gkYMpHA...`](https://nearblocks.io/txns/2gkYMpHAQTUSe7NSuwUrtY3ZPzH4gLDbYUyiJBHJLhKd),
+with its function-call key, relayed the same way), and two `withdraw_for` paid 0.087 USDC to the worker and 0.013 to
+the fee recipient. Then each side rated the other with that payment as proof ([`EjLpmfry...`](https://nearblocks.io/txns/EjLpmfryfXJAkLhrgkntS9PjDhCMqtQyQm54a1ajn7xs),
+[`JApp8fXk...`](https://nearblocks.io/txns/JApp8fXkr2nhtm7qtLqFyVfEB4YpWiBj1WVVL7dasKHW)).
+
+**Check it yourself: read-only, no keys.** These commands use [near-cli-rs](https://github.com/near/near-cli-rs) 0.30.1
+and the mainnet RPC from your own near-cli configuration. They were run against mainnet on 2026-11-06, and the results
+below are what they returned.
+
+| Do | See |
+|---|---|
+| `near account view-account-summary v1.arras-escrow.near network-config mainnet now` (also for the other four accounts of the table) | `Local Contract (SHA-256 checksum hex)` = the sha256 of the table; `Access keys: Account is locked (no access keys)`. The "Delegated stake" line prints a handler error from `poolv1.near`, unrelated to the contract |
+| `near account list-keys v1.arras-escrow.near network-config mainnet now` (same for the other four) | an empty table: nobody can redeploy, upgrade or sign for the contract |
+| `near contract call-function as-read-only v1.arras-escrow.near contract_source_metadata json-args '{}' network-config mainnet now` | NEP-330: `source_code_snapshot` `git+https://github.com/UltravioletaDAO/arras?rev=8da71748b428ceccf9fccd358e61bb4213d54e29`, image `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...` (the ERC-8004 contracts: `rev=f18e25c4...`; `registry-v1`: `rev=8cec4e64...`). Its `build_command` reads `non-reproducible-wasm`: that is the `container_build_command` of each `Cargo.toml`, the command cargo-near runs inside that pinned image during a reproducible build |
+| `near account list-keys em-capturer.arras-escrow.near network-config mainnet now` | one key: `only do ["release", "refund", "withdraw_for"] function calls on v1.arras-escrow.near with an allowance of 0.5 NEAR` |
+| `near contract call-function as-read-only v1.arras-escrow.near get_config json-args '{}' network-config mainnet now` | `"version": "arras-v1"`, `tope_por_pago` `10000000` (10 USDC), `tope_tvl_global` `1000000000` (1,000 USDC), the USDC token |
+| `near contract call-function as-read-only v1.arras-escrow.near get_payment json-args '{"payment_id":"DAtTVvHHPTfUbneHj1dUYi1mG3aqE8GbEK5aQzVExZ2X"}' network-config mainnet now` | the golden flow's payment: `"status": "Released"`, `amount` and `released` `100000` (0.10 USDC), `operator_id` `em`, `fee_bps` 1300 |
+| `near contract call-function as-read-only identity-registry.erc-8004.near nft_token json-args '{"token_id":"1"}' network-config mainnet now` | agent 1, owned by the paying agent `fe0a5742...1079`, `reference` = its Execution Market profile |
+| `near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback json-args '{"agent_id":"0","client_address":"fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079","feedback_index":"2"}' network-config mainnet now` | the agent's rating of the worker (agent 0): `"value": "90"`, `tag2` `execution-market` |
+| the same arguments with `read_feedback_proof` | `"proof": "DAtTVvHH..."` (the payment above), `"verifier": "erc8004-verifier.arras-escrow.near"`, `"role": "receiver"`, `"context": "em"`, `"weight": "100000"` (the USDC released) |
+| `read_feedback` / `read_feedback_proof` with `'{"agent_id":"1","client_address":"826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af","feedback_index":"1"}'` | the worker's rating of the agent: `"value": "85"`, the same payment as proof, `"role": "payer"` |
+
+To rebuild the code and compare hashes: `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path
+contracts/<crate>/Cargo.toml` (Docker), with `escrow-v1` at commit `8da7174`, `registry-v1` at `8cec4e6`, and
+`erc8004-identity`, `erc8004-reputation` and `erc8004-arras-verifier` at `f18e25c`. Each wasm was built twice from
+clean clones before its deployment, with the same sha256 both times. Execution Market's own code is not in this
+repository; its use of the contracts can be seen on chain.
+
+**Built during the hackathon.** The repository was created on 2026-11-01. The hackathon work is everything after the
+start commit `3a2ebdf`:
+[3a2ebdf...main](https://github.com/UltravioletaDAO/arras/compare/3a2ebdfc832afd179298fb4f861f23409356fb01...main).
+[HACKATHON.md](HACKATHON.md) lists what existed before: the x402-rs facilitator's NEAR `exact` payments,
+Execution Market on EVM networks, and the Arras design and test vectors. It also lists what was deployed and
+when. The pinned libraries are listed under "Repository" below.
 
 ## The problem
 
@@ -135,17 +217,20 @@ The shape of ERC-8004 (Identity Registry + Reputation Registry) on NEAR, with re
   whose final status is a success: any contract can log the same `EVENT_JSON`, and a receipt that logs and then fails
   keeps the log while its state is reverted (sandbox test WR-10; the handoff spells out the model).
 
-Interface, events, measured gas and the exact deployment commands: `docs/handoffs/registry-v1.md`.
+Interface, events, measured gas and the exact deployment commands: `docs/handoffs/registry-v1.md`. Live on mainnet
+at `registry.arras-escrow.near` since 2026-11-04 (keyless; [docs/EVIDENCE.md](docs/EVIDENCE.md), section 3).
+Execution Market wrote its NEAR ratings there until 2026-11-06, when it moved to the ERC-8004 registries below.
 
 ## ERC-8004 on NEAR (Identity, Reputation and Validation registries)
 
 A faithful port of [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents", reference implementation
 2.0.0 of `erc-8004/erc-8004-contracts`) to NEAR, in new crates; `contracts/registry-v1` and its live deployment are not
 touched. Plan and the full EVM -> NEAR table: [docs/plans/erc8004-near-port.md](docs/plans/erc8004-near-port.md);
-interface, deploy plan and what was run: [docs/handoffs/erc8004-near.md](docs/handoffs/erc8004-near.md). **Not deployed
-yet** (testnet first; the mainnet singleton is coordinated with the ERC-8004 team). **Unaudited.**
+interface, deploy plan and what was run: [docs/handoffs/erc8004-near.md](docs/handoffs/erc8004-near.md). **Live on
+mainnet since 2026-11-04** (testnet first, the same day), immutable and keyless; the transactions are in
+[docs/EVIDENCE.md](docs/EVIDENCE.md), section 4. Validation is not deployed. **Unaudited.**
 
-| Crate | Account (planned) | What it is |
+| Crate | Account (mainnet) | What it is |
 |---|---|---|
 | `contracts/erc8004-identity` | `identity-registry.erc-8004.near` | each agent is an NFT (NEP-171/177/178/181): `agentId` = `token_id`, `agentURI` = `metadata.reference`, on-chain metadata key -> bytes, `agentWallet` (the new wallet confirms by calling the contract itself; cleared on every transfer; a pending one is cancelled by any approval revocation) |
 | `contracts/erc8004-reputation` | `reputation-registry.erc-8004.near` | open feedback (`value`/`valueDecimals`, tags, endpoint, `revokeFeedback`, `appendResponse`, `getSummary` with a mandatory client filter); the "agent exists and the rater is not its owner or an approved operator" check is a cross-contract call whose callback fails closed and refunds the whole deposit. Optional extension (cargo feature `feedback-proofs`, on by default): `give_feedback_with_proof` with an on-chain proof from any verifier contract |
@@ -388,7 +473,8 @@ went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 | `scripts/testnet.sh` | the v1 testnet sequence |
 | `scripts/testnet-v2.sh` | the v2 testnet walkthrough |
 | `scripts/mainnet.sh`, `scripts/test_mainnet.sh` | the mainnet deployment (dry run by default; the same script rehearsed on testnet) and its offline tests |
-| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal |
+| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal, and the mainnet run of 2026-11-03 |
+| `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows), with explorer links |
 | `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`) |
 | `docs/handoffs/` | handoffs between workers (decisions and what is left) |
 | `HACKATHON.md` | what existed before the hackathon and what was built during it |
