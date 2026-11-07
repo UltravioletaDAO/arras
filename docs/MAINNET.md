@@ -402,11 +402,12 @@ parent with no free NEAR); in a real run it reads the live balances. With the de
 | **`humo`** | | **0.27925** |
 | **total** | | **4.48350** |
 
-The hub held 4.42292 NEAR on 2026-11-07 (c0der's reading), 4.42110 of them free after its own 182 bytes. **`todo` fits
-(4.20425) with 0.21685 to spare; `todo` and the smoke together are 0.06240 NEAR short in the worst case** (the parent
-with no free NEAR); whatever the parent holds free comes off that. The real `plan` prints `OK: alcanza` or the exact
-shortfall (`FALTA: ...`) from the live balances, and `fondeo` sends nothing unless the hub holds everything `todo`
-needs. The smoke also needs 0.10 USDC from the hub (it held 3.957303).
+The hub held 4.42292 NEAR at first on 2026-11-07, 0.06240 short for `todo` and the smoke together in the worst case;
+the owner then sent 0.5 more, and c0der read **4.92292 NEAR** at 23:22:52Z (block 223533439), 4.92110 of them free after
+its own 182 bytes: **`todo` and the smoke fit, with 0.43760 NEAR to spare in the worst case** (the parent with no free
+NEAR); whatever the parent holds free is spare on top. The real `plan` prints `OK: alcanza` or the exact shortfall
+(`FALTA: ...`) from the live balances, and `fondeo` sends nothing unless the hub holds everything `todo` needs. The
+smoke also needs 0.10 USDC from the hub (it held 3.957303).
 
 What stays where: the code, the state, the free reserve (0.2597 in the rehearsal) and the pool live in v2 forever (no
 keys); the capturer's, arbiter's and agent's NEAR can only pay their gas (FunctionCall keys only); the parent keeps the
