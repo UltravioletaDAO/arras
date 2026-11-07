@@ -56,10 +56,13 @@ function-call key) and relayed by `uvd-facilitator.near`, which pays the gas.
 | withdraw_for, 15:49:23Z / 15:49:28Z | [`Dqnmco1vuTdnHyhYoDWpuRapT32N8Mjnw62wgJEBmbiD`](https://nearblocks.io/txns/Dqnmco1vuTdnHyhYoDWpuRapT32N8Mjnw62wgJEBmbiD) / [`7ToYeYCFBZAGCCAWdrxFu6QwCtXzbyp5VPgZCZ2UEhEX`](https://nearblocks.io/txns/7ToYeYCFBZAGCCAWdrxFu6QwCtXzbyp5VPgZCZ2UEhEX) |
 | a refunded payment: authorize, 17:44:25Z / refund / withdraw_for to the payer | [`FPVn7e29VX2UgF7mABTBToU8bW5vgdpHMHzFTFDfd3Cq`](https://nearblocks.io/txns/FPVn7e29VX2UgF7mABTBToU8bW5vgdpHMHzFTFDfd3Cq) / [`BkF4ppQNv8dw5UVcDA6qw4k1J9iNpp17mi2eNRighwDy`](https://nearblocks.io/txns/BkF4ppQNv8dw5UVcDA6qw4k1J9iNpp17mi2eNRighwDy) / [`BNEoLZcQNFEJxDGWysRB1p1zzKxhFBMn5tSvRJbmJ5io`](https://nearblocks.io/txns/BNEoLZcQNFEJxDGWysRB1p1zzKxhFBMn5tSvRJbmJ5io) |
 
-The full list of calls to the contract is on its explorer page: 66 transactions (116 receipts) on 2026-11-06, read
+The full list of calls to the contract is on its explorer page: 66 transactions (116 receipts) as of 2026-11-06, read
 from the NearBlocks API. They hold 14 authorizations, all of 0.10 USDC and all from the same test agent (the deployer's
 funding account) to the team's test workers: 13 became payments (`get_config` answers `"payments": 13`) and one was
-refused with `E14` (no storage paid) and its USDC returned by the token. So far every mainnet payment is one of the
+refused with `E14` (no storage paid):
+[`A5oCxCMAVsiqJh9qa8SuymH87Lg5L13wU2oi1UMQgChV`](https://nearblocks.io/txns/A5oCxCMAVsiqJh9qa8SuymH87Lg5L13wU2oi1UMQgChV)
+(2026-11-06 01:26:40Z, to a new test worker; the only one of the 14 with no release or refund). A rejection keeps
+nothing: `ft_on_transfer` hands the whole amount back to the token. So far every mainnet payment is one of the
 team's own end-to-end tests of Execution Market's production deployment.
 
 ## 3. `registry-v1` deployed (2026-11-04, 03:47:09Z to 03:49:43Z)
@@ -81,7 +84,8 @@ withdrawals [`BauqpZcCvthui62eEByYieaerF6eQb9haL9jnWRqHgmj`](https://nearblocks.
 and [`8bYThoM8CnBpvRe3Cc6skHvhPqtRQeymGS19i2phynwn`](https://nearblocks.io/txns/8bYThoM8CnBpvRe3Cc6skHvhPqtRQeymGS19i2phynwn),
 and the two ratings [`8TmpeBzwnoh3mJpEf246AVpu1eUNKSmrzrLZajtGoGBY`](https://nearblocks.io/txns/8TmpeBzwnoh3mJpEf246AVpu1eUNKSmrzrLZajtGoGBY)
 and [`DV8a9kd1aHHHnUbEji7fGR4wjdBr2nF71gMykGNFPuid`](https://nearblocks.io/txns/DV8a9kd1aHHHnUbEji7fGR4wjdBr2nF71gMykGNFPuid).
-Execution Market wrote its NEAR reputation here until 2026-11-06, when it moved to the ERC-8004 registries (section 5).
+Those two ratings (the second one at 08:04:42Z) are Execution Market's last writes here. Its configuration pointed NEAR
+reputation at this registry until 2026-11-06, when it moved to the ERC-8004 registries (section 5).
 
 ## 4. The ERC-8004 port deployed (2026-11-04, 21:46:58Z to 21:50:01Z)
 
@@ -105,8 +109,9 @@ transferred the NFT to the worker that had received that payment
 ([`5LX8yTQUvMD7uYSmKg4TQQ2HFPAjJmtiSRFFoVU67s4`](https://nearblocks.io/txns/5LX8yTQUvMD7uYSmKg4TQQ2HFPAjJmtiSRFFoVU67s4)), and
 rated it with the payment as proof
 ([`Cxcj2Bo1ZkhAeBiu9bFaKY2iFvsPrYy9bBzvYyVHWTfg`](https://nearblocks.io/txns/Cxcj2Bo1ZkhAeBiu9bFaKY2iFvsPrYy9bBzvYyVHWTfg):
-`give_feedback_with_proof` -> Identity `check_agent` -> verifier `verify_feedback_proof` -> escrow `get_payment` ->
-`on_payment` -> `on_feedback_proof_checked`, all in one transaction).
+`give_feedback_with_proof` calls Identity `check_agent` and the verifier's `verify_feedback_proof` in parallel; the
+verifier reads the escrow (`get_payment` -> `on_payment`), and `on_feedback_proof_checked` joins both answers, all in
+one transaction).
 
 ## 5. Golden flow of Execution Market on the ERC-8004 registries (2026-11-06, 01:17:44Z to 01:18:43Z)
 
