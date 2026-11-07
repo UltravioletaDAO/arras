@@ -166,7 +166,11 @@ correr() {
   return "$RC"
 }
 ok() { PASAN=$((PASAN + 1)); }
-mal() { FALLOS=$((FALLOS + 1)); printf 'FALLA %s: %s\n' "$CASO" "$*"; sed 's/^/    | /' "$STUB/out" | tail -n 12; }
+# ARRAS_TEST_PRIMER_FALLA=1 corta en el primer FALLA (las mutaciones: alcanza con un test con nombre que caiga).
+mal() {
+  FALLOS=$((FALLOS + 1)); printf 'FALLA %s: %s\n' "$CASO" "$*"; sed 's/^/    | /' "$STUB/out" | tail -n 12
+  [ -z "${ARRAS_TEST_PRIMER_FALLA:-}" ] || exit 1
+}
 sale() { if [ "$RC" -eq "$1" ]; then ok; else mal "exit $RC, se esperaba $1"; fi; }
 sale_mal() { if [ "$RC" -ne 0 ]; then ok; else mal "exit 0, se esperaba error"; fi; }
 dice() { if grep -qF -- "$1" "$STUB/out"; then ok; else mal "falta '$1' en la salida"; fi; }
