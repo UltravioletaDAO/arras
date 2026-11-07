@@ -99,8 +99,14 @@ stub = os.environ["STUB"]
 args = sys.argv[1:]
 d = args[args.index("-d") + 1]
 req = json.loads(d)
-# Con cadena de mentira (los tests de v2): responde el estado de scripts/test_cadena.py.
+# Con cadena de mentira (los tests de v2): responde el estado de scripts/test_cadena.py; con $STUB/falla.<n>, la
+# consulta n falla como un curl -f que no recibe nada (para los reintentos de rpc_query).
 if os.path.exists(os.path.join(stub, "cadena.json")):
+    cpath = os.path.join(stub, "consultas")
+    n = int(open(cpath).read()) + 1 if os.path.exists(cpath) else 1
+    open(cpath, "w").write(str(n))
+    if os.path.exists(os.path.join(stub, f"falla.{n}")):
+        sys.exit(22)
     p = req.get("params") or {}
     if isinstance(p, dict):
         with open(os.path.join(stub, "curl.log"), "a") as f:
@@ -769,7 +775,7 @@ foto() { rm -rf "$TMP/foto-$1"; cp -R "$STUB" "$TMP/foto-$1"; }
 desde_foto() {
   nuevo2 "$2"
   rm -rf "$STUB"; cp -R "$TMP/foto-$1" "$STUB"
-  rm -f "$STUB/near.log" "$STUB/curl.log" "$STUB/aws.log" "$STUB/out" "$STUB"/ssm-lecturas*
+  rm -f "$STUB/near.log" "$STUB/curl.log" "$STUB/aws.log" "$STUB/out" "$STUB/consultas" "$STUB"/ssm-lecturas* "$STUB"/falla.*
 }
 TICKET_PEM_M="home/.arras-despliegue/mainnet/$P_MAIN/v2/em-ticket-v2.pem"
 
@@ -1125,6 +1131,33 @@ nuevo2 vn14c; ARGS=(todo); correr ARRAS_RED=testnet ARRAS_PADRE=$P2T ARRAS_FONDE
 sale 0; dice '"token":"usdc-ensayo.testnet"'; dice "call-function as-transaction usdc-ensayo.testnet storage_deposit"
 nuevo2 vn14d; ARGS=(plan); correr ARRAS_RED=testnet ARRAS_PADRE=$P2T ARRAS_FONDEO=$HUBT ARRAS_USDC_TESTNET=Usdc.testnet
 sale_mal; dice "no es una cuenta valida"
+# VN15 una lectura del RPC que falla una vez se reintenta (rpc_query): verificar termina igual.
+desde_foto todo-main vn15; touch "$STUB/falla.3"; ARGS=(--mainnet-ok verificar); real_main
+sale 0; dice "llaves de v2.$P_MAIN: 0"
+desde_foto todo-main vn15b; touch "$STUB/falla.3" "$STUB/falla.4" "$STUB/falla.5"; ARGS=(--mainnet-ok verificar); real_main
+sale_mal; dice "no respondio"; no_dice "CLAVE-SECRETA"
+# VN16 sin-llaves: si despues del borrado a v2 le queda una llave, aborta (la cadena no borra: $STUB/no-borrar).
+nuevo2 vn16; cadena mainnet; wasm2
+for paso in fondeo cuentas usdc deploy; do ARGS=(--mainnet-ok "$paso"); real_main; done
+touch "$STUB/no-borrar"; ARGS=(--mainnet-ok sin-llaves); real_main
+sale_mal; near_hizo "account delete-keys v2.$P_MAIN"; dice "le quedan 1 llaves"
+# VN17 capturer: una FunctionCall key en cadena que no esta en el llavero no deja borrar la FullAccess (seria la unica
+# forma de arreglarlo).
+nuevo2 vn17; cadena testnet; wasm2; ARGS=(--testnet-ok fondeo); real_test; ARGS=(--testnet-ok cuentas); real_test
+jq --arg c "v2.$P2T" '.cuentas["em-capturer-v2.arras-ensayo.testnet"].keys += [{"public_key":"ed25519:FCY","access_key":{"nonce":0,"permission":{"FunctionCall":{"allowance":"150000000000000000000000","receiver_id":$c,"method_names":["release","refund","withdraw_for"]}}}}]' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--testnet-ok capturer); real_test
+sale_mal; dice "no esta en el llavero legacy"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "mando una tx"; fi
+if [ "$TK" = si ]; then
+  # VN18 verificar con el PEM local de otra llave: no es la ticket_pubkey del operador, aborta.
+  desde_foto todo-main vn18; "$OSSL" genpkey -algorithm ed25519 -out "$STUB/$TICKET_PEM_M" 2>/dev/null
+  ARGS=(--mainnet-ok verificar); real_main
+  sale_mal; dice "no es el esperado"
+  # VN19 secretos con el PEM de otra llave: no se sube (OJO) y las demas lineas siguen.
+  desde_foto humo-main vn19; "$OSSL" genpkey -algorithm ed25519 -out "$STUB/$TICKET_PEM_M" 2>/dev/null
+  ARGS=(--mainnet-ok secretos); real_main
+  sale 0; dice "no es la ticket_pubkey del operador em en cadena"; no_dice "--name '/arras/mainnet/em-ticket-v2'"
+  dice "--name '/arras/mainnet/em-capturer-v2'"
+fi
 
 [ "$TK" = si ] || printf '\nAVISO: sin OpenSSL 3; los casos de v2 corrieron sin ticket y la cadena no verifico firmas\n'
 

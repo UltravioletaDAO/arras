@@ -302,7 +302,9 @@ def aplicar(argv):
         firmante_ok(c, signer, ("delete-keys",))
         borrar = a[a.index("public-keys") + 1].split(",")
         s = cuenta(c, signer)
-        s["keys"] = [k for k in s["keys"] if k["public_key"] not in borrar]
+        # $STUB/no-borrar: la tx sale bien pero la cadena no borra nada (para la guarda de la lista vacia).
+        if not os.path.exists(os.path.join(os.environ["STUB"], "no-borrar")):
+            s["keys"] = [k for k in s["keys"] if k["public_key"] not in borrar]
     elif a[:2] == ["contract", "deploy"]:
         signer, wasm = a[2], a[a.index("use-file") + 1]
         firmante_ok(c, signer, ("deploy",))
