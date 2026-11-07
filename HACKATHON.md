@@ -25,7 +25,8 @@
 
 Everything after the start SHA: the `arras-escrow-core`, `arras-escrow-v1` and `arras-escrow-v2` crates, their unit
 tests, the near-workspaces tests, the reproducible builds, `scripts/testnet.sh` and `scripts/testnet-v2.sh`; the
-mainnet deployment script `scripts/mainnet.sh` and its offline tests (2026-11-02/03); the agent registry
+mainnet deployment script `scripts/mainnet.sh` and its offline tests (2026-11-02/03), and v2's, `scripts/mainnet-v2.sh`
+with its smoke test (2026-11-07); the agent registry
 (`arras-registry-v1`, 2026-11-03) and the ERC-8004 port (`erc8004-*` crates, from 2026-11-04); and every mainnet
 deployment (below). `git log --format='%h %aI %s' 3a2ebdf..HEAD` lists each commit with its timestamp.
 
@@ -36,8 +37,9 @@ deployment (below). `git log --format='%h %aI %s' 3a2ebdf..HEAD` lists each comm
 | `arras-v1b-1101.testnet` | `8da7174` (in `main`) | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` | **demo contract**, keyless, deployed 2026-11-01 after the money review |
 | `v1.arras-dev.testnet` | `0fb7929` | `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` | first deployment, keyless, before the self-review fixes |
 | `arras-v2-1103.testnet` | `c416989` | `8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` | **v2** (agent budgets, disputes, operator tickets), keyless, deployed 2026-11-03 |
+| `v2.arras-v2e-1107.testnet` | `ddc5121` (the merge of the reviewed v2) | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | rehearsal of the v2 mainnet script and its smoke test, keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8) |
 
-All three wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
+All four wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
 NEP-330 metadata (`contract_source_metadata`). Transactions and checks: README, "Testnet deployments".
 
 On 2026-11-01 both payment paths ran on the demo contract with Circle's testnet USDC, 1 USDC each:
@@ -49,6 +51,11 @@ On 2026-11-03 the v2 walkthrough ran on `arras-v2-1103.testnet` with Circle's te
 function-call key paid from a human's budget, one dispute was split by the arbiter, another expired in favour of the
 worker, and a payment without the operator's ticket was refused. The contract ended with 0 USDC and `tvl_global` 0.
 Transactions, events and balances: README, "Arras v2 on testnet".
+
+On 2026-11-07 the v2 mainnet script ran end to end on testnet (`v2.arras-v2e-1107.testnet`) over the same layout as
+mainnet, with its smoke test: an agent with only a function-call key paid from a human's budget with the operator's
+tickets, the capturer released it, and a disputed payment went back to the human through the arbiter. The token was a
+test NEP-141 (Circle's testnet faucet sits behind a reCAPTCHA). Transactions: docs/MAINNET.md, section 8.6.
 
 ## Deployed during the hackathon (mainnet)
 
@@ -62,6 +69,11 @@ transaction and left without access keys. All transactions, with explorer links:
 | `identity-registry.erc-8004.near` (ERC-8004 Identity) | `f18e25c` | `fe284122f04f319117b47234c1daafa11830862312ad138f3463683fb498d3d5` | 2026-11-04 21:47:55Z; keys deleted 21:49:46Z |
 | `reputation-registry.erc-8004.near` (ERC-8004 Reputation) | `f18e25c` | `dfe715d087517617811c1155bba9c8b6e71b23cbe63481b5afbf484bcbabd56e` | 2026-11-04 21:48:05Z; keys deleted 21:49:53Z |
 | `erc8004-verifier.arras-escrow.near` (Arras proof verifier) | `f18e25c` | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba` | 2026-11-04 21:48:16Z; keys deleted 21:50:01Z |
+<!-- C0DER-V2-MAINNET: once v2 is live, add:
+| `v2.arras-escrow.near` (Arras v2 escrow) | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | <deploy block time>; keys deleted <time> |
+-->
+
+Arras v2 is not on mainnet yet; its deployment script and the testnet rehearsal are in docs/MAINNET.md, section 8.
 
 Used by the production deployments of Execution Market and of the x402-rs facilitator during the hackathon (their code
 lives in their own repositories):
