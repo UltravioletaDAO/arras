@@ -26,7 +26,7 @@
 #   9 verificar  codigo, NEP-330 (rev), llaves, get_config, get_operator, capturer, arbitro y get_storage_health
 #     todo       plan, fondeo, cuentas, usdc, deploy, operador, capturer, arbitro, sin-llaves, verificar, secretos, enlaces
 #     humo       el humo de la pista de seguridad, con los topes ARRAS_HUMO_*: humo-cuentas, humo-presupuesto,
-#                humo-pago, humo-disputa, humo-cierre y enlaces (lo corre c0der aparte, despues de todo)
+#                humo-pago, humo-disputa, humo-cierre, secretos y enlaces (lo corre c0der aparte, despues de todo)
 #     humo-cuentas      agent-v2 (queda con UNA FunctionCall key: authorize_from_budget) y worker-v2 (USDC registrado)
 #     humo-presupuesto  el hub (el humano) registra su storage en v2 y deposita 2 x ARRAS_HUMO_MONTO de USDC para el
 #                       agente (ft_transfer_call, msg budget con el ticket del operador)
@@ -192,6 +192,7 @@ TXS=$EST/txs.tsv
 SALDOS=$EST/saldos.tsv
 HUMO=$EST/humo
 TICKET_PEM=$EST/em-ticket-v2.pem
+POOL_MARCA=$EST/pool-$OP-fondeado
 comun_llavero
 
 METODOS_CAPT='refund,release,withdraw_for'
@@ -273,13 +274,19 @@ OPENSSL=""
 openssl_ok() {
   local o
   [ -z "$OPENSSL" ] || return 0
+  if [ -n "${ARRAS_OPENSSL:-}" ]; then
+    [ -x "$ARRAS_OPENSSL" ] || die "ARRAS_OPENSSL=$ARRAS_OPENSSL no es un ejecutable"
+    case "$("$ARRAS_OPENSSL" version 2>/dev/null)" in
+      "OpenSSL 3"*) OPENSSL=$ARRAS_OPENSSL; return 0 ;;
+    esac
+    die "ARRAS_OPENSSL=$ARRAS_OPENSSL es '$("$ARRAS_OPENSSL" version 2>/dev/null)', no OpenSSL 3"
+  fi
   # type -P: el del PATH, no la funcion `openssl` de abajo.
-  for o in ${ARRAS_OPENSSL:-} "$(type -P openssl 2>/dev/null || true)" /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl; do
+  for o in "$(type -P openssl 2>/dev/null || true)" /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl; do
     [ -n "$o" ] && [ -x "$o" ] || continue
     case "$("$o" version 2>/dev/null)" in
       "OpenSSL 3"*) OPENSSL=$o; return 0 ;;
     esac
-    [ -z "${ARRAS_OPENSSL:-}" ] || die "ARRAS_OPENSSL=$ARRAS_OPENSSL es '$("$o" version 2>/dev/null)', no OpenSSL 3"
   done
   die "el ticket ed25519 necesita OpenSSL 3 y no hay ninguno (en macOS: brew install openssl@3, o ARRAS_OPENSSL=<ruta>)"
 }
@@ -316,13 +323,10 @@ ticket_pubkey() {
   fi
   pem_ticket | pub_de_pem
 }
-# El ticket {expiry, sig} para los bytes que devuelve la vista $1 de v2 con los args $2 (con su expiry): la llave tiene
-# que ser la ticket_pubkey del operador en cadena.
+# El ticket {expiry, sig} para los bytes que devuelve la vista $1 de v2 con los args $2 (con su expiry). Que la llave sea
+# la ticket_pubkey del operador lo exige humo_listo, que corre antes de cada parte del humo.
 firmar_ticket() {
-  local metodo=$1 args=$2 bytes sig tpk
-  tpk=$(vista "$C2" get_operator "$(jq -nc --arg id "$OP" '{operator_id:$id}')" | jq -r '.ticket_pubkey // empty')
-  [ -n "$tpk" ] || die "el operador $OP de $C2 no tiene ticket_pubkey"
-  [ "$(pem_ticket | pub_de_pem)" = "$tpk" ] || die "la llave del ticket no es la ticket_pubkey del operador $OP ($tpk)"
+  local metodo=$1 args=$2 bytes sig
   mkdir -p "$HUMO"
   bytes=$(mktemp "$HUMO/ticket-msg.XXXXXX")
   # Los bytes que firma el operador son publicos: los da la vista del contrato (base64 en un string JSON).
@@ -340,6 +344,12 @@ usdc_de() { vista "$USDC" ft_balance_of "$(jq -nc --arg a "$1" '{account_id:$a}'
 claimable_de() { vista "$C2" get_claimable "$(jq -nc --arg a "$1" '{account:$a}')" | tr -d '"'; }
 pago_de() { vista "$C2" get_payment "$(jq -nc --arg id "$1" '{payment_id:$id}')"; }
 presupuesto_de() { vista "$C2" get_budget "$(jq -nc --arg o "$FONDEO" --arg a "$AGENTE" --arg op "$OP" '{owner:$o,agent:$a,operator_id:$op}')"; }
+# El presupuesto del humo existe con saldo $1 ("" = que no exista).
+presupuesto_con() {
+  local p
+  p=$(presupuesto_de)
+  if [ -z "$1" ]; then [ "$p" = null ]; else jq -e --arg s "$1" '.saldo == $s' >/dev/null <<<"$p"; fi
+}
 saldo_de() { ver_cuenta "$1" | jq -r '.result.amount'; }
 storage_de() { ver_cuenta "$1" | jq -r '.result.storage_usage'; }
 # Redondea yocto hacia arriba al milesimo de NEAR, como argumento de near ("1.234 NEAR").
@@ -357,6 +367,16 @@ anotar_saldos() {
     jq -e '.result.amount' >/dev/null 2>&1 <<<"$r" || continue
     printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$1" "$a" "$(jq -r .result.amount <<<"$r")" "$(jq -r .result.storage_usage <<<"$r")" >>"$SALDOS"
   done
+}
+# Repite la condicion "$@" hasta 6 veces (ARRAS_ESPERA entre intentos): una lectura con finality final puede venir un
+# bloque atrasada respecto de la tx que near-cli acaba de ver ejecutada.
+hasta() {
+  local _i
+  for _i in 1 2 3 4 5 6; do
+    "$@" && return 0
+    sleep "$ESPERA"
+  done
+  return 1
 }
 # Espera (hasta 6 lecturas) a que la cuenta $1 tenga al menos $2 yocto.
 esperar_saldo() {
@@ -391,6 +411,7 @@ estado_plan() {
     E_FEES_USDC=0; registrada_usdc "$FEES" && E_FEES_USDC=1
     E_WORKER_USDC=0; registrada_usdc "$WORKER" && E_WORKER_USDC=1
     E_POOL=0; E_HUB_NEP145=0
+    [ ! -f "$POOL_MARCA" ] || E_POOL=1
     if [ "$E_V2_CODIGO" = 1 ]; then
       [ "$(vista "$C2" get_operator "$(jq -nc --arg id "$OP" '{operator_id:$id}')" | jq -r '.sponsor_pool // "0"')" = 0 ] || E_POOL=1
       [ "$(vista "$C2" storage_balance_of "$(jq -nc --arg a "$FONDEO" '{account_id:$a}')")" = null ] || E_HUB_NEP145=1
@@ -604,6 +625,12 @@ operador_ok() {
     >/dev/null <<<"$o" || die "get_operator $OP de $C2 no es el esperado: $o"
   printf '%s' "$o"
 }
+# Una cuenta que puede mover lo que recibe: una implicita (su llave es la de su nombre) o una con alguna FullAccess.
+controlable() {
+  implicita "$1" && return 0
+  existe "$1" || return 1
+  [ -n "$(llaves_full "$1")" ]
+}
 # La ticket_pubkey de un operador ya registrado ("" si no tiene).
 tpk_en_cadena() { vista "$C2" get_operator "$(jq -nc --arg id "$OP" '{operator_id:$id}')" | jq -r '.ticket_pubkey // empty'; }
 
@@ -620,6 +647,10 @@ paso_operador() {
     tpk=$(ticket_pubkey)
   fi
   if [ "$o" = null ]; then
+    # La tarifa congelada en cada pago va al fee_recipient: tiene que poder moverla (una FullAccess o una implicita).
+    if real; then
+      controlable "$FEES" || die "el fee_recipient $FEES no tiene ninguna FullAccess en cadena: la tarifa de v2 quedaria atrapada"
+    fi
     real || tpk="<ticket_pubkey: la publica de una llave ed25519 nueva en $TICKET_PEM>"
     [ "$TICKET" = si ] || tpk=""
     input=$(jq -nc --arg o "$OWNER" --arg c "$CAPT" --argjson f "$FEE_BPS" --arg r "$FEES" --arg m "$MIN_AMOUNT" --arg to "$TOPE_TVL_OPERADOR" \
@@ -630,11 +661,17 @@ paso_operador() {
     echo "ya registrado: operador $OP"
   fi
   real && o=$(operador_ok "$tpk")
-  if real && { [ "$(jq -r .sponsor_pool <<<"$o")" != 0 ] || [ "$(yocto "$POOL")" = 0 ]; }; then
+  # El pool se fondea UNA vez (la marca $POOL_MARCA): si EM lo gasta, un segundo todo no le manda otro a una cuenta sin
+  # llaves que no lo devuelve; recargarlo es fund_operator_storage a mano.
+  if real && [ "$(jq -r .sponsor_pool <<<"$o")" != 0 ]; then
     echo "pool: sponsor_pool $(jq -r .sponsor_pool <<<"$o") yocto (ARRAS_V2_POOL $POOL)"
+    [ -f "$POOL_MARCA" ] || date -u +%FT%TZ >"$POOL_MARCA"
+  elif real && [ -f "$POOL_MARCA" ]; then
+    echo "pool: ya se fondeo una vez ($(cat "$POOL_MARCA")) y hoy esta en 0: no se recarga solo"
   elif [ "$(yocto "$POOL")" != 0 ]; then
     # fund_operator_storage lo puede firmar cualquiera: lo firma el hub (el owner queda con poco NEAR a proposito).
     tx_con_llave fondeo "$FONDEO" full "fund_operator_storage $OP" contract call-function as-transaction "$C2" fund_operator_storage json-args "$(jq -nc --arg id "$OP" '{operator_id:$id}')" prepaid-gas '30.0 Tgas' attached-deposit "$POOL" sign-as "$FONDEO"
+    real && date -u +%FT%TZ >"$POOL_MARCA"
   fi
   if real; then
     o=$(operador_ok "$tpk")
@@ -698,6 +735,7 @@ paso_sin_llaves() {
     h=$(codigo_hex "$C2")
     [ "$h" = "$WASM_SHA" ] || die "$C2 tiene codigo sha256 $h y no la wasm $WASM_SHA: no se borran sus llaves (paso deploy)"
     config_ok
+    fuente_ok
     todas=$(llaves_json "$C2" | jq -r '[.[].public_key] | join(",")')
     if [ -n "$todas" ]; then
       tx_con_llave v2-reserva "$C2" full "sin-llaves $C2" account delete-keys "$C2" public-keys "$todas"
@@ -748,6 +786,8 @@ paso_verificar() {
   echo "capturer $CAPT: una sola llave, la FunctionCall de $C2 ($METODOS_CAPT)"
   fc_ok "$ARB" "$METODOS_ARB"
   echo "arbitro $ARB: una sola llave, la FunctionCall de $C2 ($METODOS_ARB)"
+  registrada_usdc "$C2" || die "$C2 no esta registrada en USDC: ningun ft_transfer_call le llegaria (paso usdc)"
+  echo "USDC: $C2 registrada"
   s=$(vista "$C2" get_storage_health '{}')
   echo "get_storage_health: $s"
   [ "$h" = "$WASM_SHA" ] && [ "$n" = 0 ] || die "$C2 no esta listo (codigo o llaves)"
@@ -775,6 +815,10 @@ paso_humo_cuentas() {
   humo_listo
   local necesita=0 falta antes
   if real; then
+    # El worker cobra USDC de verdad: si ya existe (o no es nuestro), tiene que poder moverlo; antes de gastar nada.
+    if [ "$WORKER_NUEVA" = 0 ] || existe "$WORKER"; then
+      controlable "$WORKER" || die "el worker $WORKER no tiene ninguna FullAccess en cadena: lo que cobre quedaria atrapado"
+    fi
     existe "$AGENTE" || necesita=$(sumar "$necesita" "$(yocto "$NEAR_AGENTE")" "$(yocto "$CREACION")")
     if [ "$WORKER_NUEVA" = 1 ] && ! existe "$WORKER"; then necesita=$(sumar "$necesita" "$(yocto "$NEAR_WORKER")" "$(yocto "$CREACION")"); fi
     falta=$(restar_positivo "$necesita" "$(libre_de "$P")")
@@ -796,24 +840,35 @@ paso_humo_cuentas() {
 
 paso_humo_presupuesto() {
   humo_listo
-  local p msg ticket expiry
+  local p msg ticket expiry hechos e necesita pedido nep145
+  nep145=null
   if real; then
-    if [ -f "$HUMO/pago.json" ] || [ -f "$HUMO/disputa.json" ]; then
-      p=$(presupuesto_de)
-      echo "el presupuesto ya se uso (humo-pago o humo-disputa empezaron): $p"
-      return 0
-    fi
+    # Decide la cadena, no los archivos: cuanto del presupuesto falta usar segun los pagos del humo que ya existen.
+    hechos=0
+    for e in pago disputa; do
+      [ "$(estado_humo "$e")" = null ] || hechos=$((hechos + 1))
+    done
+    necesita=$((HUMO_MONTO * (2 - hechos)))
     p=$(presupuesto_de)
     if [ "$p" != null ]; then
-      [ "$(jq -r .saldo <<<"$p")" = "$HUMO_PRESUPUESTO" ] || die "ya hay un presupuesto de $FONDEO para $AGENTE con otro saldo: $p"
+      [ "$(jq -r .saldo <<<"$p")" = "$necesita" ] || die "ya hay un presupuesto de $FONDEO para $AGENTE con otro saldo (se esperaba $necesita): $p"
       echo "ya depositado: presupuesto $p"
       return 0
     fi
+    if [ "$hechos" != 0 ]; then
+      echo "el presupuesto ya se uso y se revoco ($hechos pagos del humo en cadena): no se deposita otro"
+      return 0
+    fi
     mayor_o_igual "$(usdc_de "$FONDEO")" "$HUMO_PRESUPUESTO" || die "el hub tiene $(usdc_de "$FONDEO") de USDC y el humo necesita $HUMO_PRESUPUESTO"
-    mayor_o_igual "$(libre_de "$FONDEO")" "$(yocto "$LIBRE_HUB")" || die "el hub tiene $(en_near "$(libre_de "$FONDEO")") libres y el ft_transfer_call reserva hasta $LIBRE_HUB"
+    # Lo libre para el ft_transfer_call, mas el deposito NEP-145 si todavia hay que hacerlo.
+    nep145=$(vista "$C2" storage_balance_of "$(jq -nc --arg a "$FONDEO" '{account_id:$a}')")
+    pedido=$(yocto "$LIBRE_HUB")
+    [ "$nep145" != null ] || pedido=$(sumar "$pedido" "$(yocto "$NEP145_HUB")" "$(yocto "$GAS_TX")")
+    mayor_o_igual "$(libre_de "$FONDEO")" "$pedido" ||
+      die "el hub tiene $(en_near "$(libre_de "$FONDEO")") libres y el humo necesita $(en_near "$pedido") (el ft_transfer_call reserva hasta $LIBRE_HUB)"
   fi
   # El storage NEP-145 del hub en v2 (paga el registro del presupuesto y los dos pagos; lo libre vuelve en humo-cierre).
-  if real && [ "$(vista "$C2" storage_balance_of "$(jq -nc --arg a "$FONDEO" '{account_id:$a}')")" != null ]; then
+  if real && [ "$nep145" != null ]; then
     echo "ya registrado en v2 (NEP-145): $FONDEO"
   else
     tx_con_llave fondeo "$FONDEO" full "humo: storage_deposit del hub en v2" contract call-function as-transaction "$C2" storage_deposit json-args "$(jq -nc --arg a "$FONDEO" '{account_id:$a}')" prepaid-gas '30.0 Tgas' attached-deposit "$NEP145_HUB" sign-as "$FONDEO"
@@ -831,9 +886,8 @@ paso_humo_presupuesto() {
     '{v:1,action:"budget",operator_id:$op,agent:$a,tope_por_pago:$t,tope_diario:$d} + (if $k then {operator_ticket:$k} else {} end)')
   tx_con_llave fondeo "$FONDEO" full "humo: presupuesto $HUMO_PRESUPUESTO para $AGENTE" contract call-function as-transaction "$USDC" ft_transfer_call json-args "$(jq -nc --arg r "$C2" --arg a "$HUMO_PRESUPUESTO" --arg m "$msg" '{receiver_id:$r,amount:$a,msg:$m}')" prepaid-gas '100.0 Tgas' attached-deposit '1 yoctoNEAR' sign-as "$FONDEO"
   if real; then
-    p=$(presupuesto_de)
-    jq -e --arg s "$HUMO_PRESUPUESTO" '.saldo == $s' >/dev/null <<<"$p" || die "el deposito no creo el presupuesto (rechazo: mira el log arras:rechazo de la tx): $p"
-    echo "OK: presupuesto de $FONDEO para $AGENTE: $p"
+    hasta presupuesto_con "$HUMO_PRESUPUESTO" || die "el deposito no creo el presupuesto (rechazo: mira el log arras:rechazo de la tx): $(presupuesto_de)"
+    echo "OK: presupuesto de $FONDEO para $AGENTE: $(presupuesto_de)"
   fi
   anotar_saldos humo-presupuesto
 }
@@ -852,17 +906,23 @@ args_humo() {
     --arg rec "$((now + 172800000000000))" --argjson f "$FEE_BPS" --arg t "$(printf 'arras v2 humo %s %s' "$1" "$salt" | shasum -a 256 | awk '{ print $1 }')" --arg s "$salt" \
     '{owner:$o,operator_id:$op,receiver:$r,amount:$a,release_deadline:$rel,reclaim_after:$rec,fee_bps_max:$f,terms_hash:$t,salt:$s}'
 }
-# El payment_id de un pago del humo (lo guarda la primera vez).
+# Un payment_id: base58 de 32 bytes (de 32 a 44 caracteres).
+id_valido() { [[ $1 =~ ^[1-9A-HJ-NP-Za-km-z]{32,44}$ ]]; }
+# El payment_id de un pago del humo (lo guarda la primera vez). Corre dentro de un $(...): si la vista falla, `die` corta
+# el script principal pero esta subshell sigue, asi que no se escribe nada sin un id valido (y se escribe de una vez).
 id_humo() {
   local f=$HUMO/$1.json args id
   if [ -f "$f" ]; then
-    jq -r .payment_id "$f"
+    id=$(jq -r '.payment_id // empty' "$f")
+    id_valido "$id" || die "$f tiene un payment_id invalido ('$id'): borralo si ese pago no existe en cadena"
+    printf '%s' "$id"
     return 0
   fi
   args=$(args_humo "$1")
   id=$(vista "$C2" compute_budget_payment_id "$args" | tr -d '"')
+  id_valido "$id" || die "compute_budget_payment_id no devolvio un payment_id ('$id')"
   mkdir -p "$HUMO"
-  jq -nc --argjson a "$args" --arg id "$id" '{args:$a,payment_id:$id}' >"$f"
+  jq -nc --argjson a "$args" --arg id "$id" '{args:$a,payment_id:$id}' >"$f.tmp" && mv "$f.tmp" "$f"
   printf '%s' "$id"
 }
 # El agente autoriza el pago del humo $1 desde el presupuesto, con su FunctionCall key y el ticket del pago.
@@ -887,23 +947,29 @@ autorizar_humo() {
 capturer_llama() {
   tx_con_llave em-capturer-v2 "$CAPT" "$METODOS_CAPT" "$1" contract call-function as-transaction "$C2" "$2" json-args "$3" prepaid-gas "$4" attached-deposit '0 NEAR' sign-as "$CAPT"
 }
-# withdraw_for de $1 (lo firma el capturer) si tiene algo para cobrar; despues, claimable en 0.
+# withdraw_for de $1 (lo firma el capturer) si tiene algo para cobrar; despues, claimable en 0 y el USDC en su cuenta (un
+# ft_transfer que falla devuelve el saldo al claimable en el callback).
 retirar_por() {
-  local c
+  local c antes
   if real; then
     c=$(claimable_de "$1")
     if [ "$c" = 0 ]; then
       echo "nada para cobrar: $1"
       return 0
     fi
+    antes=$(usdc_de "$1")
   fi
   capturer_llama "humo: withdraw_for $1" withdraw_for "$(jq -nc --arg a "$1" '{account:$a}')" '50.0 Tgas'
   if real; then
-    c=$(claimable_de "$1")
-    [ "$c" = 0 ] || die "a $1 le quedo claimable $c despues del withdraw_for (el ft_transfer fallo?)"
-    echo "OK: $1 cobro; USDC $(usdc_de "$1")"
+    hasta claimable_en_cero "$1" || die "a $1 le quedo claimable $(claimable_de "$1") despues del withdraw_for (el ft_transfer fallo?)"
+    hasta usdc_al_menos "$1" "$(sumar "$antes" "$c")" || die "$1 tenia $antes de USDC y no recibio los $c del withdraw_for"
+    echo "OK: $1 cobro $c; USDC $(usdc_de "$1")"
   fi
 }
+claimable_en_cero() { [ "$(claimable_de "$1")" = 0 ]; }
+usdc_al_menos() { mayor_o_igual "$(usdc_de "$1")" "$2"; }
+# El pago del humo $1 en el estado $2.
+estado_es() { [ "$(estado_humo "$1")" = "$2" ]; }
 # El estado de un pago del humo, o null (y en seco, "seco").
 estado_humo() {
   real || { echo seco; return 0; }
@@ -917,13 +983,13 @@ paso_humo_pago() {
   e=$(estado_humo pago)
   if [ "$e" = null ] || [ "$e" = seco ]; then
     autorizar_humo pago
-    real && { e=$(estado_humo pago); [ "$e" = Authorized ] || die "el authorize_from_budget no dejo el pago Authorized: $e"; }
+    real && { hasta estado_es pago Authorized || die "el authorize_from_budget no dejo el pago Authorized: $(estado_humo pago)"; e=Authorized; }
   fi
   id='<payment_id de humo-pago>'
   real && id=$(id_humo pago)
   if [ "$e" = Authorized ] || [ "$e" = seco ]; then
     capturer_llama "humo pago: release" release "$(jq -nc --arg id "$id" '{payment_id:$id}')" '30.0 Tgas'
-    real && { e=$(estado_humo pago); [ "$e" = Released ] || die "el pago $id no quedo Released: $e"; }
+    real && { hasta estado_es pago Released || die "el pago $id no quedo Released: $(estado_humo pago)"; e=Released; }
   fi
   [ "$e" = Released ] || [ "$e" = seco ] || die "el pago del humo $id esta $e (se esperaba Released)"
   real && echo "OK: pago $id Released; claimable worker $(claimable_de "$WORKER"), fee_recipient $(claimable_de "$FEES")"
@@ -938,17 +1004,17 @@ paso_humo_disputa() {
   e=$(estado_humo disputa)
   if [ "$e" = null ] || [ "$e" = seco ]; then
     autorizar_humo disputa
-    real && { e=$(estado_humo disputa); [ "$e" = Authorized ] || die "el authorize_from_budget no dejo el pago Authorized: $e"; }
+    real && { hasta estado_es disputa Authorized || die "el authorize_from_budget no dejo el pago Authorized: $(estado_humo disputa)"; e=Authorized; }
   fi
   id='<payment_id de humo-disputa>'
   real && id=$(id_humo disputa)
   if [ "$e" = Authorized ] || [ "$e" = seco ]; then
     tx_con_llave fondeo "$FONDEO" full "humo disputa: open_dispute" contract call-function as-transaction "$C2" open_dispute json-args "$(jq -nc --arg id "$id" --arg h "$(printf 'arras v2 humo: disputa de prueba' | shasum -a 256 | awk '{ print $1 }')" '{payment_id:$id,reason_hash:$h}')" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' sign-as "$FONDEO"
-    real && { e=$(estado_humo disputa); [ "$e" = Disputed ] || die "el pago $id no quedo Disputed: $e"; }
+    real && { hasta estado_es disputa Disputed || die "el pago $id no quedo Disputed: $(estado_humo disputa)"; e=Disputed; }
   fi
   if [ "$e" = Disputed ] || [ "$e" = seco ]; then
     tx_con_llave em-arbiter-v2 "$ARB" "$METODOS_ARB" "humo disputa: resolve_dispute (todo al payer)" contract call-function as-transaction "$C2" resolve_dispute json-args "$(jq -nc --arg id "$id" --arg a "$HUMO_MONTO" '{payment_id:$id,to_receiver:"0",to_payer:$a}')" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' sign-as "$ARB"
-    real && { e=$(estado_humo disputa); [ "$e" = Resolved ] || die "el pago $id no quedo Resolved: $e"; }
+    real && { hasta estado_es disputa Resolved || die "el pago $id no quedo Resolved: $(estado_humo disputa)"; e=Resolved; }
   fi
   [ "$e" = Resolved ] || [ "$e" = seco ] || die "el pago de la disputa $id esta $e (se esperaba Resolved)"
   if real; then
@@ -966,6 +1032,8 @@ paso_humo_cierre() {
   real && p=$(presupuesto_de)
   if [ "$p" != null ] || ! real; then
     tx_con_llave fondeo "$FONDEO" full "humo: revoke_agent" contract call-function as-transaction "$C2" revoke_agent json-args "$(jq -nc --arg a "$AGENTE" --arg op "$OP" '{agent:$a,operator_id:$op}')" prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' sign-as "$FONDEO"
+    # Lo que quedaba en el presupuesto pasa al claimable del hub: se retira abajo, despues de verlo revocado.
+    if real; then hasta presupuesto_con "" || die "el presupuesto de $AGENTE sigue: revoke_agent no corrio"; fi
   else
     echo "ya revocado: $AGENTE"
   fi
@@ -980,7 +1048,7 @@ paso_humo_cierre() {
     echo "USDC: v2 $(usdc_de "$C2"), hub $(usdc_de "$FONDEO"), worker $(usdc_de "$WORKER"), $FEES $(usdc_de "$FEES")"
     echo "NEP-145 del hub en v2: $(vista "$C2" storage_balance_of "$(jq -nc --arg a "$FONDEO" '{account_id:$a}')")"
     echo "get_storage_health: $(vista "$C2" get_storage_health '{}' | jq -c '{free_reserve,ok}')"
-    [ "$(presupuesto_de)" = null ] || die "el presupuesto de $AGENTE sigue: revoke_agent no corrio"
+    echo "(los 0,01 a 0,02 NEAR del NEP-145 que guardan los dos pagos vuelven al hub con compact, 7 dias despues de su reclaim_after)"
   fi
   anotar_saldos humo-cierre
 }
@@ -1118,7 +1186,9 @@ paso_enlaces() {
     echo "Transacciones ($TXS):"
     awk -F'\t' -v nb="$NB" '{ printf "  %-58s %s/txns/%s\n", $2, nb, $3 }' "$TXS"
   fi
-  echo "Facilitador (lo cambia c0der en su tanda; el humo no lo usa): NEAR_ESCROW_CONTRACTS_$(printf '%s' "$RED" | tr '[:lower:]' '[:upper:]')=$C1,$C2"
+  echo "Cuando EM vaya a usar v2 (el humo no lo necesita): el facilitador con NEAR_ESCROW_CONTRACTS_$(printf '%s' "$RED" | tr '[:lower:]' '[:upper:]')=$C1,$C2;"
+  echo "EM libera con $CAPT (llave en $(nombre_ssm em-capturer-v2)) y, mientras $OP tenga ticket_pubkey, firma un ticket por"
+  echo "cada pago y deposito ($(nombre_ssm em-ticket-v2)) o el owner lo quita con update_operator (docs/MAINNET.md, 8.1)."
 }
 
 # --- principal --------------------------------------------------------------------------------------------------------
@@ -1128,6 +1198,10 @@ principal() {
     die "en mainnet ARRAS_RPC es obligatoria (el RPC privado de c0der; no se imprime): el defecto publico solo vale para testnet"
   fi
   comun_preparar
+  # El ticket necesita OpenSSL 3: se mira al arrancar, antes de mandar un solo NEAR, en los pasos que lo usan.
+  if real && [ "$TICKET" = si ]; then
+    case "$PASO" in todo | 5 | operador | humo | humo-*) openssl_ok ;; esac
+  fi
   echo "== Arras v2 $RED, modo $MODO, padre $P, contrato $C2, paso $PASO"
   [ "$MODO" = seco ] && echo "== EN SECO: nada se ejecuta. Modo real: --$RED-ok"
 
@@ -1155,7 +1229,9 @@ principal() {
       paso_plan; paso_fondeo; paso_cuentas; paso_usdc; paso_deploy; paso_operador; paso_capturer; paso_arbitro
       paso_sin_llaves; paso_verificar; paso_secretos; paso_enlaces ;;
     humo)
-      paso_humo_cuentas; paso_humo_presupuesto; paso_humo_pago; paso_humo_disputa; paso_humo_cierre; paso_enlaces ;;
+      # Con secretos al final: el agente y el worker nacen en el humo y sus llaves tambien van a SSM.
+      paso_humo_cuentas; paso_humo_presupuesto; paso_humo_pago; paso_humo_disputa; paso_humo_cierre; paso_secretos
+      paso_enlaces ;;
     *) echo "paso desconocido: $PASO" >&2; uso ;;
   esac
 }

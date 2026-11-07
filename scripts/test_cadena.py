@@ -250,7 +250,10 @@ def llamar_contrato(c, cid, k, signer, m, j, dep):
     elif m == "withdraw_for":
         a = j["account"]
         n = int(k["claimable"].get(a, "0"))
-        if n and usdc_mover(c, cid, a, n):
+        # $STUB/retiro-roto: el claimable queda en 0 pero el USDC no llega (un callback que no se ve todavia).
+        if n and os.path.exists(os.path.join(os.environ["STUB"], "retiro-roto")):
+            k["claimable"][a] = "0"
+        elif n and usdc_mover(c, cid, a, n):
             k["claimable"][a] = "0"
     elif m == "revoke_agent":
         clave = f"{signer}|{j['agent']}|{j['operator_id']}"
@@ -369,6 +372,9 @@ def aplicar(argv):
 
 def vista(c, cid, m, j):
     red = c["chain_id"]
+    # $STUB/falla-<metodo>: esa vista falla (para probar que el script no sigue con un valor vacio).
+    if os.path.exists(os.path.join(os.environ["STUB"], "falla-" + m)):
+        raise KeyError(f"falla {m}")
     if cid == USDC[red]:
         if m == "storage_balance_of":
             return {"total": "1250000000000000000000", "available": "0"} if j["account_id"] in c["usdc"]["registradas"] else None

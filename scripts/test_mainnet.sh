@@ -91,6 +91,8 @@ cat "$STUB/aws.salida"
 AWS
 cat >"$TMP/bin/curl" <<'CURL'
 #!/usr/bin/env bash
+# La linea de comandos de cada curl (lo que `ps` veria), para probar que el RPC privado no va en ella.
+printf '%s\n' "$*" >>"$STUB/curl-args.log"
 exec python3 -I "$STUB_PY" "$@"
 CURL
 cat >"$TMP/rpc.py" <<'PY'
@@ -762,7 +764,7 @@ real_test() {
 }
 cad() { jq -r "$1" "$STUB/cadena.json"; }
 es() { if [ "$(cad "$1")" = "$2" ]; then ok; else mal "en la cadena $1 es '$(cad "$1")', se esperaba '$2'"; fi; }
-n_tx() { grep -vc -- '--version' "$STUB/near.log" 2>/dev/null || true; }
+n_tx() { if [ -f "$STUB/near.log" ]; then grep -vc -- '--version' "$STUB/near.log" || true; else echo 0; fi; }
 # Ninguna llave privada (las de antes, las nuevas del llavero ni la del ticket) en la salida ni en la linea de comandos.
 sin_privadas() {
   local k
@@ -873,7 +875,7 @@ sale 0; dice '"arbiter_window_ns":"2592000000000000"'
 nuevo2 v08; ARGS=(plan); correr ARRAS_V2_TICKET=quizas
 sale_mal; dice "ARRAS_V2_TICKET tiene que ser si o no"
 nuevo2 v08b; ARGS=(todo); correr ARRAS_V2_TICKET=NO
-sale 0; no_dice "ticket_pubkey"
+sale 0; no_dice '"ticket_pubkey"'
 nuevo2 v08c; ARGS=(humo); correr ARRAS_V2_TICKET=no
 sale 0; no_dice "operator_ticket"
 # V09 NEAR: la reserva libre no baja de 0,2 (la alarma de get_storage_health); las allowances no son 0; '<n> NEAR'.
@@ -915,12 +917,27 @@ nuevo v12c; ARGS=(plan); correr ARRAS_RPC="$RPC_PRIV"
 sale 0; no_dice "CLAVE-SECRETA"
 nuevo v12d; echo '{"chain_id":"testnet"}' >"$STUB/rpc/status"; ARGS=(--mainnet-ok plan); correr ARRAS_RPC="$RPC_PRIV"
 sale_mal; no_dice "CLAVE-SECRETA"
-# V13 OpenSSL: un ARRAS_OPENSSL que no es OpenSSL 3 (el LibreSSL de macOS) corta todo en el operador, antes de registrarlo.
+# V13 OpenSSL: un ARRAS_OPENSSL que no es OpenSSL 3 (el LibreSSL de macOS) corta todo al arrancar, antes de mandar nada;
+# uno que no es ejecutable tambien. Sin ticket no hace falta.
 nuevo2 v13; cadena mainnet; wasm2
 printf '#!/bin/sh\necho "LibreSSL 3.3.6"\n' >"$STUB/openssl-falso"; chmod +x "$STUB/openssl-falso"
 ARGS=(--mainnet-ok todo); correr ARRAS_RPC="$RPC_PRIV" ARRAS_V2_WASM="$STUB/w2.wasm" ARRAS_V2_WASM_SHA256="$W2SHA" ARRAS_OPENSSL="$STUB/openssl-falso"
-sale_mal; dice "no OpenSSL 3"; near_hizo "contract deploy v2.$P_MAIN"
-if grep -q register_operator "$STUB/near.log"; then mal "registro el operador sin OpenSSL 3"; else ok; fi
+sale_mal; dice "no OpenSSL 3"; sin_near_tx
+nuevo2 v13b; cadena mainnet; wasm2
+ARGS=(--mainnet-ok humo); correr ARRAS_RPC="$RPC_PRIV" ARRAS_V2_WASM="$STUB/w2.wasm" ARRAS_V2_WASM_SHA256="$W2SHA" ARRAS_OPENSSL="$STUB/no-esta"
+sale_mal; dice "no es un ejecutable"; sin_near_tx
+nuevo2 v13c; cadena mainnet; wasm2
+ARGS=(--mainnet-ok fondeo); correr ARRAS_RPC="$RPC_PRIV" ARRAS_V2_WASM="$STUB/w2.wasm" ARRAS_V2_WASM_SHA256="$W2SHA" ARRAS_OPENSSL="$STUB/no-esta" ARRAS_V2_TICKET=no
+sale 0; near_hizo "send-near v2.$P_MAIN"
+# V13d enteros con ceros a la izquierda (bash los leeria en octal): se rechazan, en v1 y en v2.
+nuevo2 v13d; ARGS=(plan); correr ARRAS_HUMO_MONTO=050000
+sale_mal; dice "sin ceros a la izquierda"
+nuevo2 v13e; ARGS=(plan); correr ARRAS_V2_VENTANA_ARBITRO=0604800
+sale_mal; dice "sin ceros a la izquierda"
+nuevo v13f; ARGS=(plan); correr ARRAS_TOPE_POR_PAGO=010000000
+sale_mal; dice "sin ceros a la izquierda"
+nuevo2 v13g; ARGS=(plan); correr ARRAS_HUMO_TOPE_TOTAL=0 ARRAS_HUMO_MONTO=10000
+sale_mal; dice "el humo mueve 2 x 10000"
 # V14 secretos en seco: solo el inventario, ninguna linea ejecutable.
 nuevo2 v14; d="$STUB/home/.near-credentials/mainnet/em-capturer-v2.$P_MAIN"; mkdir -p "$d"
 printf '{"public_key":"ed25519:PUBCAPT","private_key":"%s"}' "$PRIV_FALSA" >"$d/ed25519_PUBCAPT.json"
@@ -971,6 +988,7 @@ es ".usdc.saldos[\"worker-v2.$P_MAIN\"]" 43500; es ".usdc.saldos[\"em-fees.$P_MA
 es ".usdc.saldos[\"$FONDEO\"]" 3907303; es ".usdc.saldos[\"v2.$P_MAIN\"]" 0
 es ".cuentas[\"agent-v2.$P_MAIN\"].keys | map(.access_key.permission.FunctionCall.method_names | join(\",\")) | join(\" \")" authorize_from_budget
 es "[.cuentas[\"v2.$P_MAIN\"].contrato.claimable[] | select(. != \"0\")] | length" 0
+dice "--name '/arras/mainnet/humo-agente-v2' --type SecureString"; dice "--name '/arras/mainnet/humo-worker-v2' --type SecureString"
 foto humo-main
 # VR04 un segundo humo no manda ninguna tx: sigue cada pago por su estado.
 CASO=vr04; antes=$(n_tx); ARGS=(--mainnet-ok humo); real_main
@@ -1162,6 +1180,72 @@ if [ "$TK" = si ]; then
   sale 0; dice "no es la ticket_pubkey del operador em en cadena"; no_dice "--name '/arras/mainnet/em-ticket-v2'"
   dice "--name '/arras/mainnet/em-capturer-v2'"
 fi
+# --- la ronda del refutador (P2 y P3) y la mutacion que sobrevivio (M21) ---------------------------------------------
+# VN20 (P2-1) si la vista del payment_id falla, el humo no deja un pago guardado con el id vacio; con la vista de vuelta,
+# sigue normal. Un archivo con un id invalido aborta y no se usa.
+desde_foto todo-main vn20; ARGS=(--mainnet-ok humo-cuentas); real_main; ARGS=(--mainnet-ok humo-presupuesto); real_main
+touch "$STUB/falla-compute_budget_payment_id"; ARGS=(--mainnet-ok humo-pago); real_main
+sale_mal; if [ -e "$STUB/$(dirname "$TICKET_PEM_M")/humo/pago.json" ]; then mal "quedo un pago.json con la vista caida"; else ok; fi
+rm -f "$STUB/falla-compute_budget_payment_id"; CASO=vn20b; ARGS=(--mainnet-ok humo-pago); real_main
+sale 0; es ".cuentas[\"v2.$P_MAIN\"].contrato.payments | map(.status) | join(\",\")" Released
+desde_foto todo-main vn20c; mkdir -p "$STUB/$(dirname "$TICKET_PEM_M")/humo"
+echo '{"args":{},"payment_id":""}' >"$STUB/$(dirname "$TICKET_PEM_M")/humo/pago.json"
+ARGS=(--mainnet-ok humo-pago); real_main
+sale_mal; dice "tiene un payment_id invalido"
+# VN20d (P2-1) el presupuesto lo decide la cadena: con un pago del humo ya hecho y el presupuesto revocado, no se
+# deposita otro.
+desde_foto humo-main vn20d; antes=$(n_tx); ARGS=(--mainnet-ok humo-presupuesto); real_main
+sale 0; dice "ya se uso y se revoco"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "deposito otro presupuesto"; fi
+# VN21 (P3-4) un fee_recipient sin FullAccess (el capturer de v1) no se registra: la tarifa quedaria atrapada.
+nuevo2 vn21; cadena mainnet; wasm2
+for paso in fondeo cuentas usdc deploy; do ARGS=(--mainnet-ok "$paso"); real_main ARRAS_FEE_RECIPIENT="em-capturer.$P_MAIN"; done
+ARGS=(--mainnet-ok operador); real_main ARRAS_FEE_RECIPIENT="em-capturer.$P_MAIN"
+sale_mal; dice "no tiene ninguna FullAccess"; if grep -q register_operator "$STUB/near.log"; then mal "registro el operador"; else ok; fi
+# VN21b ...y un worker que ya existe sin llaves (otra hija del padre): el humo no le paga.
+desde_foto todo-main vn21b
+jq '.cuentas["registry.arras-escrow.near"] = {"amount":"1000000000000000000000000","storage":500,"code":"'"$(printf '7%.0s' {1..64})"'","keys":[]}' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--mainnet-ok humo-cuentas); real_main ARRAS_HUMO_WORKER="registry.$P_MAIN"
+sale_mal; dice "no tiene ninguna FullAccess"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "mando una tx"; fi
+# VN22 (P3-2) el pool se fondea una vez: si EM lo gasto, un segundo operador no manda otro.
+desde_foto todo-main vn22
+jq '.cuentas["v2.arras-escrow.near"].contrato.operators.em.sponsor_pool = "0"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+ARGS=(--mainnet-ok operador); real_main
+sale 0; dice "ya se fondeo una vez"; if grep -q fund_operator_storage "$STUB/near.log"; then mal "volvio a fondear el pool"; else ok; fi
+# VN23 (P3-1) el libre del hub para el humo cuenta el deposito NEP-145 que falta: 0,12 libres no alcanzan (0,1 + 0,03).
+desde_foto todo-main vn23; ARGS=(--mainnet-ok humo-cuentas); real_main
+jq --arg h "$FONDEO" '.cuentas[$h].amount = "121820000000000000000000"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--mainnet-ok humo-presupuesto); real_main
+sale_mal; dice "el humo necesita 0.13100 NEAR"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "mando una tx"; fi
+# VN24 (M21) verificar: una FunctionCall key de mas DESPUES de la buena tambien es una llave de mas.
+desde_foto todo-main vn24
+jq --arg c "v2.$P_MAIN" '.cuentas["em-capturer-v2.arras-escrow.near"].keys += [{"public_key":"ed25519:OTRA","access_key":{"nonce":0,"permission":{"FunctionCall":{"allowance":"1","receiver_id":$c,"method_names":["release"]}}}}]' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+ARGS=(--mainnet-ok verificar); real_main
+sale_mal; dice "tiene que quedar con UNA sola llave"
+# VN25 (P3-9) verificar exige v2 registrada en USDC.
+desde_foto todo-main vn25
+jq '.usdc.registradas -= ["v2.arras-escrow.near"]' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+ARGS=(--mainnet-ok verificar); real_main
+sale_mal; dice "no esta registrada en USDC"
+# VN26 (P3-7) un withdraw_for que no entrega el USDC (claimable en 0 pero el saldo no sube) no se da por bueno.
+desde_foto todo-main vn26; ARGS=(--mainnet-ok humo-cuentas); real_main; ARGS=(--mainnet-ok humo-presupuesto); real_main
+jq '.usdc.registradas -= ["worker-v2.arras-escrow.near"]' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+ARGS=(--mainnet-ok humo-pago); real_main
+sale_mal; dice "despues del withdraw_for"
+desde_foto todo-main vn26b; ARGS=(--mainnet-ok humo-cuentas); real_main; ARGS=(--mainnet-ok humo-presupuesto); real_main
+touch "$STUB/retiro-roto"; ARGS=(--mainnet-ok humo-pago); real_main
+sale_mal; dice "no recibio los 43500 del withdraw_for"
+# VN27 (P3-9) sin-llaves exige tambien el NEP-330 del pin: con otro commit en la metadata, v2 conserva su llave.
+nuevo2 vn27; cadena mainnet; wasm2
+for paso in fondeo cuentas usdc deploy; do ARGS=(--mainnet-ok "$paso"); real_main; done
+jq '.cuentas["v2.arras-escrow.near"].contrato.rev = "'"$(printf 'e%.0s' {1..40})"'"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--mainnet-ok sin-llaves); real_main
+sale_mal; dice "no apunta a rev $REV2"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "borro las llaves de v2"; fi
+# VN28 (P3-6) la URL de ARRAS_RPC no va en la linea de comandos de curl (ps la mostraria con su API key), en v2 y en v1.
+desde_foto todo-main vn28; ARGS=(--mainnet-ok verificar); real_main
+sale 0; if grep -q "CLAVE-SECRETA" "$STUB/curl-args.log"; then mal "el RPC privado quedo en los argumentos de curl"; else ok; fi
+nuevo vn28b; ARGS=(--mainnet-ok verificar); correr ARRAS_RPC="$RPC_PRIV"
+if grep -q "CLAVE-SECRETA" "$STUB/curl-args.log" 2>/dev/null; then mal "v1: el RPC privado quedo en los argumentos de curl"; else ok; fi
+if [ -s "$STUB/curl-args.log" ]; then ok; else mal "v1 no consulto el RPC (el caso no prueba nada)"; fi
 
 [ "$TK" = si ] || printf '\nAVISO: sin OpenSSL 3; los casos de v2 corrieron sin ticket y la cadena no verifico firmas\n'
 

@@ -86,7 +86,8 @@ implicita() { [[ $1 =~ ^[0-9a-f]{64}$ ]]; }
 hija() { cuenta_valida "$1" && [[ $1 == *."$P" && ${1%."$P"} != *.* ]]; }
 
 # --- topes y montos -------------------------------------------------------------------------------------------------
-entero() { [[ $2 =~ ^[0-9]{1,15}$ ]] || die "$1='$2' tiene que ser un entero de hasta 15 cifras (unidades atomicas)"; }
+# Sin ceros a la izquierda: bash lee `050000` como octal en $(( )) (40960) mientras el JSON lleva "050000".
+entero() { [[ $2 =~ ^(0|[1-9][0-9]{0,14})$ ]] || die "$1='$2' tiene que ser un entero de hasta 15 cifras sin ceros a la izquierda (unidades atomicas)"; }
 yocto_valido() { [[ $2 =~ ^[0-9]{1,30}$ ]] || die "$1='$2' tiene que ser un entero de yoctoNEAR"; }
 near_valido() { [[ $2 =~ ^[0-9]+(\.[0-9]+)?\ NEAR$ ]] || die "$1='$2' tiene que ser '<numero> NEAR' (p. ej. '0.5 NEAR')"; }
 
@@ -218,7 +219,9 @@ rpc_query() {
   r=""
   # Una lectura es idempotente: tres intentos (el RPC publico de testnet corta por cuota en medio de un ensayo).
   for _i in 1 2 3; do
-    r=$(curl -sf -m 30 -X POST "$RPC" -H 'Content-Type: application/json' \
+    # La URL va por la config de curl en stdin (-K -), no en la linea de comandos: el RPC privado lleva la API key y
+    # `ps` mostraria los argumentos.
+    r=$(printf 'url = "%s"\n' "$RPC" | curl -sf -m 30 -K - -X POST -H 'Content-Type: application/json' \
       -d "$(jq -nc --argjson p "$1" '{jsonrpc:"2.0",id:"arras",method:"query",params:$p}')") && break
     r=""
     sleep "${ESPERA:-5}"
@@ -353,7 +356,7 @@ comun_preparar() {
     command -v near >/dev/null 2>&1 || die "falta near (near-cli-rs 0.30.1)"
     v=$(NO_COLOR=1 near --version 2>/dev/null | awk '/near-cli-rs/ { print $2 }' | tail -1)
     [ "$v" = 0.30.1 ] || die "near-cli-rs es '${v:-?}' y la sintaxis de este script es la de 0.30.1"
-    cadena=$(curl -sf -m 30 -X POST "$RPC" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":"arras","method":"status","params":[]}' | jq -r '.result.chain_id // empty') ||
+    cadena=$(printf 'url = "%s"\n' "$RPC" | curl -sf -m 30 -K - -X POST -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":"arras","method":"status","params":[]}' | jq -r '.result.chain_id // empty') ||
       die "el RPC $RPC_NOMBRE no respondio a status"
     [ "$cadena" = "$RED" ] || die "el RPC $RPC_NOMBRE es de la red '${cadena:-?}', no de $RED"
     [ -n "${ARRAS_KMS_KEY:-}" ] || die "ARRAS_KMS_KEY es obligatoria en el modo real: la llave KMS propia de Arras (decision 230) con la que van las llaves a SSM"
