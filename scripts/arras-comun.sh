@@ -67,6 +67,11 @@ comun_red() {
   esac
   RPC_NOMBRE=$RPC
   [ -z "${ARRAS_RPC:-}" ] || RPC_NOMBRE='ARRAS_RPC (no se imprime)'
+  # La URL viaja a curl por su config (`url = "..."`): una comilla, una barra invertida, un espacio o un salto de linea
+  # la cortarian. Se rechaza sin mostrarla.
+  if [ -n "${ARRAS_RPC:-}" ] && ! [[ $ARRAS_RPC =~ $RE_RPC ]]; then
+    die "ARRAS_RPC no es una URL http(s) de una linea sin comillas, espacios ni barras invertidas (no se imprime)"
+  fi
   NET=$RED
 
   MODO=seco
@@ -76,6 +81,8 @@ comun_red() {
   fi
 }
 real() { [ "$MODO" = real ]; }
+# Una URL http(s) sin espacios, comillas ni barras invertidas (en una variable: bash 3.2 y 5.x leen igual la regex).
+RE_RPC='^https?://[^[:space:]"\\]+$'
 
 # --- cuentas --------------------------------------------------------------------------------------------------------
 RE_CUENTA='^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$'
@@ -88,7 +95,7 @@ hija() { cuenta_valida "$1" && [[ $1 == *."$P" && ${1%."$P"} != *.* ]]; }
 # --- topes y montos -------------------------------------------------------------------------------------------------
 # Sin ceros a la izquierda: bash lee `050000` como octal en $(( )) (40960) mientras el JSON lleva "050000".
 entero() { [[ $2 =~ ^(0|[1-9][0-9]{0,14})$ ]] || die "$1='$2' tiene que ser un entero de hasta 15 cifras sin ceros a la izquierda (unidades atomicas)"; }
-yocto_valido() { [[ $2 =~ ^[0-9]{1,30}$ ]] || die "$1='$2' tiene que ser un entero de yoctoNEAR"; }
+yocto_valido() { [[ $2 =~ ^(0|[1-9][0-9]{0,29})$ ]] || die "$1='$2' tiene que ser un entero de yoctoNEAR sin ceros a la izquierda"; }
 near_valido() { [[ $2 =~ ^[0-9]+(\.[0-9]+)?\ NEAR$ ]] || die "$1='$2' tiene que ser '<numero> NEAR' (p. ej. '0.5 NEAR')"; }
 
 # Los topes del contrato y del operador `em`, los mismos para v1 y v2. Deja OP, TOPE_POR_PAGO, TOPE_TVL_GLOBAL, FEE_BPS,

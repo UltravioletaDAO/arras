@@ -1211,11 +1211,46 @@ desde_foto todo-main vn22
 jq '.cuentas["v2.arras-escrow.near"].contrato.operators.em.sponsor_pool = "0"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
 ARGS=(--mainnet-ok operador); real_main
 sale 0; dice "ya se fondeo una vez"; if grep -q fund_operator_storage "$STUB/near.log"; then mal "volvio a fondear el pool"; else ok; fi
-# VN23 (P3-1) el libre del hub para el humo cuenta el deposito NEP-145 que falta: 0,12 libres no alcanzan (0,1 + 0,03).
+# VN23 (P3-1) el libre del hub para el humo cuenta el deposito NEP-145 que falta: 0,17 libres no alcanzan (0,15 + 0,03).
 desde_foto todo-main vn23; ARGS=(--mainnet-ok humo-cuentas); real_main
-jq --arg h "$FONDEO" '.cuentas[$h].amount = "121820000000000000000000"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+jq --arg h "$FONDEO" '.cuentas[$h].amount = "171820000000000000000000"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
 antes=$(n_tx); ARGS=(--mainnet-ok humo-presupuesto); real_main
-sale_mal; dice "el humo necesita 0.13100 NEAR"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "mando una tx"; fi
+sale_mal; dice "el humo necesita 0.18100 NEAR"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "mando una tx"; fi
+# VN29 (ensayo 2) una cuenta sin el NEAR que la llamada reserva por adelantado (0,00105 por TGas): aborta antes de firmar
+# y dice como recargarla; el borde exacto pasa. Lo mismo con la allowance de su FunctionCall key.
+desde_foto todo-main vn29; ARGS=(--mainnet-ok humo-cuentas); real_main; ARGS=(--mainnet-ok humo-presupuesto); real_main
+jq '.cuentas["agent-v2.arras-escrow.near"].amount = "33319999999999999999999"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--mainnet-ok humo-pago); real_main
+sale_mal; dice "reserva 0.03150 NEAR por adelantado: recargala"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "firmo sin NEAR"; fi
+jq '.cuentas["agent-v2.arras-escrow.near"].amount = "33320000000000000000000"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+CASO=vn29b; ARGS=(--mainnet-ok humo-pago); real_main
+sale 0; es ".cuentas[\"v2.$P_MAIN\"].contrato.payments | map(.status) | join(\",\")" Released
+desde_foto todo-main vn29c; ARGS=(--mainnet-ok humo-cuentas); real_main; ARGS=(--mainnet-ok humo-presupuesto); real_main
+jq '(.cuentas["agent-v2.arras-escrow.near"].keys[0].access_key.permission.FunctionCall.allowance) = "31499999999999999999999"' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--mainnet-ok humo-pago); real_main
+sale_mal; dice "de allowance y esta llamada reserva 0.03150 NEAR"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "firmo sin allowance"; fi
+# VN30 (P3-b) un ARRAS_RPC con comillas, barras invertidas o espacios aborta sin mostrarse; v1 igual.
+for u in 'https://x.example/a"b' 'https://x.example/a\b' 'https://x.example/a b' 'ftp://x.example/'; do
+  nuevo2 "vn30-$(printf '%s' "$u" | tr -c 'a-z' '_')"; ARGS=(plan); correr ARRAS_RPC="$u"
+  sale_mal; sin_red; dice "ARRAS_RPC no es una URL"
+done
+nuevo vn30b; ARGS=(plan); correr 'ARRAS_RPC=https://x.example/a"b'
+sale_mal; dice "ARRAS_RPC no es una URL"
+# VN31 (P3-e) yocto con ceros a la izquierda: se rechaza (operador_ok compararia strings distintos para siempre).
+nuevo2 vn31; ARGS=(plan); correr ARRAS_SPONSOR_MAX_POR_PAYER=020000000000000000000000
+sale_mal; dice "sin ceros a la izquierda"
+# VN32 (P3-a) un pago del humo guardado que nunca entro y ya vencio se aparta y se arma otro (no E11 para siempre).
+desde_foto todo-main vn32; ARGS=(--mainnet-ok humo-cuentas); real_main; ARGS=(--mainnet-ok humo-presupuesto); real_main
+h="$STUB/$(dirname "$TICKET_PEM_M")/humo"
+jq -nc --arg o "$FONDEO" --arg w "worker-v2.$P_MAIN" '{args:{owner:$o,operator_id:"em",receiver:$w,amount:"50000",release_deadline:"1000000000",reclaim_after:"2000000000",fee_bps_max:1300,terms_hash:("0"*64),salt:("1"*32)},payment_id:"11111111111111111111111111111111111111111111"}' >"$h/pago.json"
+ARGS=(--mainnet-ok humo-pago); real_main
+sale 0; dice "vencio sin entrar: se arma otro"; es ".cuentas[\"v2.$P_MAIN\"].contrato.payments | map(.status) | join(\",\")" Released
+if ls "$h"/pago.json.vencido-* >/dev/null 2>&1; then ok; else mal "no aparto el pago vencido"; fi
+# VN33 (P3-a) despues de un compact (los pagos ya no estan en cadena), la marca del deposito evita un segundo presupuesto.
+desde_foto humo-main vn33
+jq '.cuentas["v2.arras-escrow.near"].contrato.payments = {}' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"
+antes=$(n_tx); ARGS=(--mainnet-ok humo-presupuesto); real_main
+sale 0; dice "no se deposita otro"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "deposito otro presupuesto"; fi
 # VN24 (M21) verificar: una FunctionCall key de mas DESPUES de la buena tambien es una llave de mas.
 desde_foto todo-main vn24
 jq --arg c "v2.$P_MAIN" '.cuentas["em-capturer-v2.arras-escrow.near"].keys += [{"public_key":"ed25519:OTRA","access_key":{"nonce":0,"permission":{"FunctionCall":{"allowance":"1","receiver_id":$c,"method_names":["release"]}}}}]' "$STUB/cadena.json" >"$STUB/c.json" && mv "$STUB/c.json" "$STUB/cadena.json"

@@ -136,15 +136,15 @@ NEAR_CAPT=${ARRAS_V2_NEAR_CAPTURER:-0.15 NEAR}
 ALLOW_CAPT=${ARRAS_V2_ALLOWANCE_CAPTURER:-$NEAR_CAPT}
 NEAR_ARB=${ARRAS_V2_NEAR_ARBITRO:-0.1 NEAR}
 ALLOW_ARB=${ARRAS_V2_ALLOWANCE_ARBITRO:-$NEAR_ARB}
-# Medido en el ensayo (docs/MAINNET.md, 8.6): las allowances se reponen con el reembolso del gas (el agente gasto 0,0009
-# en dos authorize_from_budget); el agente solo firma el humo y su NEAR queda varado en una cuenta solo-FunctionCall.
-NEAR_AGENTE=${ARRAS_HUMO_NEAR_AGENTE:-0.03 NEAR}
+# Medido en los ensayos (docs/MAINNET.md, 8.3): una llamada reserva por adelantado ~0,00103 NEAR por TGas al precio
+# pesimista (0,0309 para 30 TGas; EM midio 0,151 para 150, docs/EVIDENCE.md 5), y casi todo vuelve con el reembolso, que
+# tambien repone la allowance (el agente gasto 0,0009 en dos authorize_from_budget). El agente solo firma el humo y su
+# NEAR queda varado en una cuenta solo-FunctionCall: 0,06 es dos veces lo que reserva una llamada de 30 TGas.
+NEAR_AGENTE=${ARRAS_HUMO_NEAR_AGENTE:-0.06 NEAR}
 ALLOW_AGENTE=${ARRAS_HUMO_ALLOWANCE_AGENTE:-$NEAR_AGENTE}
 NEAR_WORKER=${ARRAS_HUMO_NEAR_WORKER:-0.01 NEAR}
 NEP145_HUB=${ARRAS_HUMO_NEP145:-0.03 NEAR}      # storage NEP-145 del hub en v2: 0,0243 en el pico del ensayo
-# El ft_transfer_call reserva 100 TGas al precio pesimista: EM midio 0,151 NEAR por adelantado para 150 TGas
-# (docs/EVIDENCE.md, 5), unos 0,05 para 100; 0,1 deja el doble. Vuelve al hub con el reembolso.
-LIBRE_HUB=${ARRAS_HUMO_LIBRE_HUB:-0.1 NEAR}
+LIBRE_HUB=${ARRAS_HUMO_LIBRE_HUB:-0.15 NEAR}    # el ft_transfer_call de 100 TGas reserva ~0,103; vuelve al hub
 for v in RESERVA POOL NEAR_CAPT ALLOW_CAPT NEAR_ARB ALLOW_ARB NEAR_AGENTE ALLOW_AGENTE NEAR_WORKER NEP145_HUB LIBRE_HUB; do
   near_valido "$v" "${!v}"
 done
@@ -255,7 +255,38 @@ tx_con_llave() {
     return 0
   fi
   llave "$rol" "$cuenta" "$permiso" >/dev/null
+  reserva_ok "$cuenta" "$permiso" "$@"
   tx "$etiqueta" "$@" network-config "$NET" sign-with-access-key-file <(llave "$rol" "$cuenta" "$permiso") send
+}
+
+# Una llamada a un contrato reserva por adelantado su gas al precio pesimista (~0,00103 NEAR por TGas, medido) mas el
+# deposito: si la cuenta (y su FunctionCall key, con la allowance) no lo tiene libre, near-cli la rechaza a mitad del
+# paso. Se mira antes de firmar y se dice como recargarla (a una cuenta solo-FunctionCall le manda NEAR cualquiera).
+RESERVA_POR_TGAS=1050000000000000000000      # 0,00105 NEAR
+reserva_ok() {
+  local cuenta=$1 permiso=$2 prev="" a gas="" dep=0 pedido libre allow
+  shift 2
+  for a in "$@"; do
+    [ "$prev" = prepaid-gas ] && gas=${a%% *}
+    [ "$prev" = attached-deposit ] && dep=$(yocto_de_near "$a")
+    prev=$a
+  done
+  [ -n "$gas" ] || return 0
+  pedido=$(python3 -I -c 'import sys, decimal; print(int(decimal.Decimal(sys.argv[1]) * int(sys.argv[2])) + int(sys.argv[3]))' "$gas" "$RESERVA_POR_TGAS" "$dep")
+  libre=$(libre_de "$cuenta")
+  mayor_o_igual "$libre" "$pedido" ||
+    die "$cuenta tiene $(en_near "$libre") libres y esta llamada de $gas TGas reserva $(en_near "$pedido") por adelantado: recargala (near tokens <cuenta con NEAR> send-near $cuenta '<NEAR>' ...) y volve a correr el paso"
+  [ "$permiso" = full ] && return 0
+  allow=$(llaves_json "$cuenta" | jq -r --arg k "$(vivas "$cuenta" "$permiso" | head -1)" '.[] | select(.public_key == $k) | .access_key.permission.FunctionCall.allowance // "sin-tope"')
+  [ "$allow" = sin-tope ] || mayor_o_igual "$allow" "$pedido" ||
+    die "la FunctionCall key de $cuenta tiene $(en_near "$allow") de allowance y esta llamada reserva $(en_near "$pedido"): la llave ya no alcanza (una allowance no se sube; otra cuenta con update_operator)"
+}
+# Un monto de near-cli ('0.15 NEAR', '1 yoctoNEAR') en yocto.
+yocto_de_near() {
+  case "$1" in
+    *yoctoNEAR) printf '%s' "${1%% *}" ;;
+    *) yocto "$1" ;;
+  esac
 }
 
 # --- ticket del operador ------------------------------------------------------------------------------------------------
@@ -855,8 +886,9 @@ paso_humo_presupuesto() {
       echo "ya depositado: presupuesto $p"
       return 0
     fi
-    if [ "$hechos" != 0 ]; then
-      echo "el presupuesto ya se uso y se revoco ($hechos pagos del humo en cadena): no se deposita otro"
+    # Despues de un compact los pagos ya no estan en cadena: la marca del deposito evita un segundo presupuesto.
+    if [ "$hechos" != 0 ] || [ -f "$HUMO/presupuesto.hecho" ]; then
+      echo "el presupuesto ya se uso y se revoco ($hechos pagos del humo en cadena; marca $HUMO/presupuesto.hecho): no se deposita otro"
       return 0
     fi
     mayor_o_igual "$(usdc_de "$FONDEO")" "$HUMO_PRESUPUESTO" || die "el hub tiene $(usdc_de "$FONDEO") de USDC y el humo necesita $HUMO_PRESUPUESTO"
@@ -887,6 +919,8 @@ paso_humo_presupuesto() {
   tx_con_llave fondeo "$FONDEO" full "humo: presupuesto $HUMO_PRESUPUESTO para $AGENTE" contract call-function as-transaction "$USDC" ft_transfer_call json-args "$(jq -nc --arg r "$C2" --arg a "$HUMO_PRESUPUESTO" --arg m "$msg" '{receiver_id:$r,amount:$a,msg:$m}')" prepaid-gas '100.0 Tgas' attached-deposit '1 yoctoNEAR' sign-as "$FONDEO"
   if real; then
     hasta presupuesto_con "$HUMO_PRESUPUESTO" || die "el deposito no creo el presupuesto (rechazo: mira el log arras:rechazo de la tx): $(presupuesto_de)"
+    mkdir -p "$HUMO"
+    date -u +%FT%TZ >"$HUMO/presupuesto.hecho"
     echo "OK: presupuesto de $FONDEO para $AGENTE: $(presupuesto_de)"
   fi
   anotar_saldos humo-presupuesto
@@ -922,7 +956,8 @@ id_humo() {
   id=$(vista "$C2" compute_budget_payment_id "$args" | tr -d '"')
   id_valido "$id" || die "compute_budget_payment_id no devolvio un payment_id ('$id')"
   mkdir -p "$HUMO"
-  jq -nc --argjson a "$args" --arg id "$id" '{args:$a,payment_id:$id}' >"$f.tmp" && mv "$f.tmp" "$f"
+  { jq -nc --argjson a "$args" --arg id "$id" '{args:$a,payment_id:$id}' >"$f.tmp" && mv "$f.tmp" "$f"; } ||
+    die "no se pudo guardar $f (el pago tiene que quedar anotado antes de firmarlo)"
   printf '%s' "$id"
 }
 # El agente autoriza el pago del humo $1 desde el presupuesto, con su FunctionCall key y el ticket del pago.
@@ -932,6 +967,14 @@ autorizar_humo() {
     # Primero el id (guarda los args la primera vez), despues los args guardados: una sola sal por pago.
     id=$(id_humo "$1")
     args=$(args_humo "$1")
+    # Un pago guardado que nunca entro y cuyo release_deadline ya (casi) paso daria E11 en cada corrida: se aparta y se
+    # arma otro (el que se aparta no esta en cadena: autorizar solo corre con el pago en null).
+    if [ "$(jq -r .release_deadline <<<"$args")" -lt $(( $(ahora_ns) + 3600000000000 )) ]; then
+      mv "$HUMO/$1.json" "$HUMO/$1.json.vencido-$(date -u +%Y%m%dT%H%M%SZ)"
+      echo "el pago guardado de $1 vencio sin entrar: se arma otro"
+      id=$(id_humo "$1")
+      args=$(args_humo "$1")
+    fi
     if [ "$TICKET" = si ]; then
       ticket=$(firmar_ticket ticket_message_payment "$(jq -nc --arg p "$id" --arg e "$(( $(ahora_ns) + 600000000000 ))" '{payment_id:$p,expiry:$e}')")
     fi
