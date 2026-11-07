@@ -1194,7 +1194,8 @@ ARGS=(--mainnet-ok humo-pago); real_main
 sale_mal; dice "tiene un payment_id invalido"
 # VN20d (P2-1) el presupuesto lo decide la cadena: con un pago del humo ya hecho y el presupuesto revocado, no se
 # deposita otro.
-desde_foto humo-main vn20d; antes=$(n_tx); ARGS=(--mainnet-ok humo-presupuesto); real_main
+desde_foto humo-main vn20d; rm -f "$STUB/$(dirname "$TICKET_PEM_M")/humo/presupuesto.hecho"
+antes=$(n_tx); ARGS=(--mainnet-ok humo-presupuesto); real_main
 sale 0; dice "ya se uso y se revoco"; if [ "$(n_tx)" = "$antes" ]; then ok; else mal "deposito otro presupuesto"; fi
 # VN21 (P3-4) un fee_recipient sin FullAccess (el capturer de v1) no se registra: la tarifa quedaria atrapada.
 nuevo2 vn21; cadena mainnet; wasm2
