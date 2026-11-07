@@ -1,9 +1,9 @@
 # Arras v1 on NEAR mainnet: the runbook (H-3)
 
-Status (2026-11-03): **prepared, not deployed.** Nothing here has touched mainnet: no account was created and nothing
-was signed (the only mainnet calls were read-only views). The whole sequence ran end to end on testnet with fresh
-development accounts (section 6). The mainnet run is one command that c0der runs once the owner funds the funding
-account.
+Status: **deployed on 2026-11-03** (02:30:11Z to 02:32:30Z by the script's clock; block times 02:30:39Z to
+02:32:19Z), with the one command of section 4, after the testnet rehearsals of section 6. `v1.arras-escrow.near` has
+the pinned wasm and no access keys; section 7 has the run and its transactions, and [EVIDENCE.md](EVIDENCE.md) the
+mainnet transactions since. The text below is the runbook as it was written before the run (2026-11-02/03).
 
 ## 1. What goes on chain
 
@@ -260,3 +260,38 @@ authorize [`AbLh6nZ5bShDDkkLBPPT6XjL4EqxkgRVKBMt2oHSNYwo`](https://testnet.nearb
 release [`C5MapHzDyN4x8XS5RTU4UumKSL2E6mkmXNpH7GuGdjua`](https://testnet.nearblocks.io/txns/C5MapHzDyN4x8XS5RTU4UumKSL2E6mkmXNpH7GuGdjua),
 `withdraw_for` [`HTd8SHpr6a2kw9aEMnndExVvNpc9AQ7fyKCjpdXePX2U`](https://testnet.nearblocks.io/txns/HTd8SHpr6a2kw9aEMnndExVvNpc9AQ7fyKCjpdXePX2U)
 and [`HheUe4hg29aA5GwA7uv4Vf5od3ewiQWKro6LLg8ADJdV`](https://testnet.nearblocks.io/txns/HheUe4hg29aA5GwA7uv4Vf5od3ewiQWKro6LLg8ADJdV).
+
+## 7. The mainnet run (2026-11-03)
+
+`ARRAS_RED=mainnet scripts/mainnet.sh --mainnet-ok todo` (with `ARRAS_KMS_KEY`), from a clean checkout of `ea5869f`
+(the merge of #5, `main` at the time), 02:30:11Z to 02:32:30Z by the script's clock: 15 transactions. The owner funded the funding
+account with 10 NEAR instead of the 4.55 of section 3, so it kept 5.59 NEAR afterwards (for v2). Everything else
+followed sections 1 to 4: case (a), the default amounts and caps, the pinned wasm.
+
+What the script checked on chain before it finished, and what anyone can check now (README, "For NEAR HACKATHON
+judges"):
+
+- the code of `v1.arras-escrow.near` is the wasm `7058319d...0eada` (rev `8da71748`);
+- `get_config` has the expected owner, guardian, native USDC, 10 USDC per payment and 1,000 USDC of global TVL;
+  `get_operator("em")` has the capturer `em-capturer.arras-escrow.near`, 1300 bps, `em-fees.arras-escrow.near`, a
+  0.01 USDC minimum, 1,000 USDC per operator, 20 per payer and 0.02 NEAR of sponsorship per payer;
+- the capturer has exactly one key, the FunctionCall key for `release, refund, withdraw_for` with a 0.5 NEAR allowance;
+- `view_access_key_list` of v1 is empty; `get_storage_health`: 269,634 bytes, 0.30 NEAR of free reserve.
+
+The six live keys (parent, owner, guardian, the v2 reserve, the capturer and the fee recipient) went to SSM under the
+names of section 2, each checked by sha256 without being shown, and the local files were deleted.
+
+| Step | Transaction |
+|---|---|
+| parent `arras-escrow.near` | [`6X1ShTfEsUdmEFoneeLPqCSFCDmjytgJvSCis5yTQoNz`](https://nearblocks.io/txns/6X1ShTfEsUdmEFoneeLPqCSFCDmjytgJvSCis5yTQoNz) |
+| `v1.` / `v2.` / `owner.` / `guardian.` / `em-capturer.` / `em-fees.` | [`MRGoLQRz...`](https://nearblocks.io/txns/MRGoLQRzPokkPm9HRaCnTPA2sP4BXySAs7he1onY2zC) / [`HcYCRfBP...`](https://nearblocks.io/txns/HcYCRfBPKWLihPQfZQJ6HzwGo3dtDN1CL3mkDzv8HNkE) / [`43eEWHe6...`](https://nearblocks.io/txns/43eEWHe6kGxRFMgmj7GXytoGywv3WQWSCg24cJjf1acS) / [`GqLGSr7J...`](https://nearblocks.io/txns/GqLGSr7JpWp9eHvutv3JgaAc6XaTzuBWSbjKxA2Txe35) / [`12enRGRe...`](https://nearblocks.io/txns/12enRGRe5ZPsRwh5X5UoP5Efm3hUUQe89WhxTRGkjhxf) / [`E17CkZjC...`](https://nearblocks.io/txns/E17CkZjChvRGrZkx4dEDGs7NkEimLuVcaow2L6FMkDjx) |
+| USDC storage for v1 / for `em-fees.` | [`Cs9umRAX...`](https://nearblocks.io/txns/Cs9umRAXZNQ3gVynaiaVRSsqyCh8NCsPRiEPJWGjBMkF) / [`8naX3h87...`](https://nearblocks.io/txns/8naX3h87D9kYCWkCnfWVFp4zRQXi7dUuNtBxCP7pvMDA) |
+| deploy + private `new` | [`248SUtwuSygSvfYjubUokvDWpAjgbKDQA6zPLXBDKg68`](https://nearblocks.io/txns/248SUtwuSygSvfYjubUokvDWpAjgbKDQA6zPLXBDKg68) |
+| `register_operator em` / `fund_operator_storage` 0.5 NEAR | [`7iriz6GN...`](https://nearblocks.io/txns/7iriz6GNsyettoms72Z8SPj8DRocP4ctcKM1S4WxuM3F) / [`9YAfdppV...`](https://nearblocks.io/txns/9YAfdppVg2HYnyGemW6JoFxQ7RGFRdhbcwQzR6fAJder) |
+| capturer: FunctionCall key / its FullAccess deleted | [`CazQDx1c...`](https://nearblocks.io/txns/CazQDx1cyYJNvHmL8ZTcJva4hryAXsBVwWFgDUJW5Nq3) / [`DF9cxXNy...`](https://nearblocks.io/txns/DF9cxXNyJjoqSbr5VwFbkdeHg7tR1zf3om1jqzzfVi3w) |
+| **all keys of v1 deleted** | [`5gUfctsBnCUoCPoPMKqfbz4ZKVXKtYAnpUyUf2fjYzLj`](https://nearblocks.io/txns/5gUfctsBnCUoCPoPMKqfbz4ZKVXKtYAnpUyUf2fjYzLj) |
+
+After the run, in the order of section 5: the x402-rs facilitator serves `v1.arras-escrow.near` (H-5), and
+Execution Market's first payment through it was released on 2026-11-03 at 15:49Z (H-8; EVIDENCE.md, section 2). H-11
+has not happened: `v2.arras-escrow.near` still holds no code (its only transaction is its creation), so v2 runs on
+testnet only.
