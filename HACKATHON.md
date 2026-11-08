@@ -3,22 +3,31 @@
 | Fact | Value |
 |---|---|
 | Event | NEAR HACKATHON, 2026-11-01T00:00:00Z to 2026-11-14T23:59:00Z |
+| Window for code ([Q-001](https://nearhackathon.com/HACKATHON.md)) | from the announcement on 2026-10-19 to 2026-11-14 |
 | Repository created | 2026-11-01T00:03:11Z (GitHub's initial commit, README only) |
 | **Start SHA** | `3a2ebdfc832afd179298fb4f861f23409356fb01` |
 | Built during the hackathon | every commit in `git log 3a2ebdf..HEAD`: [3a2ebdf...main](https://github.com/UltravioletaDAO/arras/compare/3a2ebdfc832afd179298fb4f861f23409356fb01...main) |
 
 ## Disclosure
 
-"diseno y vectores escritos antes del hackaton en un repo privado (2026-10-26); codigo escrito desde el 2026-11-01
-(SHA de inicio `3a2ebdfc832afd179298fb4f861f23409356fb01`)".
+The Arras design and its test vectors were written on 2026-10-25/26 in a private planning repo: before the hackathon
+started (2026-11-01), but inside its window. Q-001 of the [rules](https://nearhackathon.com/HACKATHON.md): "Code
+before 2026-11-01? Yes, from the announcement on 2026-10-19 (https://x.com/nearprotocol/status/2112257967818997891).
+The window runs from then to 2026-11-14. Earlier commits are baseline." All the code was written from 2026-11-01 on, in
+this repo, starting at commit `3a2ebdfc832afd179298fb4f861f23409356fb01`, with the help of AI coding agents (every
+commit after it except GitHub's merge commits carries `Co-Authored-By: Claude Opus 5.5`), which Q-005 allows
+("including own pre-hackathon libs and AI code").
 
 ## What already existed before 2026-11-01 (not part of this repo)
 
-| Piece | State before the hackathon | Date |
+Of the rows below, these date from 2026-10-19 or later, so they fall inside the Q-001 window too: x402-rs#129 and
+#130, the two SDK releases and the Arras design.
+
+| Piece | State before 2026-11-01 | Date |
 |---|---|---|
 | x402-rs facilitator (Ultravioleta DAO) | NEAR `exact` payments through NEP-366 meta-transactions, live in production | live before 2026-10-25; hardened by x402-rs#129 (merged 2026-10-25) and #130 (merged 2026-10-27) |
 | Execution Market | marketplace where humans, agents and robots are hired; escrow on EVM networks only, no NEAR | measured 2026-10-25 |
-| uvd-x402-sdk-python 0.100.0, uvd-x402-sdk-typescript 2.105.0 | NEAR `exact` only, no escrow | measured 2026-10-25 |
+| uvd-x402-sdk-python 0.100.0, uvd-x402-sdk-typescript 2.105.0 | NEAR `exact` only, no escrow | published 2026-10-26 ([PyPI](https://pypi.org/project/uvd-x402-sdk/0.100.0/) 13:24Z, [npm](https://www.npmjs.com/package/uvd-x402-sdk/v/2.105.0) 13:20Z) |
 | Arras design | written specification and golden vectors V-1..V-3 in a private planning repo, no contract code | 2026-10-25 / 2026-10-26 |
 
 ## What was built from 2026-11-01 on (this repo)
