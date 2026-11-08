@@ -481,9 +481,9 @@ payment ticket; the capturer released it (0.0435 to the worker, 0.0065 to the fe
 0.05, the human disputed it and the arbiter gave all of it back. The token was a test NEP-141
 (`usdc-ensayo-1107.testnet`; Circle's testnet faucet sits behind a reCAPTCHA). A second rehearsal, after
 the two rounds of that review (`v2.arras-v2f-1107.testnet`), recovered from transient failures by running each step
-again, found the up-front reserve behind the script's last fix (what each call reserves up front) and finished with the
-final script. Every transaction, the measurements and the budget for mainnet: [docs/MAINNET.md](docs/MAINNET.md),
-section 8.
+again, found the up-front reserve behind the script's last fix (the NEAR a call sets aside for its gas before it runs:
+[docs/MAINNET.md](docs/MAINNET.md), 8.3) and finished with the final script. Every transaction, the measurements and
+the budget for mainnet: [docs/MAINNET.md](docs/MAINNET.md), section 8.
 
 The checks below are on the first rehearsal's contract, except the last row, the second rehearsal's.
 
