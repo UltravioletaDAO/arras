@@ -166,10 +166,10 @@ at the pessimistic gas price (most of it is refunded), and the worker's wallet h
 security track), the sequence of [docs/MAINNET.md](MAINNET.md) section 8.4, run once from a clean checkout of `5800cb7`
 (`main` at the time; details in MAINNET.md, section 8.8). The wasm is the reproducible build of commit `ddc5121` (sha256
 `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`), rebuilt before the run by
-`scripts/mainnet-v2.sh wasm` (in a clean clone at `ddc5121`) with the same sha256. 31 transactions: 13 for the deployment (blocks 223552046 to 223552216) and 18 for the smoke test (blocks
-223552329 to 223552597), every one with a successful final status and signed by the account in the table. The smoke
-moved Circle's USDC, with the project's funding account as the human and two test accounts, `agent-v2.` and
-`worker-v2.`, as the agent and the worker.
+`scripts/mainnet-v2.sh wasm` (in a clean clone at `ddc5121`) with the same sha256. 31 transactions: 13 for the
+deployment (blocks 223552046 to 223552216) and 18 for the smoke test (blocks 223552329 to 223552597), every one with a
+successful final status and signed by the account in the table. The smoke moved Circle's USDC, with the project's
+funding account as the human and two test accounts, `agent-v2.` and `worker-v2.`, as the agent and the worker.
 
 | Step | Signed by | Transaction |
 |---|---|---|

@@ -562,9 +562,9 @@ Every step can be run again after fixing the cause; this is what undoes each one
 ### 8.8 The mainnet run (2026-11-08)
 
 c0der ran the runbook of 8.4 (as it stood at `5800cb7`) on 2026-11-08 from a clean checkout of `5800cb7` (the merge
-of arras#10, `main` at the time), on a Mac, with `ARRAS_RPC` (a private mainnet RPC) and `ARRAS_KMS_KEY`. The script's reads and the transactions
-went through that private RPC: c0der pointed near-cli's mainnet connection at it before the run (the script does not
-check this yet, 8.4). In this order, every command with exit 0:
+of arras#10, `main` at the time), on a Mac, with `ARRAS_RPC` (a private mainnet RPC) and `ARRAS_KMS_KEY`. The
+script's reads and the transactions went through that private RPC: c0der pointed near-cli's mainnet connection at it
+before the run (the script does not check this yet, 8.4). In this order, every command with exit 0:
 
 ```bash
 scripts/mainnet-v2.sh wasm                   # reproducible build of ddc5121: sha256 1541525c...fa77, 366,339 bytes = the pin
@@ -631,9 +631,9 @@ it. Execution Market and the facilitator did not change (8.9).
    That capturer starts with 0.15 NEAR of balance and of allowance (v1's started with 0.5): its FunctionCall key
    cannot sign a call that attaches more than about 142 TGas (the up-front reserve of 8.3), and the allowance lasts
    about 300 calls of ~0.0005 NEAR when the capturer signs its own transactions (for v1, section 3 counts none of the
-   allowance through the facilitator's NEP-366 relay, where the relayer pays the gas). Before pointing Execution
-   Market at v2, measure the gas that the facilitator attaches to `release` and `withdraw_for` against this key; if
-   the key does not fit, the capturer is changed with `update_operator` (8.7).
+   allowance through the facilitator's NEP-366 relay, and section 5 says the relayer pays the gas). Before pointing
+   Execution Market at v2, measure the gas that the facilitator attaches to `release` and `withdraw_for` against this
+   key; if the key does not fit, the capturer is changed with `update_operator` (8.7).
 3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
    `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
    or the owner's `update_operator` without the ticket (8.1).
