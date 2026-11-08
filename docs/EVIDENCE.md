@@ -24,7 +24,7 @@ Accounts that appear below:
 | [`826e8c64...7af`](https://nearblocks.io/address/826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af) | a test worker (ERC-8004 identity 0) |
 | [`be5ec510...2902`](https://nearblocks.io/address/be5ec510aa303bd041a2411cb691a8e32907763116ab8cb6a4ac586695aa2902) | a second test worker, registered through the sponsor (ERC-8004 identity 2) |
 | [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | Arras v2 escrow contract (keyless) |
-| [`em-capturer-v2.arras-escrow.near`](https://nearblocks.io/address/em-capturer-v2.arras-escrow.near) | Execution Market's capturer in v2: one function-call key (`release`, `refund`, `withdraw_for` on v2) |
+| [`em-capturer-v2.arras-escrow.near`](https://nearblocks.io/address/em-capturer-v2.arras-escrow.near) | the capturer of operator `em` in v2 (Execution Market does not use v2 yet): one function-call key (`release`, `refund`, `withdraw_for` on v2) |
 | [`em-arbiter-v2.arras-escrow.near`](https://nearblocks.io/address/em-arbiter-v2.arras-escrow.near) | the arbiter of operator `em` in v2: one function-call key (`resolve_dispute` on v2) |
 | [`agent-v2.arras-escrow.near`](https://nearblocks.io/address/agent-v2.arras-escrow.near) | a test account, the smoke test's agent: one function-call key (`authorize_from_budget` on v2) |
 | [`worker-v2.arras-escrow.near`](https://nearblocks.io/address/worker-v2.arras-escrow.near) | a test account, the smoke test's worker |
@@ -165,8 +165,8 @@ at the pessimistic gas price (most of it is refunded), and the worker's wallet h
 `scripts/mainnet-v2.sh --mainnet-ok todo` and then `scripts/mainnet-v2.sh --mainnet-ok humo` (the smoke test of the
 security track), the sequence of [docs/MAINNET.md](MAINNET.md) section 8.4, run once from a clean checkout of `5800cb7`
 (`main` at the time; details in MAINNET.md, section 8.8). The wasm is the reproducible build of commit `ddc5121` (sha256
-`1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`), rebuilt from that checkout before the run with the
-same sha256. 31 transactions: 13 for the deployment (blocks 223552046 to 223552216) and 18 for the smoke test (blocks
+`1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`), rebuilt before the run by
+`scripts/mainnet-v2.sh wasm` (in a clean clone at `ddc5121`) with the same sha256. 31 transactions: 13 for the deployment (blocks 223552046 to 223552216) and 18 for the smoke test (blocks
 223552329 to 223552597), every one with a successful final status and signed by the account in the table. The smoke
 moved Circle's USDC, with the project's funding account as the human and two test accounts, `agent-v2.` and
 `worker-v2.`, as the agent and the worker.

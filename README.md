@@ -43,8 +43,8 @@ feedback without a proof stays possible, as in the standard, and readers filter 
   can only call `release`, `refund` and `withdraw_for` on the escrow, with a 0.5 NEAR allowance. Even if it leaks, the
   money can only go where each payment already says: to the worker, with the fee to the fee recipient frozen in the
   payment, or back to the payer. (In v2, live on mainnet since 2026-11-08, an AI agent holding only a function-call
-  key spends from a budget a human funded and capped; in v2's smoke test that agent is the test account
-  `agent-v2.arras-escrow.near`.)
+  key can spend only from a budget that a human funded and capped; in v2's smoke test the agent is the test account
+  `agent-v2.arras-escrow.near` and the human is the project's funding account.)
 - **Keyless, immutable contracts**: each contract was deployed together with a private `new` in a single transaction,
   then every access key on its account was deleted. There is no `migrate`, so nobody can change the code.
 - **Cross-contract calls whose callbacks fail closed**: `give_feedback_with_proof` asks the Identity Registry
@@ -87,7 +87,9 @@ the fee recipient. Then each side rated the other with that payment as proof ([`
 
 **Check it yourself: read-only, no keys.** These commands use [near-cli-rs](https://github.com/near/near-cli-rs) 0.30.1
 and the mainnet RPC from your own near-cli configuration. They were run against mainnet on 2026-11-06, and the results
-below are what they returned; the v2 rows (the last five) were read on 2026-11-08, after v2's smoke test.
+below are what they returned. The v2 rows (the last five) are from 2026-11-08, after v2's smoke test: the last four as
+near-cli returned them; the first gives what that command shows, with the facts that
+`scripts/mainnet-v2.sh --mainnet-ok verificar` read through the RPC.
 
 | Do | See |
 |---|---|
@@ -101,7 +103,7 @@ below are what they returned; the v2 rows (the last five) were read on 2026-11-0
 | `near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback json-args '{"agent_id":"0","client_address":"fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079","feedback_index":"2"}' network-config mainnet now` | the agent's rating of the worker (agent 0): `"value": "90"`, `tag2` `execution-market` |
 | the same arguments with `read_feedback_proof` | `"proof": "DAtTVvHH..."` (the payment above), `"verifier": "erc8004-verifier.arras-escrow.near"`, `"role": "receiver"`, `"context": "em"`, `"weight": "100000"` (the USDC released) |
 | `read_feedback` / `read_feedback_proof` with `'{"agent_id":"1","client_address":"826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af","feedback_index":"1"}'` | the worker's rating of the agent: `"value": "85"`, the same payment as proof, `"role": "payer"` |
-| `near account view-account-summary v2.arras-escrow.near network-config mainnet now` | SHA-256 `1541525c...fa77`; no access keys. The same facts that `scripts/mainnet-v2.sh verificar` read on 2026-11-08: `code_hash` `2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e` (the base58 of that sha256) and an empty `view_access_key_list` |
+| `near account view-account-summary v2.arras-escrow.near network-config mainnet now` | SHA-256 `1541525c...fa77`; no access keys. The same facts that `scripts/mainnet-v2.sh --mainnet-ok verificar` read on 2026-11-08: `code_hash` `2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e` (the base58 of that sha256) and an empty `view_access_key_list` |
 | `near contract call-function as-read-only v2.arras-escrow.near get_operator json-args '{"operator_id":"em"}' network-config mainnet now` | `"capturers": ["em-capturer-v2.arras-escrow.near"]`, `"arbiter": "em-arbiter-v2.arras-escrow.near"`, `arbiter_window_ns` `604800000000000` (7 days), `fee_bps` 1300, `fee_recipient` `em-fees.arras-escrow.near`, `min_amount` `10000` (0.01 USDC), `"ticket_pubkey": "ed25519:9zh27mQwBQbKGYixfqUVEU4xNtz93Sad8crhhFH4B9YF"`, `sponsor_pool` `100000000000000000000000` (0.1 NEAR), `tvl_operador` `0` |
 | `near account list-keys agent-v2.arras-escrow.near network-config mainnet now` | one key, `ed25519:3TJqivtjEskrdMQTQ8LWpdQcFNN6rFdZpNyGwAfxvdFU`: `only do ["authorize_from_budget"] function calls on v2.arras-escrow.near with an allowance of 0.0591054940912723 NEAR` |
 | `near contract call-function as-read-only v2.arras-escrow.near get_payment json-args '{"payment_id":"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC"}' network-config mainnet now` | the smoke's first payment: `"status": "Released"`, `amount` and `released` `50000` (0.05 USDC), `refunded` `0`, `payer` the funding account `fe0a5742...1079` (the human), `receiver` `worker-v2.arras-escrow.near`, `operator_id` `em`, `fee_bps` 1300, `"dispute": null` |

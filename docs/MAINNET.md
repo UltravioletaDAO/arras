@@ -427,8 +427,8 @@ git checkout <the merge of this PR> && git status --short           # a clean ch
 scripts/mainnet-v2.sh plan                                          # dry run: accounts, caps, wasm, budget (no network)
 scripts/mainnet-v2.sh todo                                          # dry run of the whole sequence: every command, nothing executed
 scripts/mainnet-v2.sh wasm                                          # local reproducible build of ddc5121 (Docker), checked against the pin
-read -rs ARRAS_RPC && export ARRAS_RPC                              # the private mainnet RPC, without echo: not in the history
-export ARRAS_KMS_KEY=<Arras KMS key>                                # ARRAS_RPC is mandatory on mainnet and never printed
+read -rs ARRAS_RPC && export ARRAS_RPC                              # the private mainnet RPC (mandatory, never printed), without echo: not in the history
+export ARRAS_KMS_KEY=<Arras KMS key>                                # the KMS key of the SSM uploads (mandatory in any real run)
 #   -> point near-cli's mainnet connection at that same private RPC: the transactions go through it
 scripts/mainnet-v2.sh --mainnet-ok plan                             # live balances: "OK: alcanza" or the exact shortfall
 scripts/mainnet-v2.sh --mainnet-ok todo                             # fondeo, cuentas, usdc, deploy, operador, capturer, arbitro,
@@ -561,8 +561,8 @@ Every step can be run again after fixing the cause; this is what undoes each one
 
 ### 8.8 The mainnet run (2026-11-08)
 
-c0der ran the runbook of 8.4 on 2026-11-08 from a clean checkout of `5800cb7` (the merge of arras#10, `main` at the
-time), on a Mac, with `ARRAS_RPC` (a private mainnet RPC) and `ARRAS_KMS_KEY`. The script's reads and the transactions
+c0der ran the runbook of 8.4 (as it stood at `5800cb7`) on 2026-11-08 from a clean checkout of `5800cb7` (the merge
+of arras#10, `main` at the time), on a Mac, with `ARRAS_RPC` (a private mainnet RPC) and `ARRAS_KMS_KEY`. The script's reads and the transactions
 went through that private RPC: c0der pointed near-cli's mainnet connection at it before the run (the script does not
 check this yet, 8.4). In this order, every command with exit 0:
 
@@ -579,8 +579,11 @@ scripts/mainnet-v2.sh --mainnet-ok verificar && scripts/mainnet-v2.sh --mainnet-
 31 transactions, block times 02:19:52Z to 02:25:06Z (blocks 223552046 to 223552597), every one with a successful final
 status and signed by the expected account (read through the RPC).
 
-What `verificar` read on chain at the end (it stops on any difference), and what anyone can check now (README, "For
-NEAR HACKATHON judges"):
+What `verificar` read on chain at the end, and what anyone can check now (README, "For NEAR HACKATHON judges"). The
+script stops if the code, the NEP-330 commit, v2's keys, the compared fields of `get_config` and `get_operator`, the
+capturer's or the arbiter's keys, or the `ok` of the storage health differ; the pool and the free reserve it only
+prints, and the `ticket_pubkey` it compares key for key only when the ticket's key file is on disk (otherwise, its
+`ed25519:` form):
 
 - the code of `v2.arras-escrow.near` is the pin: `code_hash` `2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e` (the base58
   of `1541525c...fa77`), NEP-330 `git+https://github.com/UltravioletaDAO/arras?rev=ddc51211ed93973ec9eb537a85bac39367f6e763`;
@@ -627,9 +630,10 @@ it. Execution Market and the facilitator did not change (8.9).
    Its lifecycle gate reads `get_operator("em").capturers` on v2: `["em-capturer-v2.arras-escrow.near"]`.
    That capturer starts with 0.15 NEAR of balance and of allowance (v1's started with 0.5): its FunctionCall key
    cannot sign a call that attaches more than about 142 TGas (the up-front reserve of 8.3), and the allowance lasts
-   about 300 calls of ~0.0005 NEAR. Before pointing Execution Market at v2, measure the gas that the facilitator
-   attaches to `release` and `withdraw_for`; if the key does not fit, the capturer is changed with `update_operator`
-   (8.7).
+   about 300 calls of ~0.0005 NEAR when the capturer signs its own transactions (for v1, section 3 counts none of the
+   allowance through the facilitator's NEP-366 relay, where the relayer pays the gas). Before pointing Execution
+   Market at v2, measure the gas that the facilitator attaches to `release` and `withdraw_for` against this key; if
+   the key does not fit, the capturer is changed with `update_operator` (8.7).
 3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
    `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
    or the owner's `update_operator` without the ticket (8.1).
