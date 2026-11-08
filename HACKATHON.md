@@ -37,10 +37,12 @@ deployment (below). `git log --format='%h %aI %s' 3a2ebdf..HEAD` lists each comm
 | `arras-v1b-1101.testnet` | `8da7174` (in `main`) | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada` | **demo contract**, keyless, deployed 2026-11-01 after the money review |
 | `v1.arras-dev.testnet` | `0fb7929` | `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` | first deployment, keyless, before the self-review fixes |
 | `arras-v2-1103.testnet` | `c416989` | `8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` | **v2** (agent budgets, disputes, operator tickets), keyless, deployed 2026-11-03 |
-| `v2.arras-v2e-1107.testnet` | `ddc5121` (the merge of the reviewed v2) | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | rehearsal of the v2 mainnet script and its smoke test, keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8) |
+| `v2.arras-v2e-1107.testnet` | `ddc5121` (the merge of the reviewed v2) | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | first rehearsal of the v2 mainnet script and its smoke test, with the script as it was before its own money review; keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8.6) |
+| `v2.arras-v2f-1107.testnet` | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | second rehearsal, after the two rounds of the script's money review: it found the up-front reserve behind the script's last fix (docs/MAINNET.md 8.3) and finished with the final script; keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8.6) |
 
-All four wasm files are reproducible builds (`sourcescan/cargo-near:0.21.1-rust-1.96.0`); each carries its commit in the
-NEP-330 metadata (`contract_source_metadata`). Transactions and checks: README, "Testnet deployments".
+Every wasm above is a reproducible build (`sourcescan/cargo-near:0.21.1-rust-1.96.0`; the two rehearsals share the
+pinned wasm of `ddc5121`); each carries its commit in the NEP-330 metadata (`contract_source_metadata`). Transactions
+and checks: README, "Testnet deployments" (v1) and "Arras v2 on testnet" (v2 and the two rehearsals).
 
 On 2026-11-01 both payment paths ran on the demo contract with Circle's testnet USDC, 1 USDC each:
 authorize -> release -> withdraw (0.87 USDC to the worker, 0.13 to the fee recipient) and authorize -> refund ->
@@ -52,10 +54,12 @@ function-call key paid from a human's budget, one dispute was split by the arbit
 worker, and a payment without the operator's ticket was refused. The contract ended with 0 USDC and `tvl_global` 0.
 Transactions, events and balances: README, "Arras v2 on testnet".
 
-On 2026-11-07 the v2 mainnet script ran end to end on testnet (`v2.arras-v2e-1107.testnet`) over the same layout as
-mainnet, with its smoke test: an agent with only a function-call key paid from a human's budget with the operator's
-tickets, the capturer released it, and a disputed payment went back to the human through the arbiter. The token was a
-test NEP-141 (Circle's testnet faucet sits behind a reCAPTCHA). Transactions: docs/MAINNET.md, section 8.6.
+On 2026-11-07 the v2 mainnet script ran end to end on testnet over the same layout as mainnet, twice: first on
+`v2.arras-v2e-1107.testnet`, then on `v2.arras-v2f-1107.testnet`, which found the up-front reserve behind the script's
+last fix and finished with the final script. Each time with its smoke test: an agent with only a function-call key paid
+from a human's budget with the operator's tickets, the capturer released it, and a disputed payment went back to the
+human through the arbiter. The token was a test NEP-141 (Circle's testnet faucet sits behind a reCAPTCHA).
+Transactions: docs/MAINNET.md, section 8.6.
 
 ## Deployed during the hackathon (mainnet)
 
@@ -69,11 +73,17 @@ transaction and left without access keys. All transactions, with explorer links:
 | `identity-registry.erc-8004.near` (ERC-8004 Identity) | `f18e25c` | `fe284122f04f319117b47234c1daafa11830862312ad138f3463683fb498d3d5` | 2026-11-04 21:47:55Z; keys deleted 21:49:46Z |
 | `reputation-registry.erc-8004.near` (ERC-8004 Reputation) | `f18e25c` | `dfe715d087517617811c1155bba9c8b6e71b23cbe63481b5afbf484bcbabd56e` | 2026-11-04 21:48:05Z; keys deleted 21:49:53Z |
 | `erc8004-verifier.arras-escrow.near` (Arras proof verifier) | `f18e25c` | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba` | 2026-11-04 21:48:16Z; keys deleted 21:50:01Z |
-<!-- C0DER-V2-MAINNET: once v2 is live, add:
-| `v2.arras-escrow.near` (Arras v2 escrow) | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | <deploy block time>; keys deleted <time> |
--->
+| `v2.arras-escrow.near` (Arras v2 escrow) | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | 2026-11-08 02:20:36Z; keys deleted 02:21:28Z |
 
-Arras v2 is not on mainnet yet; its deployment script and the testnet rehearsal are in docs/MAINNET.md, section 8.
+Arras v2 is on mainnet since 2026-11-08: `scripts/mainnet-v2.sh` deployed it
+([`FdPJxM9k...`](https://nearblocks.io/txns/FdPJxM9kKsPiXeYBkqZnqTqqHKSkUBM2pM1hUg4uQQ1m)), deleted all its keys
+([`Bqc63GgB...`](https://nearblocks.io/txns/Bqc63GgBiTWfrs9nAVHzE9piPLtPsxj6EcPSU7fDmVqt)) and then ran its smoke test,
+the security track, with Circle's USDC: the human (the project's funding account) funded a 0.10 USDC budget for an
+agent with the operator's ticket; the agent, holding only a function-call key for `authorize_from_budget`, paid 0.05 to
+a worker and the capturer released it (0.0435 to the worker, 0.0065 to the fee recipient); a second 0.05 payment,
+disputed by the human, went back whole through the arbiter. The agent and the worker are test accounts of the smoke
+test, and `get_config` counted 2 payments at its end, both the smoke's. Execution Market and the facilitator still use
+v1 only. Transactions: EVIDENCE.md, section 6; the run: docs/MAINNET.md, section 8.8.
 
 Used by the production deployments of Execution Market and of the x402-rs facilitator during the hackathon (their code
 lives in their own repositories):
@@ -85,8 +95,8 @@ lives in their own repositories):
 | 2026-11-06 01:17Z to 01:19Z | Execution Market's golden flow on the ERC-8004 registries: the payer's identity, the payment through Arras and a rating in each direction with the payment as proof; from then on ERC-8004 is Execution Market's NEAR registry | EVIDENCE.md, section 5 |
 | 2026-11-06 01:42Z to 01:47Z | a new worker's identity registered and transferred by Execution Market's sponsor account, `em-identity.near` | EVIDENCE.md, section 5 |
 
-So far all 13 mainnet payments (0.10 USDC each) are the team's own end-to-end tests: one test agent paying the team's
-test workers.
+So far all 13 mainnet payments through v1 (0.10 USDC each) are the team's own end-to-end tests: one test agent paying
+the team's test workers. The 2 payments through v2 (0.05 USDC each) are the team's smoke test above.
 
 ## License
 
