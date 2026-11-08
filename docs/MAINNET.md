@@ -1,5 +1,8 @@
 # Arras v1 on NEAR mainnet: the runbook (H-3)
 
+Arras v2 has its own runbook in [section 8](#8-arras-v2-on-mainnet-the-runbook-h-11) (`scripts/mainnet-v2.sh`): ready
+and rehearsed on testnet, **not deployed to mainnet yet**.
+
 Status: **deployed on 2026-11-03** (02:30:11Z to 02:32:30Z by the script's clock; block times 02:30:39Z to
 02:32:19Z), with the one command of section 4, after the testnet rehearsals of section 6. `v1.arras-escrow.near` has
 the pinned wasm and no access keys; section 7 has the run and its transactions, and [EVIDENCE.md](EVIDENCE.md) the
@@ -295,3 +298,278 @@ After the run, in the order of section 5: the x402-rs facilitator serves `v1.arr
 Execution Market's first payment through it was released on 2026-11-03 at 15:49Z (H-8; EVIDENCE.md, section 2). H-11
 has not happened: `v2.arras-escrow.near` still holds no code (its only transaction is its creation), so v2 runs on
 testnet only.
+
+## 8. Arras v2 on mainnet: the runbook (H-11)
+
+Status: **not deployed yet.** `scripts/mainnet-v2.sh` is ready and was rehearsed end to end on testnet on 2026-11-07
+(8.6). Nothing below claims a mainnet deployment; the places for the mainnet hashes are marked `C0DER-V2-MAINNET`.
+
+`scripts/mainnet-v2.sh` keeps every guarantee of `scripts/mainnet.sh`: a dry run by default (no network call at all),
+the flag of the same network (`--mainnet-ok` with `ARRAS_RED=mainnet`), no key ever printed, the existing keys read from
+SSM through a pipe, the new keys handed to SSM by printed commands (`secretos`), and the contract account without keys
+at the end. What both scripts share (arguments, networks, account rules, caps, transactions, RPC reads, the pinned
+wasm, keys through a pipe) lives once in `scripts/arras-comun.sh`; v1 behaves as before (its tests did not change).
+
+### 8.1 What goes on chain
+
+| Fact | Value |
+|---|---|
+| Wasm | reproducible build of commit `ddc51211ed93973ec9eb537a85bac39367f6e763`, the merge of arras#6: the v2 that passed its money review (RARRAS-6). `contracts/escrow-v2` and `contracts/escrow-core` are the same in `main` |
+| sha256 (hex) | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` |
+| sha256 (base58, `view_account.code_hash`) | `2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e` |
+| Size | 366,339 bytes |
+| Build | `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...`, built on 2026-11-07 twice from two clean clones (`scripts/mainnet-v2.sh wasm` with two state directories): same sha256. The same environment (Linux under WSL) rebuilt v1's `8da7174` to `7058319d...0eada`, the pin built on a Mac on 2026-11-02: the build reproduces across machines |
+| Account | `v2.arras-escrow.near`, reserved by `scripts/mainnet.sh` on 2026-11-03 (0.1 NEAR, one full-access key in SSM `/arras/mainnet/v2-reserva`) |
+| `new` | the same as v1, from the same function (`comun_topes`): owner, guardian, native USDC, `tope_por_pago` **10 USDC**, `tope_tvl_global` **1,000 USDC** |
+| Operator `em` | v1's values (fee 1300 bps, fee recipient `em-fees.arras-escrow.near`, `min_amount` 0.01 USDC, 1,000 USDC per operator, 20 per payer, 0.02 NEAR sponsorship per payer) plus v2's: capturer `em-capturer-v2.arras-escrow.near`, arbiter `em-arbiter-v2.arras-escrow.near`, arbiter window **7 days**, a `ticket_pubkey`, and a sponsorship pool of 0.1 NEAR |
+
+**The operator ticket.** With a `ticket_pubkey`, every payment and every budget deposit in `em` needs Execution Market's
+ed25519 signature (README, "Operator ticket"): until Execution Market signs tickets, nobody else can fill `em`'s caps or
+drain its pool in v2. The `operador` step generates the key with OpenSSL 3 (outside the repository, mode 600) and
+`secretos` hands it to `/arras/mainnet/em-ticket-v2`. When Execution Market points at v2 without signing tickets, the
+owner removes it (1 yoctoNEAR):
+
+```bash
+near contract call-function as-transaction v2.arras-escrow.near update_operator json-args '{"operator_id":"em","patch":{"quitar_ticket_pubkey":true}}' prepaid-gas '30.0 Tgas' attached-deposit '1 yoctoNEAR' sign-as owner.arras-escrow.near network-config mainnet sign-with-access-key-file <the owner key> send
+```
+
+`ARRAS_V2_TICKET=no` registers `em` without a ticket from the start (the smoke then runs without one).
+
+### 8.2 Accounts, signers and keys
+
+| Role | Account | Exists? | NEAR | Key at the end | Name in SSM |
+|---|---|---|---|---|---|
+| Hub (funding) | `fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079` | yes | sends what v2 and the parent lack | FullAccess | `/arras/mainnet/fondeo` (already there) |
+| Parent | `arras-escrow.near` | yes | receives what the new children need | FullAccess | `/arras/mainnet/padre` (already there) |
+| Contract v2 | `v2.arras-escrow.near` | yes, empty | code + state + a 0.25 free reserve | **none** | `/arras/mainnet/v2-reserva` (already there; dead after `sin-llaves`) |
+| Owner | `owner.arras-escrow.near` | yes | its own 0.1 | FullAccess | `/arras/mainnet/owner` (already there) |
+| Capturer of `em` in v2 | `em-capturer-v2.arras-escrow.near` | **new** | 0.15 | **only** a FunctionCall key: receiver v2, `release, refund, withdraw_for`, allowance 0.15 | `/arras/mainnet/em-capturer-v2` |
+| Arbiter of `em` in v2 | `em-arbiter-v2.arras-escrow.near` | **new** | 0.1 | **only** a FunctionCall key: receiver v2, `resolve_dispute`, allowance 0.1 | `/arras/mainnet/em-arbiter-v2` |
+| Fee recipient | `em-fees.arras-escrow.near` | yes (v1's, registered in USDC) | - | FullAccess | `/arras/mainnet/em-fees` (already there) |
+| Operator ticket | an ed25519 key, not an account | **new** | - | - | `/arras/mainnet/em-ticket-v2` |
+| Smoke: the agent | `agent-v2.arras-escrow.near` | **new** (smoke) | 0.06 | **only** a FunctionCall key: receiver v2, `authorize_from_budget`, allowance 0.06 | `/arras/mainnet/humo-agente-v2` |
+| Smoke: the worker | `worker-v2.arras-escrow.near` | **new** (smoke) | 0.01 | FullAccess (it holds the USDC it is paid) | `/arras/mainnet/humo-worker-v2` |
+
+Why a new capturer: `em-capturer.arras-escrow.near` has a single FunctionCall key whose receiver is v1, and without a
+full-access key it cannot add another (`AddKey` needs one). The facilitator's lifecycle gate reads
+`get_operator("em").capturers` of each contract, so each contract has its own capturer.
+
+Each existing key is used from near-cli's legacy keychain when its file is there and its public key is live on chain
+with the permission needed; otherwise from SSM. Either way it reaches near-cli through a pipe (`sign-with-access-key-file
+/dev/fd/N`) and is checked against `view_access_key_list` before anything is signed. Who signs each step:
+
+| Step | Signs | What |
+|---|---|---|
+| `fondeo` | hub | `send-near` to v2 (what it lacks for code, state, reserve and gas) and to the parent (what the new children need), only if the hub holds everything `todo` needs; nothing is sent otherwise |
+| `cuentas` | parent | `create-account` of the capturer and the arbiter |
+| `usdc` | hub | `storage_deposit` of v2 in USDC (and of the fee recipient, if it were missing) |
+| `deploy` | v2 | deploy + private `new` in one transaction |
+| `operador` | owner; hub | `register_operator em` (1 yocto); `fund_operator_storage` 0.1 NEAR |
+| `capturer`, `arbitro` | each account, with its creation key | adds its FunctionCall key, then deletes its own full-access key |
+| `sin-llaves` | v2 | deletes **all** its keys in one transaction |
+| `verificar`, `plan`, `medir`, `enlaces` | nobody | RPC reads |
+| `secretos` | c0der, AWS CLI | one printed line per live key (`put-parameter && compare && rm`); the script runs none |
+
+### 8.3 How much NEAR, exactly
+
+Measured on the testnet rehearsal of 8.6 (storage costs and the gas price are the same on both networks):
+
+| Item | NEAR | Measured as |
+|---|---|---|
+| v2 storage after deploy, `new` and `register_operator em` (with ticket), keyless | **3.67245** | 367,245 bytes: the wasm (366,339) + 906 of state |
+| v2 gas: deploy + `new` / delete its keys | 0.00284 / 0.00004 | balance of v2 before and after |
+| creating one sub-account | 0.00711 | parent's balance, as in section 3 |
+| a call with a FunctionCall key (`release`, `withdraw_for`, `resolve_dispute`, `authorize_from_budget`) | 0.0003 to 0.0006 | the allowance goes down by the gas burnt only: the gas refund also refunds the allowance |
+| what a call reserves **up front** (pessimistic gas price), refunded right after | **0.0309 for 30 TGas** | the second rehearsal: the agent, with 0.0299 free, could not sign its 30 TGas `authorize_from_budget` (near-cli: "does not have enough balance ... to cover TX cost (0.0309...)"). Execution Market measured 0.151 for 150 TGas (EVIDENCE.md, section 5): about 0.00103 NEAR per TGas. Before signing any call the script checks the account's free NEAR, and its FunctionCall key's allowance, against 0.00105 per TGas plus the deposit, and says how to top it up |
+| the hub's NEP-145 storage in v2 during the smoke | 0.0243 at the peak | 0.00495 for the budget + 2 payments; `revoke_agent` and `storage_withdraw` return all but the payments' 0.01939, which come back at `compact` |
+
+`scripts/mainnet-v2.sh plan` prints the budget step by step. In a dry run it assumes the worst case (v2 with its 0.1, the
+parent with no free NEAR); in a real run it reads the live balances. With the defaults, the dry run for mainnet says:
+
+| Step | What | NEAR from the hub |
+|---|---|---|
+| `fondeo` | v2: wasm 366,339 + state 1,000 bytes + free reserve 0.25 + gas 0.006, minus the 0.1 it has | 3.83000 |
+| `fondeo` | parent: capturer 0.15 + arbiter 0.1 + 0.01 per creation | 0.27000 |
+| `fondeo` | gas of the hub's transfers | 0.00100 |
+| `usdc` | `storage_deposit` of v2 in USDC | 0.00225 |
+| `operador` | sponsorship pool of `em` in v2 | 0.10100 |
+| **`todo`** | | **4.20425** |
+| `humo` | parent: agent 0.06 (twice what a 30 TGas call reserves) + worker 0.01 + 0.01 per creation, plus the transfer | 0.09100 |
+| `humo` | `storage_deposit` of the worker in USDC | 0.00225 |
+| `humo` | the hub's NEP-145 deposit in v2 | 0.03100 |
+| `humo` | gas of the hub's smoke calls | 0.00500 |
+| `humo` | free NEAR at the 100 TGas `ft_transfer_call` (reserves ~0.103; comes back) | 0.15000 |
+| **`humo`** | | **0.27925** |
+| **total** | | **4.48350** |
+
+The hub held 4.42292 NEAR at first on 2026-11-07, 0.06240 short for `todo` and the smoke together in the worst case;
+the owner then sent 0.5 more, and c0der read **4.92292 NEAR** at 23:22:52Z (block 223533439), 4.92110 of them free after
+its own 182 bytes: **`todo` and the smoke fit, with 0.43760 NEAR to spare in the worst case** (the parent with no free
+NEAR); whatever the parent holds free is spare on top. The real `plan` prints `OK: alcanza` or the exact shortfall
+(`FALTA: ...`) from the live balances, and `fondeo` sends nothing unless the hub holds everything `todo` needs. The
+smoke also needs 0.10 USDC from the hub (it held 3.957303).
+
+What stays where: the code, the state, the free reserve (0.2597 in the rehearsal) and the pool live in v2 forever (no
+keys); the capturer's, arbiter's and agent's NEAR can only pay their gas (FunctionCall keys only); the parent keeps the
+unused part of the 0.01 per creation.
+
+### 8.4 The sequence (c0der, on the Mac)
+
+```bash
+git checkout <the merge of this PR> && git status --short           # a clean checkout
+scripts/mainnet-v2.sh plan                                          # dry run: accounts, caps, wasm, budget (no network)
+scripts/mainnet-v2.sh todo                                          # dry run of the whole sequence: every command, nothing executed
+scripts/mainnet-v2.sh wasm                                          # local reproducible build of ddc5121 (Docker), checked against the pin
+export ARRAS_RPC=<the private mainnet RPC> ARRAS_KMS_KEY=<Arras KMS key>   # ARRAS_RPC is mandatory on mainnet and never printed
+scripts/mainnet-v2.sh --mainnet-ok plan                             # live balances: "OK: alcanza" or the exact shortfall
+scripts/mainnet-v2.sh --mainnet-ok todo                             # fondeo, cuentas, usdc, deploy, operador, capturer, arbitro,
+                                                                    # sin-llaves, verificar, secretos, enlaces
+#   -> run the printed `secretos` lines (each: upload to SSM && compare && rm)
+scripts/mainnet-v2.sh --mainnet-ok humo                             # the smoke (8.5); it ends printing the `secretos` lines
+#   -> run them (the agent's and the worker's keys to SSM)
+scripts/mainnet-v2.sh --mainnet-ok verificar && scripts/mainnet-v2.sh --mainnet-ok enlaces
+```
+
+The ticket needs OpenSSL 3 (`/usr/bin/openssl` on macOS is LibreSSL): the script takes `ARRAS_OPENSSL`, the `openssl` of
+the `PATH` or Homebrew's `openssl@3`, and checks it before sending anything. Every step is idempotent: run again after a
+failure and it skips what is done (rehearsed: a second `todo` and a second `humo` sent no transaction); the pool is
+funded once (a marker in the state directory), so a second `todo` does not send another 0.1 to a keyless account if
+Execution Market spent it. The steps also run one by one (`fondeo`, `cuentas`, ... `humo-pago`, `humo-disputa`).
+
+`ARRAS_RPC` is for the script's reads: it goes to `curl` through its config on stdin, never as an argument (`ps` would
+show it). The transactions go through the RPC of near-cli's own config (`network-config mainnet`).
+
+What the script refuses (tests in `scripts/test_mainnet.sh`, section v2): the other network's flag; mainnet without
+`ARRAS_RPC`; `ARRAS_FONDEO_ARCHIVO` or `ARRAS_USDC_TESTNET` on mainnet; an account in two roles; a capturer, arbiter or
+agent that is not a direct child of the parent; incoherent caps (the same checks as v1) and integers with leading zeros
+(bash would read them as octal); an arbiter window outside `[60 s, 30 days]`; a free reserve under 0.2 NEAR; an
+allowance of 0; smoke amounts outside 0.01 to 0.10 USDC per payment or above 0.20 in total; a key from SSM or the
+keychain that is not live on chain with the permission needed; an OpenSSL other than 3 for the ticket; funding unless
+the hub holds all of `todo`; a wasm whose sha256 or commit differs from the pins; deploying over other code or into an
+unfunded v2; a fee recipient or a smoke worker with no full-access key (what they receive would be stuck); a
+`get_config` or `get_operator` that differs in any field compared; deleting a full-access key before the FunctionCall
+key is on chain with the exact methods, the configured allowance and its file in the keychain; a capturer or arbiter
+left with any key but that one; `sin-llaves` on a v2 without the pinned code, the expected config or the pinned
+NEP-330 commit, or with any key left; a storage health in alarm or a v2 not registered in USDC; the smoke before `todo`,
+without the hub's USDC or the free NEAR it needs, over a different existing budget, with a ticket key that is not the
+operator's, a payment saved without a valid `payment_id`, a `withdraw_for` whose USDC did not arrive, or a dispute that
+did not return everything to the payer.
+
+### 8.5 The smoke (security track)
+
+`scripts/mainnet-v2.sh --mainnet-ok humo`, with explicit caps: `ARRAS_HUMO_MONTO` (0.05 USDC per payment, between 0.01
+and `ARRAS_HUMO_TOPE_POR_PAGO`, which is 0.10 and cannot go higher) and `ARRAS_HUMO_TOPE_TOTAL` (0.20, the most the
+smoke moves; it moves 2 x the amount). Everything goes directly through near-cli: no facilitator, no change to
+`NEAR_ESCROW_CONTRACTS_MAINNET`.
+
+| Part | Signs | NEAR from | USDC |
+|---|---|---|---|
+| `humo-cuentas`: the agent (one FunctionCall key: `authorize_from_budget`) and the worker | parent; each account | hub -> parent (0.06) | the hub pays the worker's USDC storage |
+| `humo-presupuesto`: the hub's NEP-145 deposit in v2 (0.03), then `ft_transfer_call` of 0.10 with `msg` `budget` (caps 0.05 per payment, 0.10 per day) and the operator's budget ticket | hub; the ticket key signs the ticket | hub | **0.10 hub -> v2** (the agent's budget) |
+| `humo-pago`: the agent authorizes 0.05 to the worker (`authorize_from_budget`, payment ticket); the capturer releases; `withdraw_for` the worker and the fee recipient | agent (FunctionCall key); capturer (FunctionCall key) | their own gas | **0.0435 v2 -> worker, 0.0065 v2 -> em-fees** |
+| `humo-disputa`: the agent authorizes 0.05; the hub (the payer) opens a dispute; the arbiter gives everything back; `withdraw_for` the hub | agent; hub; arbiter (FunctionCall key); capturer | their own gas | **0.05 v2 -> hub** |
+| `humo-cierre`: `revoke_agent`, `storage_withdraw` of the hub's free NEP-145 balance, the final state | hub | the hub gets its free storage back; the 0.01 to 0.02 NEAR that the two payments keep come back with `compact`, 7 days after their `reclaim_after` | v2 holds 0, `tvl_global` 0 |
+| `secretos` (the end of `humo`) | nobody | - | the commands that hand the agent's and the worker's keys to SSM |
+
+Net: the hub spends 0.05 USDC, the worker gets 0.0435 and the fee recipient 0.0065. Every transaction is recorded with its
+label (`enlaces` prints the explorer links). The agent's key can only call `authorize_from_budget` on v2, and the
+contract bounds it: per payment and per day caps of the budget, the 60-day horizon, `dispute_deadline` no earlier than
+`release_deadline`, and the money stays in escrow until the capturer releases it.
+
+### 8.6 Testnet rehearsal (2026-11-07): `arras-v2e-1107.testnet`
+
+The mainnet layout was rebuilt on testnet first, with v1's script and a new implicit funding account (case a), then v2
+went on top with `scripts/mainnet-v2.sh --testnet-ok todo` and `humo`, with the mainnet defaults of that run (two were
+lowered afterwards with what it measured: the agent's NEAR, 0.1 -> 0.03, and the hub's free NEAR for the
+`ft_transfer_call`, 0.15 -> 0.1; 8.3). The token was a test
+NEP-141 (`usdc-ensayo-1107.testnet`, `contracts/test-ft`, 6 decimals) through `ARRAS_USDC_TESTNET`, which only testnet
+accepts: Circle's testnet faucet sits behind a reCAPTCHA. Circle's testnet USDC already went through v1 and v2 on testnet
+(README). All runs exited 0; a second `todo` and a second `humo` sent no transaction (31 before and after).
+
+| Step | Transaction |
+|---|---|
+| the funding account receives 9.95 NEAR from a faucet account | [`9dAgTtyR...`](https://testnet.nearblocks.io/txns/9dAgTtyRg4D7GVgVzT3PxuHrkQYKqbftVsU9Zs3ZVkcB) |
+| v1's layout (`scripts/mainnet.sh --testnet-ok todo`): parent / deploy of v1 / all keys of v1 deleted | [`DshDtb18...`](https://testnet.nearblocks.io/txns/DshDtb18PGip8AfTL8Jyzdoc95H9JQRVF4UX2HWYYZ3E) / [`8N1g4oTk...`](https://testnet.nearblocks.io/txns/8N1g4oTkTg84fbk9SqUhiZMhP33sb7DModzik1NgVTBs) / [`89pduPmK...`](https://testnet.nearblocks.io/txns/89pduPmKE8Eynjm6zbN43pMaUvs88Who1LBEWUgaUCfy) |
+| `fondeo`: hub -> v2 (3.835) / hub -> parent | [`J7nsXATC...`](https://testnet.nearblocks.io/txns/J7nsXATCRLeP36eXZ4zrM56eEU7QnjPTitvQuC7ciJ3L) / [`6we9jJws...`](https://testnet.nearblocks.io/txns/6we9jJwsfrNr3G4k3zaiMVoCZ34VhZMqyY2Ndemq8yVw) |
+| `cuentas`: capturer / arbiter | [`Bhd5ubAm...`](https://testnet.nearblocks.io/txns/Bhd5ubAmFBwjX6V4wiY4M7tCu3MJDDWFM4QsnongnRfY) / [`HVFkBbXa...`](https://testnet.nearblocks.io/txns/HVFkBbXaRbvEzs7dBHCGdZgtr9yXfirNqbVWF4tCK2Fv) |
+| `usdc`: v2 | [`HnRdxcjy...`](https://testnet.nearblocks.io/txns/HnRdxcjy4umMLtdxiJwpZ4Sw2jSNn3LUt8G77aGAEEw) |
+| **deploy + private `new`** of the pinned wasm | [`Fn6bFEsY...`](https://testnet.nearblocks.io/txns/Fn6bFEsYjGX7VDQgA7zBZULasNaYL6FXTTbvwz9uVci4) |
+| `register_operator em` (capturer, arbiter, 7 days, ticket) / pool 0.1 NEAR | [`HYYDCHEG...`](https://testnet.nearblocks.io/txns/HYYDCHEGVmEgjbqkZ7KyWG4oqaNryQGGnCmXMQK2touK) / [`2Zy4F6Ej...`](https://testnet.nearblocks.io/txns/2Zy4F6EjbyS4X7QaMFJ13YMnR4KcJtwecAVfaAXT6bZ4) |
+| capturer: FunctionCall key / full-access deleted | [`dKXYo9D9...`](https://testnet.nearblocks.io/txns/dKXYo9D9p1EVX5DndMJeNLHN1ucUSHBAnVTHFWR4F7W) / [`5XSAeAJq...`](https://testnet.nearblocks.io/txns/5XSAeAJqUmr3GMskhn198e3etCdkMJZbrFdzrRTJfNT6) |
+| arbiter: FunctionCall key / full-access deleted | [`5zCcr57S...`](https://testnet.nearblocks.io/txns/5zCcr57SLGcmZMEN97X8VbH6uV88jQBdwJUvaMEkYw8N) / [`CsqJBZuk...`](https://testnet.nearblocks.io/txns/CsqJBZukSn82U5JA1KQMc1iNGyqZvgUPJBY4wnwai138) |
+| **all keys of v2 deleted** | [`Adc5vT9J...`](https://testnet.nearblocks.io/txns/Adc5vT9JcfDdFtm1Fe3dfgnV7z5Q9Pctwt9vTyxYFHvC) |
+| smoke: parent funded / agent / worker / agent's FunctionCall key / its full-access deleted / worker's token storage | [`F45oTAp4...`](https://testnet.nearblocks.io/txns/F45oTAp4TkEG6ZVhb8kiak1URqnxkH7rVuQ9BZpqNdXt) / [`DhUJiPeX...`](https://testnet.nearblocks.io/txns/DhUJiPeXnszDmmc8hSd5ivCAp2jKRfaQAMbkMqUGmzJX) / [`2oKs2E6J...`](https://testnet.nearblocks.io/txns/2oKs2E6JCcJhvdhfbqo4QFuj3ke4KPRP6Hk916HhSghE) / [`HvWXWSwS...`](https://testnet.nearblocks.io/txns/HvWXWSwSzC36yyhNKFztSmPrS1JZWQYKhyYx41Haio7k) / [`DC9zmTdm...`](https://testnet.nearblocks.io/txns/DC9zmTdmEb6eYzPYp4hwj2yh9LKyFadCFGVYXqNjBTRb) / [`3UM963VB...`](https://testnet.nearblocks.io/txns/3UM963VBQeGc1uAvkbGRcbGNqSeTDBzA6gWawSrbg8Ry) |
+| smoke: the hub's NEP-145 deposit / **the budget, 0.10 with the operator's ticket** | [`CLC1buDh...`](https://testnet.nearblocks.io/txns/CLC1buDhATBxKQ18PDa5AcLgKN6DV7SDUsKpPDCqcX9f) / [`L6yJ7EpQ...`](https://testnet.nearblocks.io/txns/L6yJ7EpQsWPr29x4dgEkv1Z4ZrQQWCHhecxjcK5Eq5s) |
+| smoke, payment `5AkgphxK...`: **the agent's `authorize_from_budget`** / release / `withdraw_for` worker (0.0435) / fee recipient (0.0065) | [`3ejX8nyX...`](https://testnet.nearblocks.io/txns/3ejX8nyXzgpzeYy4ciyMVHgddpZLqSci7pxLctxSD3yk) / [`3YFBHjX3...`](https://testnet.nearblocks.io/txns/3YFBHjX3RYYij1jgFAoVtjKMrH2tUCrKPdku1aCRJ6GU) / [`8jLKWLxm...`](https://testnet.nearblocks.io/txns/8jLKWLxmWSzYvHF8Uy376vPEKGYReHKdWmR2BbU5uzWE) / [`2dYe6JE1...`](https://testnet.nearblocks.io/txns/2dYe6JE1J88hdPfSTgEpPsH2FRCCiAabUhnJ8jNUrYpW) |
+| smoke, payment `HfTEaoU9...`: the agent's authorize / **the payer opens a dispute** / **the arbiter returns all of it** / `withdraw_for` the payer (0.05) | [`FR5L8nbj...`](https://testnet.nearblocks.io/txns/FR5L8nbjxipxcinYEtHCT7oZ1wH6CPn2qxDuooM3veYm) / [`HtvwdaFM...`](https://testnet.nearblocks.io/txns/HtvwdaFMbKDMjRNyTQDNfsaTeXFBNtX3i2N8gAR2rWyE) / [`6WgejNRV...`](https://testnet.nearblocks.io/txns/6WgejNRVyrT1Cc4Yugf8p1BNgJyfth8hDaLKT5rbo2Yy) / [`3eKe5Fun...`](https://testnet.nearblocks.io/txns/3eKe5FunRFccYe5dXMkcktGyzXJin28puVQxMPrG7zqa) |
+| smoke: `revoke_agent` / `storage_withdraw` | [`Aue8sc1b...`](https://testnet.nearblocks.io/txns/Aue8sc1bqLwk74eYAD5Y1CXr1BNqfuuqS8SksM2HPWjJ) / [`A2zt75wB...`](https://testnet.nearblocks.io/txns/A2zt75wBvkszFRtCjGTddPoCwQ5bDEvTcqU1mhLDgNsE) |
+
+**Second rehearsal, with the final script (2026-11-07): `arras-v2f-1107.testnet`.** The same sequence from scratch,
+with a new funding account, after the money review's two rounds. It is the one that found the up-front reserve of 8.3:
+the agent's 0.03 (that day's default) and then its key's 0.03 allowance could not cover a 30 TGas call, and the script
+now refuses before signing and says how to top up; the defaults went to 0.06. It also went through two transient
+testnet failures (`Transaction has expired` creating the capturer; a nonce clash from a second run started in
+parallel by mistake, which also sent the deploy without recording its hash) and every rerun picked up where the chain
+was. The smoke then ran with a second agent after `humo-cierre` revoked the first one's budget and returned its tokens.
+Final state, read by `verificar`: code = pin, no keys, NEP-330 `ddc5121`, `em` as decided, one FunctionCall key on the
+capturer and on the arbiter, v2 registered in the token, storage health `ok`; a second `todo` and a second `humo` sent
+no transaction (37 before and after).
+
+| Step | Transaction |
+|---|---|
+| funding account <- faucet account (9.95 NEAR) | [`9p3fRdtB...`](https://testnet.nearblocks.io/txns/9p3fRdtBwn4Eumqt8QoZ4BGAxCxFfZNvuPXG4Bxq68xK) |
+| `register_operator em` / pool | [`Abg5Ck51...`](https://testnet.nearblocks.io/txns/Abg5Ck51qW8JwXKprtb5iwpu4MQayoiArGzYNEv3YbXn) / [`93rwzk15...`](https://testnet.nearblocks.io/txns/93rwzk15vi78uB4qrHuxWrfYFdt2dt5ck3BMgXq34i39) |
+| **all keys of v2 deleted** | [`5dCFenxU...`](https://testnet.nearblocks.io/txns/5dCFenxU55zFnfXt7rqPQMw3TZ2Zeq4ZHZjMbLYqCwp4) |
+| the first agent's budget revoked (`humo-cierre`) / its tokens back | [`9DSmoHxy...`](https://testnet.nearblocks.io/txns/9DSmoHxyVbCFUFyZbXW3gSszbEoTprN4DnSdExwgqvNT) / [`CyLj4hNX...`](https://testnet.nearblocks.io/txns/CyLj4hNXrYpQMWqBmyie9rPPvKZ4cWxWNXgzEBe1MH2f) |
+| smoke with `agent2-v2.`: budget / `authorize_from_budget` / release / `withdraw_for` worker and fee recipient | [`4owzNUGm...`](https://testnet.nearblocks.io/txns/4owzNUGmgLRmzQWbT1rsZXa2goegt4DvmUZwBkKgHMeD) / [`5qdG4RFg...`](https://testnet.nearblocks.io/txns/5qdG4RFgHg7DsRNBbuFodzUmNCC6ycHV4Rz6zhCKXMSB) / [`4pC7pNed...`](https://testnet.nearblocks.io/txns/4pC7pNedUL26GEcKUVr98zmtX2gwKTReDiJ2kbmXJdDS) / [`Ec7myWtq...`](https://testnet.nearblocks.io/txns/Ec7myWtqKeEHVTGEBkvsnSC5LoXZUZLowuRRj3A53xgw), [`24BW5pn1...`](https://testnet.nearblocks.io/txns/24BW5pn14RLg2FNpwcb6n7Z9XZuVkZ9a6kgGmYCsEWGt) |
+| smoke: second payment / dispute / the arbiter returns it all / `withdraw_for` the payer / `revoke_agent` | [`58qnhcbg...`](https://testnet.nearblocks.io/txns/58qnhcbgobWjET4VXnNdYezcb1AouTsHkj85mQDYNADv) / [`J92daCvY...`](https://testnet.nearblocks.io/txns/J92daCvYjbadCm3s2Duvooi7nFPPpXsja8nvE7DppkH2) / [`BwGJQvrq...`](https://testnet.nearblocks.io/txns/BwGJQvrqdqVbyJd1iWcfx4om4kzquPViB6hoA4hip4c6) / [`eMvvwgyG...`](https://testnet.nearblocks.io/txns/eMvvwgyGCRDrgfWzetZCEAS7Qhr5xMs8SNCSZ6jjFxD) / [`Ad2m3w9L...`](https://testnet.nearblocks.io/txns/Ad2m3w9LJ1J7s1tiuRbvMUSj4yNQrKde7RSHCKHZihbv) |
+
+What `verificar` read at the end of the first rehearsal: code `1541525c...fa77` (= pin), no keys on `v2.arras-v2e-1107.testnet`, NEP-330
+`git+https://github.com/UltravioletaDAO/arras?rev=ddc51211...`, `get_config` `arras-v2` with v1's caps, `get_operator em`
+as decided, one FunctionCall key each on the capturer and the arbiter, `get_storage_health` `ok: true` with 0.2597 NEAR
+free. After the smoke: `tvl_global` 0, `budgets_total` 0, 2 payments (Released, Resolved), the contract holds 0 tokens;
+the worker holds 0.0435, the fee recipient 0.0065, the funding account got its 0.05 back.
+
+### 8.7 If a step fails, and how to undo it
+
+Every step can be run again after fixing the cause; this is what undoes each one:
+
+| Step | Undo (before `sin-llaves`, while v2 still has a key) | After `sin-llaves` |
+|---|---|---|
+| `fondeo` | the NEAR sent to v2 comes back with `delete-account v2.arras-escrow.near beneficiary <hub>`, signed with `/arras/mainnet/v2-reserva` (the name can be created again); the NEAR sent to the parent stays in the parent | v2's NEAR is locked for good |
+| `cuentas` | the capturer and the arbiter can be deleted with their own full-access key (`delete-account ... beneficiary arras-escrow.near`) until `capturer`/`arbitro` remove it | the owner points `em` at other accounts with `update_operator` (`capturers`, `arbiter`) |
+| `usdc` | nothing to undo (0.00125 NEAR of storage in USDC) | same |
+| `deploy` | `delete-account v2.arras-escrow.near` returns all of v2's NEAR to the hub; deploy again into a new reserved account | none: pause with the guardian, lower the caps with the owner, deploy a new version in a new account (no `migrate`) |
+| `operador` | the owner edits `em` with `update_operator` (capturers, arbiter, window, fee, `min_amount`, sponsorship, ticket); caps only go down; the pool cannot be withdrawn | same |
+| `capturer` / `arbitro` | a FunctionCall key cannot be widened: replace the account with `update_operator` | same |
+| `sin-llaves` | irreversible by design | - |
+| `secretos` | the script runs nothing; each printed line deletes a file only after the upload and the comparison succeed | - |
+| `humo` | a payment stopped half-way follows its own path: the capturer can `refund` it, the payer can dispute it, `reclaim` after `reclaim_after`, `withdraw_budget`/`revoke_agent` return the budget, `withdraw_for` moves any `claimable`; running `humo` again continues each payment from its state | same |
+
+### 8.8 The mainnet run
+
+<!-- C0DER-V2-MAINNET: not run yet. When it runs, write here the date, the commit of the checkout, the command, the
+number of transactions, and this table from `scripts/mainnet-v2.sh --mainnet-ok enlaces`:
+| Step | Transaction |
+|---|---|
+| `fondeo`: hub -> v2 / hub -> parent | |
+| `cuentas`: em-capturer-v2 / em-arbiter-v2 | |
+| `usdc`: v2 | |
+| **deploy + private `new`** | |
+| `register_operator em` / pool | |
+| capturer: FunctionCall key / full-access deleted | |
+| arbiter: FunctionCall key / full-access deleted | |
+| **all keys of v2 deleted** | |
+and the smoke's transactions as in 8.6. Then update the status line at the top of this section, the README status line
+and tables, HACKATHON.md and EVIDENCE.md section 6 (each marked C0DER-V2-MAINNET). -->
+Not run yet.
+
+### 8.9 Order with the facilitator and Execution Market
+
+1. **H-11 (this):** v2 deployed, keyless, verified, and the smoke run directly with near-cli. The facilitator is not
+   needed for any of it.
+2. **x402-rs (one batch, when Execution Market is about to use v2):** `NEAR_ESCROW_CONTRACTS_MAINNET=v1.arras-escrow.near,v2.arras-escrow.near`.
+   Its lifecycle gate reads `get_operator("em").capturers` on v2: `["em-capturer-v2.arras-escrow.near"]`.
+3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
+   `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
+   or the owner's `update_operator` without the ticket (8.1).

@@ -13,7 +13,11 @@ immutable (no `migrate`, no upgrade path) and its account has **no access keys**
 Status: v1 is **live on NEAR mainnet** (`v1.arras-escrow.near`, keyless, since 2026-11-03) and Execution Market's
 production deployment settles NEAR tasks through it (so far, the team's own end-to-end tests); the ERC-8004 port
 (Identity and Reputation registries plus the Arras proof verifier) is live since 2026-11-04 and is Execution Market's
-NEAR registry since 2026-11-06. v2 (agent budgets, disputes, operator tickets) runs on testnet only. **Unaudited.**
+NEAR registry since 2026-11-06. v2 (agent budgets, disputes, operator tickets) runs on testnet only; its mainnet
+deployment script is ready and was rehearsed end to end on testnet on 2026-11-07 ([docs/MAINNET.md](docs/MAINNET.md),
+section 8). **Unaudited.**
+<!-- C0DER-V2-MAINNET: once v2 is live, replace "runs on testnet only; its mainnet deployment script is ready and was
+rehearsed ..." with "is live on mainnet since <date> (`v2.arras-escrow.near`, keyless)". -->
 
 ## For NEAR HACKATHON judges
 
@@ -59,6 +63,13 @@ explorer links.
 | [`reputation-registry.erc-8004.near`](https://nearblocks.io/address/reputation-registry.erc-8004.near) | ERC-8004 Reputation Registry, with `give_feedback_with_proof` | 2026-11-04 21:48 | `dfe715d087517617811c1155bba9c8b6e71b23cbe63481b5afbf484bcbabd56e`, `f18e25c` |
 | [`erc8004-verifier.arras-escrow.near`](https://nearblocks.io/address/erc8004-verifier.arras-escrow.near) | the proof verifier: a proof is a released Arras v1 payment between the rater and the agent | 2026-11-04 21:48 | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba`, `f18e25c` |
 | [`registry.arras-escrow.near`](https://nearblocks.io/address/registry.arras-escrow.near) | `registry-v1`, the first agent registry; Execution Market's NEAR registry until it switched on 2026-11-06 (its last rating there: 2026-11-04) | 2026-11-04 03:47 | `b7b4593025769e5a12e70ebad7a78faecf523eb834b2f01338727e2833933197`, `8cec4e6` |
+<!-- C0DER-V2-MAINNET: once v2 is live, add this row (deployment time from EVIDENCE.md section 6):
+| [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | Arras v2 escrow: agent budgets, disputes with an arbiter, operator tickets; operator `em` with its own capturer and arbiter | <date> <time> | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`, `ddc5121` |
+-->
+
+The v2 escrow is not on mainnet yet: `scripts/mainnet-v2.sh` will deploy the reproducible wasm of `ddc5121` (sha256
+`1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`) into `v2.arras-escrow.near`; it was rehearsed on
+testnet (`v2.arras-v2e-1107.testnet`, "Arras v2 on testnet" below).
 
 The run that shows it all together is Execution Market's golden flow on 2026-11-06 at 01:17Z
 ([docs/EVIDENCE.md](docs/EVIDENCE.md), section 5). A test agent that has only a NEAR wallet registered its identity
@@ -85,12 +96,19 @@ below are what they returned.
 | `near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback json-args '{"agent_id":"0","client_address":"fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079","feedback_index":"2"}' network-config mainnet now` | the agent's rating of the worker (agent 0): `"value": "90"`, `tag2` `execution-market` |
 | the same arguments with `read_feedback_proof` | `"proof": "DAtTVvHH..."` (the payment above), `"verifier": "erc8004-verifier.arras-escrow.near"`, `"role": "receiver"`, `"context": "em"`, `"weight": "100000"` (the USDC released) |
 | `read_feedback` / `read_feedback_proof` with `'{"agent_id":"1","client_address":"826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af","feedback_index":"1"}'` | the worker's rating of the agent: `"value": "85"`, the same payment as proof, `"role": "payer"` |
+<!-- C0DER-V2-MAINNET: once v2 is live and the smoke ran, run and add (with what they return):
+| `near account view-account-summary v2.arras-escrow.near network-config mainnet now` | SHA-256 `1541525c...fa77`; no access keys |
+| `near contract call-function as-read-only v2.arras-escrow.near get_operator json-args '{"operator_id":"em"}' network-config mainnet now` | capturer `em-capturer-v2.arras-escrow.near`, arbiter `em-arbiter-v2.arras-escrow.near`, a `ticket_pubkey` |
+| `near account list-keys agent-v2.arras-escrow.near network-config mainnet now` | one key: only `authorize_from_budget` on `v2.arras-escrow.near` |
+| `... get_payment` of the two smoke payments (EVIDENCE.md section 6) | `Released`; `Resolved` with everything refunded |
+-->
 
 To rebuild the code and compare hashes: `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path
 contracts/<crate>/Cargo.toml` (Docker), with `escrow-v1` at commit `8da7174`, `registry-v1` at `8cec4e6`, and
 `erc8004-identity`, `erc8004-reputation` and `erc8004-arras-verifier` at `f18e25c`. Each wasm was built twice from
-clean clones before its deployment, with the same sha256 both times. Execution Market's own code is not in this
-repository; its use of the contracts can be seen on chain.
+clean clones before its deployment, with the same sha256 both times. `escrow-v2` at `ddc5121` gives
+`1541525c...fa77`, the wasm that `scripts/mainnet-v2.sh` pins (also built twice from clean clones). Execution Market's
+own code is not in this repository; its use of the contracts can be seen on chain.
 
 **Built during the hackathon.** The repository was created on 2026-11-01. The hackathon work is everything after the
 start commit `3a2ebdf`:
@@ -185,6 +203,16 @@ in `docs/vectores.json`. A payment ticket is single-use in practice (a `payment_
 ticket signs no amount and no nonce, so it admits any number of deposits for that `(owner, agent)` pair until `expiry`,
 also after `revoke_agent`: operators sign budget tickets with a short `expiry`.
 
+The owner can rotate the ticket key or remove it with `update_operator` (1 yoctoNEAR). Removing it opens the operator
+to payments and budget deposits without a ticket again, for an operator such as Execution Market before it signs
+tickets:
+
+```bash
+near contract call-function as-transaction <v2 contract> update_operator json-args '{"operator_id":"em","patch":{"quitar_ticket_pubkey":true}}' prepaid-gas '30.0 Tgas' attached-deposit '1 yoctoNEAR' sign-as <owner> network-config mainnet sign-with-keychain send
+```
+
+(`"patch":{"ticket_pubkey":"ed25519:..."}` sets or rotates it; sending both is `E48`.)
+
 New errors: `E47` arbiter window, `E48` ticket key (ed25519 only, no small-order point), `E50` no budget or balance,
 `E51` daily cap, `E52` budget per-payment cap, `E53` missing or invalid ticket, `E54` expired ticket, `E55` invalid
 agent, `E56` zero caps, `E57` budget payment beyond the 60-day horizon, `E60` not a party, `E61` dispute deadline
@@ -257,8 +285,9 @@ registration file is `near:mainnet:identity-registry.erc-8004.near` (CAIP-2 has 
 |---|---|
 | `cargo test --workspace` (Rust from `rust-toolchain.toml`; works offline once the sandbox binary is cached, or with `NEAR_SANDBOX_BIN_PATH` pointing at a `near-sandbox` 2.13.4 binary) | v1: 12 core tests (golden vectors V-1..V-3, fees F-1..F-7), 60 contract unit tests incl. U-16 (10,000 sequences), 15 sandbox tests, 3 more `ignored` because they need network; v2: its unit tests incl. its own U-16 (10,000 sequences) and the vectors read from `docs/vectores.json`, and 11 sandbox tests (W2-01..W2-10, U-24); the registry and the ERC-8004 port: their unit and sandbox tests (next rows) |
 | `cargo test -p arras-escrow-v2 --test workspaces -- --nocapture` | the v2 `MEDIDA` lines: gas per method (W2-09), minimum callback gas (W2-06) |
-| `scripts/test_mainnet.sh` (offline: `near` and the RPC are test doubles) | the guards of `scripts/mainnet.sh`, under every `bash` installed (macOS 3.2 and 5.x) |
+| `scripts/test_mainnet.sh` (offline: `near`, `aws` and the RPC are test doubles; v2's run against a stateful fake chain, `scripts/test_cadena.py`, that refuses any transaction not signed by a live key with the right permission) | the guards of `scripts/mainnet.sh` and `scripts/mainnet-v2.sh`, under every `bash` installed (macOS 3.2 and 5.x); `ARRAS_TEST_SOLO=v2` runs v2's only |
 | `scripts/mainnet.sh plan` / `scripts/mainnet.sh todo` | the mainnet deployment as a dry run: accounts, amounts, caps, the pinned wasm and every command, with no network call |
+| `scripts/mainnet-v2.sh plan` / `todo` / `humo` | the same for v2: its budget in NEAR step by step, every command of the deployment and of the smoke test, with no network call |
 | `ARRAS_TESTNET_RPC=https://rpc.testnet.fastnear.com cargo test -p arras-escrow-v1 --test workspaces -- --ignored` | W-13, W-13b and W-09b against Circle's real testnet USDC cloned into the sandbox |
 | `cargo test -p arras-escrow-v1 --test workspaces -- --nocapture` | the `MEDIDA` lines: gas per method, minimum gas, sponsorship before `E14` |
 | `cargo test -p arras-registry-v1` | the registry: 115 unit tests (every guard, the callback with each `get_payment` result and every way an answer can differ from v1's `Payment`, the lock, caller vs signer, storage of the worst case) and 14 sandbox tests (WR-00..WR-10; WR-02..WR-04 twice: against v1 built here and against the exact mainnet wasm of `v1.arras-escrow.near` in `contracts/registry-v1/tests/fixtures`, sha256-checked) with real Arras v1 payments, a mock escrow and an allowlisted account without code |
@@ -430,6 +459,29 @@ Balances after: payer 15.3 (-1.7), worker 4.089 (+1.479), fee recipient 0.351 (+
 `tvl_global` 0, `budgets_total` 0, `in_flight` 0. What went in through `ft_transfer_call` (2 + 0.5 + 0.1) equals what
 went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 
+### The mainnet script rehearsed: `v2.arras-v2e-1107.testnet` (2026-11-07)
+
+`scripts/mainnet-v2.sh`, the script that will deploy v2 to mainnet, ran end to end on testnet over the same layout as
+mainnet (rebuilt first with `scripts/mainnet.sh`): the reviewed commit `ddc5121`, wasm `1541525c...fa77`, deployed with
+a private `new` into the reserved `v2.` account, operator `em` with its own capturer and arbiter (one function-call key
+each), a 7-day arbiter window and an operator ticket key, and then every key of the contract deleted. Then its smoke
+test, the security track: a human (the funding account) deposited a 0.10 budget for an agent, with the operator's
+budget ticket; the agent, holding only a function-call key for `authorize_from_budget`, paid 0.05 to a worker with a
+payment ticket; the capturer released it (0.0435 to the worker, 0.0065 to the fee recipient); the agent paid another
+0.05, the human disputed it and the arbiter gave all of it back. The token was a test NEP-141
+(`usdc-ensayo-1107.testnet`; Circle's testnet faucet sits behind a reCAPTCHA). A second rehearsal from scratch with the
+final script (`v2.arras-v2f-1107.testnet`) measured what each call reserves up front and recovered from transient
+failures by running each step again. Every transaction, the measurements and the budget for mainnet:
+[docs/MAINNET.md](docs/MAINNET.md), section 8.
+
+| Check | Command | Result |
+|---|---|---|
+| code = reproducible build, no keys | `near account view-account-summary v2.arras-v2e-1107.testnet network-config testnet now` | SHA-256 `1541525c...fa77`; no access keys |
+| source commit (NEP-330) | `near contract call-function as-read-only v2.arras-v2e-1107.testnet contract_source_metadata json-args '{}' network-config testnet now` | `source_code_snapshot ...?rev=ddc51211ed93973ec9eb537a85bac39367f6e763` |
+| the operator | `... get_operator json-args '{"operator_id":"em"}' ...` | capturer `em-capturer-v2.arras-v2e-1107.testnet`, arbiter `em-arbiter-v2.arras-v2e-1107.testnet`, `arbiter_window_ns` 604800000000000, a `ticket_pubkey` |
+| the agent | `near account list-keys agent-v2.arras-v2e-1107.testnet network-config testnet now` | one key: only `authorize_from_budget` on `v2.arras-v2e-1107.testnet` |
+| the two smoke payments | `... get_payment json-args '{"payment_id":"5AkgphxKw9ghWReKiJ5j1uUWE9ytPoxm1e6PGUKTzZHe"}' ...` and `HfTEaoU9bnXG6CpfxUWvhr1rV8RTEbU5v12ir6CsKwF6` | `Released`; `Resolved` with `refunded` 50000 |
+
 ## Security model
 
 - **Immutable and keyless:** no `migrate`; `new` is `#[private]` and runs in the deploy transaction; every access key
@@ -481,7 +533,10 @@ went out (1.479 + 0.221 + 0.3 + 0.1 + 0.5).
 | `scripts/testnet.sh` | the v1 testnet sequence |
 | `scripts/testnet-v2.sh` | the v2 testnet walkthrough |
 | `scripts/mainnet.sh`, `scripts/test_mainnet.sh` | the mainnet deployment (dry run by default; the same script rehearsed on testnet) and its offline tests |
-| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal, and the mainnet run of 2026-11-03 |
+| `scripts/mainnet-v2.sh` | v2's mainnet deployment and its smoke test (dry run by default; rehearsed on testnet) |
+| `scripts/arras-comun.sh` | what both deployment scripts share (networks, flags, caps, transactions, RPC reads, the pinned wasm, keys through a pipe), written once |
+| `scripts/test_cadena.py` | the fake chain of the offline tests of `scripts/mainnet-v2.sh` |
+| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal, and the mainnet run of 2026-11-03; section 8, v2's runbook and its testnet rehearsal |
 | `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows), with explorer links |
 | `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`) |
 | `docs/handoffs/` | handoffs between workers (decisions and what is left) |

@@ -50,70 +50,16 @@
 set -euo pipefail
 umask 077
 
-ESC=$(printf '\033')
-# `die` corta TODO el script aunque corra dentro de un $(...), un pipe o un <(...) (ahi `exit` solo cierra la subshell
-# y el script seguiria con un valor vacio): siempre le manda TERM al proceso principal ($$ es el principal tambien en
-# una subshell), cuyo trap sale con 1. No se usa BASH_SUBSHELL: en el /bin/bash 3.2 de macOS vale 0 dentro de <(...).
-trap 'exit 1' TERM
-die() {
-  printf 'ABORTO: %s\n' "$*" >&2
-  kill -TERM "$$" 2>/dev/null
-  exit 1
-}
-aviso() { printf 'AVISO: %s\n' "$*" >&2; }
-uso() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" >&2; exit 1; }
+# Lo comun con scripts/mainnet-v2.sh (argumentos, red, modo, cuentas, topes, tx, RPC, wasm, llaves): un solo lugar.
+COMUN="$(cd "$(dirname "$0")" && pwd -P)/arras-comun.sh"
+[ -f "$COMUN" ] || { printf 'ABORTO: falta %s (va junto a este script)\n' "$COMUN" >&2; exit 1; }
+# shellcheck source=arras-comun.sh
+. "$COMUN"
 
-# --- argumentos -----------------------------------------------------------------------------------------------------
-BANDERA="" PASO=""
-for arg in "$@"; do
-  case "$arg" in
-    --mainnet-ok | --testnet-ok)
-      b=${arg#--}; b=${b%-ok}
-      [ -z "$BANDERA" ] || [ "$BANDERA" = "$b" ] || die "--mainnet-ok y --testnet-ok juntas: una sola red por corrida"
-      BANDERA=$b ;;
-    -h | --help) uso ;;
-    -*) echo "bandera desconocida: $arg" >&2; uso ;;
-    *) [ -z "$PASO" ] || { echo "un paso por corrida (vinieron '$PASO' y '$arg')" >&2; uso; }; PASO=$arg ;;
-  esac
-done
-[ -n "$PASO" ] || uso
-
-RED=$(printf '%s' "${ARRAS_RED:-mainnet}" | tr '[:upper:]' '[:lower:]')
-case "$RED" in
-  mainnet)
-    SUF=near
-    USDC=17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1
-    RPC=${ARRAS_RPC:-https://rpc.mainnet.fastnear.com}
-    NB=https://nearblocks.io
-    P=${ARRAS_PADRE:-arras-escrow.near}
-    # La implicita de fondeo del caso (a): la crea y la carga c0der; su llave vive en SSM /arras/mainnet/fondeo.
-    FONDEO=${ARRAS_FONDEO-fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079} ;;
-  testnet)
-    SUF=testnet
-    USDC=3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af
-    RPC=${ARRAS_RPC:-https://rpc.testnet.fastnear.com}
-    NB=https://testnet.nearblocks.io
-    P=${ARRAS_PADRE:-}
-    FONDEO=${ARRAS_FONDEO:-} ;;
-  *) die "ARRAS_RED tiene que ser mainnet o testnet (vino '${ARRAS_RED:-}')" ;;
-esac
-NET=$RED
-
-MODO=seco
-if [ -n "$BANDERA" ]; then
-  [ "$BANDERA" = "$RED" ] || die "--$BANDERA-ok no vale con ARRAS_RED=$RED: el modo real de $RED es --$RED-ok"
-  MODO=real
-fi
-real() { [ "$MODO" = real ]; }
+comun_argumentos "$@"
+comun_red
 
 # --- cuentas --------------------------------------------------------------------------------------------------------
-RE_CUENTA='^(([a-z0-9]+[-_])*[a-z0-9]+\.)*([a-z0-9]+[-_])*[a-z0-9]+$'
-cuenta_valida() { [[ ${#1} -ge 2 && ${#1} -le 64 && $1 =~ $RE_CUENTA ]]; }
-de_la_red() { cuenta_valida "$1" && [[ $1 == *."$SUF" ]]; }
-implicita() { [[ $1 =~ ^[0-9a-f]{64}$ ]]; }
-# Hija DIRECTA del padre: solo el padre la puede crear.
-hija() { cuenta_valida "$1" && [[ $1 == *."$P" && ${1%."$P"} != *.* ]]; }
-
 [ -z "${ARRAS_PARENT:-}" ] || die "ARRAS_PARENT se renombro a ARRAS_PADRE: no se ignora en silencio"
 [ -n "$P" ] || die "en testnet ARRAS_PADRE es obligatoria: una cuenta de desarrollo nueva (p. ej. arras-ensayo-1102.testnet)"
 de_la_red "$P" || die "ARRAS_PADRE='$P' no es una cuenta valida de $RED (*.$SUF)"
@@ -144,7 +90,6 @@ OWNER=owner.$P
 GUARD=guardian.$P
 CAPT=${ARRAS_CAPTURER:-em-capturer.$P}
 FEES=${ARRAS_FEE_RECIPIENT:-em-fees.$P}
-OP=${ARRAS_OPERATOR_ID:-em}
 for a in "$C1" "$C2" "$OWNER" "$GUARD"; do
   cuenta_valida "$a" || die "$a no es una cuenta valida (64 caracteres como maximo): acorta ARRAS_PADRE"
 done
@@ -160,24 +105,10 @@ fi
 case "$FEES" in "$C1" | "$C2") die "el fee_recipient no puede ser un contrato del despliegue ($FEES): ARRAS_E46 / USDC atrapado" ;; esac
 # El capturer queda solo con una FunctionCall key a v1: como fee_recipient nunca podria mover su USDC.
 [ "$FEES" != "$CAPT" ] || die "el fee_recipient no puede ser el capturer ($FEES): sin FullAccess, la tarifa quedaria atrapada"
-[[ $OP =~ ^[a-z0-9_-]{1,32}$ ]] || die "ARRAS_OPERATOR_ID='$OP' fuera de [a-z0-9_-]{1,32} (ARRAS_E45)"
 
 # --- topes y montos -------------------------------------------------------------------------------------------------
-entero() { [[ $2 =~ ^[0-9]{1,15}$ ]] || die "$1='$2' tiene que ser un entero de hasta 15 cifras (unidades atomicas)"; }
-yocto_valido() { [[ $2 =~ ^[0-9]{1,30}$ ]] || die "$1='$2' tiene que ser un entero de yoctoNEAR"; }
-near_valido() { [[ $2 =~ ^[0-9]+(\.[0-9]+)?\ NEAR$ ]] || die "$1='$2' tiene que ser '<numero> NEAR' (p. ej. '0.5 NEAR')"; }
-
-TOPE_POR_PAGO=${ARRAS_TOPE_POR_PAGO:-10000000}          # 10 USDC (P-6)
-# Global 1.000 USDC: la decision del dueno del 2026-10-26 ("Tope global de 1.000"), posterior a P-6 (RESPUESTA de
-# c0der, Q2). `new` es el techo para siempre (`set_caps` solo baja).
-TOPE_TVL_GLOBAL=${ARRAS_TOPE_TVL_GLOBAL:-1000000000}
-FEE_BPS=${ARRAS_FEE_BPS:-1300}
-MIN_AMOUNT=${ARRAS_MIN_AMOUNT:-10000}                   # 0,01 USDC (F-7); el owner lo mueve en los dos sentidos
-# Por operador tambien 1.000: su techo queda fijo en register_operator (admin.rs:35; update_operator solo lo baja,
-# admin.rs:88-96, E42), asi que un parametro tecnico no recorta el tope del dueno; el owner lo puede bajar.
-TOPE_TVL_OPERADOR=${ARRAS_TOPE_TVL_OPERADOR:-1000000000}
-TOPE_TVL_POR_PAYER=${ARRAS_TOPE_TVL_POR_PAYER:-20000000} # 20 USDC
-SPONSOR_MAX=${ARRAS_SPONSOR_MAX_POR_PAYER:-20000000000000000000000} # 0,02 NEAR
+# Los topes (P-6, el global de 1.000 del dueno, el operador em) y su validacion: comun_topes en arras-comun.sh.
+comun_topes
 POOL=${ARRAS_POOL:-0.5 NEAR}
 # Medido en el ensayo (docs/MAINNET.md): v1 ocupa 269.674 bytes (2,69674 NEAR) y el deploy quema 0,0022; con 3,0
 # quedan 0,30 de reserva libre. Lo que entra a v1 (reserva y pool) queda ahi para siempre: la cuenta no tiene llaves.
@@ -193,16 +124,9 @@ MARGEN_GAS='0.1 NEAR'
 # Lo que la implicita de fondeo necesita ademas del saldo del padre: near.create_account costo 0,00745 NEAR en el ensayo
 # del caso (a) (gas y lo que quema la creacion).
 MARGEN_CREACION='0.02 NEAR'
-for v in TOPE_POR_PAGO TOPE_TVL_GLOBAL FEE_BPS MIN_AMOUNT TOPE_TVL_OPERADOR TOPE_TVL_POR_PAYER; do entero "$v" "${!v}"; done
-yocto_valido ARRAS_SPONSOR_MAX_POR_PAYER "$SPONSOR_MAX"
 for v in POOL NEAR_V1 NEAR_V2 NEAR_OWNER NEAR_GUARD NEAR_CAPT NEAR_FEES ALLOWANCE; do near_valido "$v" "${!v}"; done
 [[ ${ALLOWANCE%% *} =~ [1-9] ]] || die "ARRAS_ALLOWANCE='$ALLOWANCE': con 0 la FunctionCall key del capturer no puede pagar gas"
-[ "$TOPE_POR_PAGO" -gt 0 ] || die "ARRAS_TOPE_POR_PAGO tiene que ser mayor que 0"
-[ "$TOPE_TVL_GLOBAL" -ge "$TOPE_POR_PAGO" ] || die "el TVL global ($TOPE_TVL_GLOBAL) no puede ser menor que el tope por pago ($TOPE_POR_PAGO)"
-[ "$TOPE_TVL_OPERADOR" -le "$TOPE_TVL_GLOBAL" ] || die "el TVL del operador ($TOPE_TVL_OPERADOR) no puede pasar el global ($TOPE_TVL_GLOBAL)"
-[ "$TOPE_TVL_POR_PAYER" -le "$TOPE_TVL_OPERADOR" ] || die "el TVL por payer ($TOPE_TVL_POR_PAYER) no puede pasar el del operador ($TOPE_TVL_OPERADOR)"
-[ "$MIN_AMOUNT" -le "$TOPE_POR_PAGO" ] || die "min_amount ($MIN_AMOUNT) por encima del tope por pago ($TOPE_POR_PAGO): ningun pago entraria"
-[ "$FEE_BPS" -le 1800 ] || die "ARRAS_FEE_BPS=$FEE_BPS pasa 1800 (MAX_FEE_BPS, ARRAS_E43)"
+comun_topes_coherentes
 
 # --- wasm -----------------------------------------------------------------------------------------------------------
 # Los pines: el build reproducible de 8da7174 (RARRAS-1), la misma wasm de arras-v1b-1101.testnet.
@@ -215,123 +139,9 @@ WASM=${ARRAS_WASM:-$BASE/arras_escrow_v1-$REV.wasm}
 EST=$BASE/$RED/$P
 TXS=$EST/txs.tsv
 SALDOS=$EST/saldos.tsv
-# El llavero legacy: el `credentials_home_dir` de la config de near-cli (macOS o Linux), que es donde near guarda y de
-# donde firma; si no hay config, el defecto de near-cli.
-cred_de_near() {
-  local c
-  for c in "$HOME/Library/Application Support/near-cli/config.toml" "${XDG_CONFIG_HOME:-$HOME/.config}/near-cli/config.toml"; do
-    if [ -f "$c" ]; then
-      sed -n 's/^credentials_home_dir *= *"\(.*\)"$/\1/p' "$c" | head -1
-      return 0
-    fi
-  done
-}
-CRED=$(cred_de_near)
-CRED=${CRED:-$HOME/.near-credentials}
-ESPERA=${ARRAS_ESPERA:-5}
-[[ $ESPERA =~ ^[0-9]{1,2}$ ]] || die "ARRAS_ESPERA tiene que ser segundos (0-99)"
-SIGN=sign-with-legacy-keychain
-SAVE=save-to-legacy-keychain
-
-sha256_de() { shasum -a 256 "$1" | awk '{ print $1 }'; }
-rev_de_wasm() { LC_ALL=C grep -ao 'rev=[0-9a-f]\{40\}' "$1" | head -1 | cut -d= -f2; }
-
-# La wasm local tiene que ser la de los pines. En seco solo avisa; en real aborta antes de cualquier tx.
-wasm_ok() {
-  local h r
-  if [ ! -f "$WASM" ]; then
-    real && die "falta la wasm $WASM: corre el paso wasm"
-    aviso "falta la wasm $WASM (el modo real aborta aca; el paso wasm la construye)"
-    return 0
-  fi
-  h=$(sha256_de "$WASM")
-  r=$(rev_de_wasm "$WASM")
-  if [ "$h" != "$WASM_SHA" ] || [ "$r" != "$REV" ]; then
-    real && die "la wasm $WASM es sha256 $h rev ${r:-?}; los pines son $WASM_SHA rev $REV"
-    aviso "la wasm $WASM es sha256 $h rev ${r:-?}; los pines son $WASM_SHA rev $REV (el modo real aborta)"
-    return 0
-  fi
-  echo "wasm $WASM: sha256 $h, rev $r (= pines)"
-}
-
-# --- salida y transacciones -----------------------------------------------------------------------------------------
-# Toda salida de near pasa por aca: sin colores y sin nada que parezca una llave privada o una frase semilla (near no
-# las imprime con save-to-legacy-keychain; esto es la segunda red).
-sanitizar() {
-  sed "s/${ESC}\[[0-9;]*m//g" | grep -viE 'secret|private|seed|mnemonic|ed25519:[1-9A-HJ-NP-Za-km-z]{60,}' || true
-}
-
-# Una transaccion de near. En seco la imprime y sigue; en real la corre sin terminal (si near pidiera algo, falla en
-# vez de colgarse), filtra la salida, anota el Transaction ID en $TXS y aborta si near falla.
-tx() {
-  local etiqueta=$1 salida rc id
-  shift
-  printf '\n+ near %s\n' "$*"
-  if ! real; then
-    echo "  [en seco: no se ejecuta]"
-    return 0
-  fi
-  set +e
-  salida=$(NO_COLOR=1 near "$@" </dev/null 2>&1)
-  rc=$?
-  set -e
-  printf '%s\n' "$salida" | sanitizar | tail -n 25
-  id=$(printf '%s\n' "$salida" | sed "s/${ESC}\[[0-9;]*m//g" | awk '/Transaction ID:/ { print $NF }' | tail -1)
-  if [ -n "$id" ]; then
-    printf '%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "$etiqueta" "$id" >>"$TXS"
-  fi
-  [ "$rc" -eq 0 ] || die "near fallo en '$etiqueta' (exit $rc)"
-}
-
-# --- lecturas por RPC (solo en real) ----------------------------------------------------------------------------------
-rpc_query() {
-  local r
-  r=$(curl -sf -m 30 -X POST "$RPC" -H 'Content-Type: application/json' \
-    -d "$(jq -nc --argjson p "$1" '{jsonrpc:"2.0",id:"arras",method:"query",params:$p}')") ||
-    die "el RPC $RPC no respondio"
-  printf '%s' "$r"
-}
-ver_cuenta() { rpc_query "$(jq -nc --arg a "$1" '{request_type:"view_account",finality:"final",account_id:$a}')"; }
-existe() {
-  local r
-  r=$(ver_cuenta "$1")
-  jq -e '.result.amount | strings' >/dev/null 2>&1 <<<"$r" && return 0
-  jq -e '[.error | .. | strings] | any(test("UNKNOWN_ACCOUNT|does not exist"))' >/dev/null 2>&1 <<<"$r" && return 1
-  die "view_account de $1 en $RPC no trajo ni la cuenta ni UNKNOWN_ACCOUNT: $(head -c 300 <<<"$r")"
-}
-# JSON devuelto por una vista del contrato.
-vista() {
-  local r b
-  b=$(printf '%s' "$3" | base64 | tr -d '\n')
-  r=$(rpc_query "$(jq -nc --arg a "$1" --arg m "$2" --arg b "$b" '{request_type:"call_function",finality:"final",account_id:$a,method_name:$m,args_base64:$b}')")
-  jq -er '.result.result | implode' 2>/dev/null <<<"$r" || die "la vista $2 de $1 fallo: $(head -c 300 <<<"$r")"
-}
-llaves_json() {
-  local r
-  r=$(rpc_query "$(jq -nc --arg a "$1" '{request_type:"view_access_key_list",finality:"final",account_id:$a}')")
-  jq -ec '.result.keys | arrays' <<<"$r" 2>/dev/null || die "view_access_key_list de $1 no trajo .result.keys: $(head -c 300 <<<"$r")"
-}
-llaves_full() { llaves_json "$1" | jq -r '.[] | select(.access_key.permission == "FullAccess") | .public_key'; }
-n_llaves() { llaves_json "$1" | jq 'length'; }
-# El code_hash (base58) de una cuenta, en hex.
-codigo_hex() {
-  local h
-  h=$(ver_cuenta "$1" | jq -r '.result.code_hash // empty')
-  [ -n "$h" ] || die "view_account de $1 no trajo code_hash"
-  python3 -I -c '
-import sys
-a = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-n = 0
-for c in sys.argv[1]:
-    n = n * 58 + a.index(c)
-print(n.to_bytes(32, "big").hex())' "$h"
-}
-yocto() { python3 -I -c 'import sys, decimal; print(int(decimal.Decimal(sys.argv[1].split()[0]) * 10**24))' "$1"; }
-en_near() { python3 -I -c 'import sys, decimal; print(f"{decimal.Decimal(sys.argv[1]) / 10**24:.5f} NEAR")' "$1"; }
-suma_near() { python3 -I -c 'import sys, decimal; print(sum(decimal.Decimal(a.split()[0]) for a in sys.argv[1:]))' "$@"; }
-
-# Archivo del llavero legacy de una llave publica (near-cli: <cred>/<red>/<cuenta>/ed25519_<base58>.json).
-archivo_llave() { printf '%s/%s/%s/%s.json' "$CRED" "$NET" "$1" "${2/:/_}"; }
+# El llavero legacy (CRED), ARRAS_ESPERA y las firmas: comun_llavero en arras-comun.sh. Las transacciones (tx), las
+# lecturas por RPC y wasm_ok tambien viven ahi.
+comun_llavero
 
 # Saldo y storage de las cuentas del despliegue despues de cada paso real (lo usa `medir`).
 # Las cuentas del despliegue; en el caso (a), primero la implicita de fondeo.
@@ -377,7 +187,7 @@ ARGS_OPERADOR=$(jq -nc --arg id "$OP" --arg o "$OWNER" --arg c "$CAPT" --argjson
 # --- pasos ------------------------------------------------------------------------------------------------------------
 paso_plan() {
   cat <<PLAN
-red $RED ($MODO); RPC $RPC; USDC $USDC
+red $RED ($MODO); RPC $RPC_NOMBRE; USDC $USDC
 padre $P, caso $CASO_PADRE$( [ "$CASO_PADRE" = fondeo ] && echo " (near.create_account desde $FONDEO, llave en ${FONDEO_ARCHIVO:-SSM $FONDEO_SSM ($REGION)})")
 v1 $C1 ($NEAR_V1) | v2 $C2 reservada ($NEAR_V2)
 owner $OWNER ($NEAR_OWNER) | guardian $GUARD ($NEAR_GUARD) | capturer $CAPT ($NEAR_CAPT, allowance $ALLOWANCE)
@@ -389,23 +199,7 @@ presupuesto del padre (hijas + pool + storage USDC + margen de gas): $(presupues
 PLAN
 }
 
-paso_wasm() {
-  if [ -f "$WASM" ] && [ "$(sha256_de "$WASM")" = "$WASM_SHA" ]; then
-    wasm_ok
-    return 0
-  fi
-  local dir repo
-  dir=$BASE/build-$REV
-  repo=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-  mkdir -p "$BASE"
-  [ -d "$dir/.git" ] || git clone -q "$repo" "$dir"
-  git -C "$dir" checkout -q "$REV"
-  [ -z "$(git -C "$dir" status --porcelain)" ] || die "$dir tiene cambios: el build reproducible exige git limpio"
-  # Sin CARGO_TARGET_DIR: con el seteado, cargo-near 0.22.0 borra el artefacto antes de copiarlo (os error 2).
-  (cd "$dir" && env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path contracts/escrow-v1/Cargo.toml)
-  cp "$dir/target/near/arras_escrow_v1/arras_escrow_v1.wasm" "$WASM"
-  MODO=real wasm_ok
-}
+paso_wasm() { wasm_reproducible contracts/escrow-v1/Cargo.toml arras_escrow_v1; }
 
 # real: el padre existe y alguna llave de su carpeta del llavero legacy es FullAccess suya (el script firma con ella).
 padre_listo() {
@@ -436,7 +230,7 @@ fuente_fondeo() {
   if [ -n "$FONDEO_ARCHIVO" ]; then
     cat "$FONDEO_ARCHIVO"
   else
-    aws ssm get-parameter --region "$REGION" --name "$FONDEO_SSM" --with-decryption --output json | jq -j '.Parameter.Value'
+    leer_ssm "$FONDEO_SSM"
   fi
 }
 llave_fondeo() {
@@ -445,37 +239,8 @@ llave_fondeo() {
   else
     command -v aws >/dev/null 2>&1 || die "falta aws: la llave de fondeo se lee de SSM ($FONDEO_SSM)"
   fi
-  fuente_fondeo | python3 -I -c '
-import json, sys
-A = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-def dec(s, n):
-    v = 0
-    for c in s:
-        v = v * 58 + A.index(c)
-    return v.to_bytes(n, "big")
-def enc(b):
-    v, s = int.from_bytes(b, "big"), ""
-    while v:
-        v, r = divmod(v, 58)
-        s = A[r] + s
-    return "1" * (len(b) - len(b.lstrip(b"\0"))) + s
-try:
-    crudo = sys.stdin.read().strip()
-    try:
-        sk = json.loads(crudo)["private_key"]
-    except Exception:
-        sk = crudo
-    if not sk.startswith("ed25519:"):
-        sys.exit(2)
-    b = dec(sk[8:], 64)
-    if b[32:].hex() != sys.argv[1]:
-        sys.exit(3)
-    sys.stdout.write(json.dumps({"account_id": sys.argv[1], "public_key": "ed25519:" + enc(b[32:]), "private_key": sk}))
-except SystemExit:
-    raise
-except Exception:
-    sys.exit(4)
-' "$FONDEO" 2>/dev/null || die "la llave de fondeo (${FONDEO_ARCHIVO:-SSM $FONDEO_SSM}) no se pudo leer o no es la de $FONDEO"
+  # Sin lista de llaves vivas: la publica tiene que ser la de la implicita (normalizar_llave en arras-comun.sh).
+  fuente_fondeo | normalizar_llave "$FONDEO" || die "la llave de fondeo (${FONDEO_ARCHIVO:-SSM $FONDEO_SSM}) no se pudo leer o no es la de $FONDEO"
 }
 
 padre_faucet() {
@@ -882,7 +647,8 @@ paso_secretos() {
   kms=${ARRAS_KMS_KEY:-<ARRAS_KMS_KEY: la llave KMS propia de Arras (decision 230)>}
   region=$REGION
   case "$modo" in ssm | secretsmanager) ;; *) die "ARRAS_SECRETOS tiene que ser ssm o secretsmanager" ;; esac
-  local rol cuenta f pk nombre vivas estado copia pk_copia copia_hecha subir verificar borrar
+  local rol cuenta f pk nombre vivas estado copia pk_copia copia_hecha borrar
+  SEC_MODO=$modo SEC_REGION=$region SEC_KMS=$kms
   if ! real; then
     # En seco no sale NINGUNA linea ejecutable: sin la cadena no se sabe que llave sigue viva, y un rm pegado despues
     # de un fallo a mitad (v1 con su llave todavia en cadena) no tiene vuelta atras.
@@ -951,14 +717,7 @@ ROLES
         echo "rm $borrar   # ya no esta en view_access_key_list de $cuenta"
         continue
       fi
-      if [ "$modo" = ssm ]; then
-        subir="aws ssm put-parameter --region $region --name '$nombre' --type SecureString --key-id '$kms' --value 'file://$f' --description 'Arras $RED $rol $cuenta $pk'"
-        verificar="[ \"\$(aws ssm get-parameter --region $region --name '$nombre' --with-decryption --output json | jq -j .Parameter.Value | shasum -a 256)\" = \"\$(shasum -a 256 < '$f')\" ]"
-      else
-        subir="aws secretsmanager create-secret --region $region --name '${nombre#/}' --kms-key-id '$kms' --secret-string 'file://$f' --description 'Arras $RED $rol $cuenta $pk'"
-        verificar="[ \"\$(aws secretsmanager get-secret-value --region $region --secret-id '${nombre#/}' --output json | jq -j .SecretString | shasum -a 256)\" = \"\$(shasum -a 256 < '$f')\" ]"
-      fi
-      echo "$subir && $verificar && rm $borrar && echo 'OK $rol en $nombre'"
+      linea_secreto "$nombre" "$f" "Arras $RED $rol $cuenta $pk" "$borrar" "$rol"
     done
     if [ -n "$pk_copia" ] && [ "$copia_hecha" = 0 ]; then
       if ! printf '%s\n' "$vivas" | grep -qxF -- "$pk_copia"; then
@@ -1011,20 +770,7 @@ paso_enlaces() {
 # Asi, si el archivo cambia mientras corre (un git pull o un merge en medio de un deploy de minutos), bash no sigue leyendo
 # lineas nuevas desde un offset viejo.
 principal() {
-  command -v near >/dev/null 2>&1 || PATH=$HOME/.cargo/bin:$PATH
-  for herramienta in jq shasum python3; do
-    command -v "$herramienta" >/dev/null 2>&1 || die "falta $herramienta"
-  done
-  if real; then
-    command -v near >/dev/null 2>&1 || die "falta near (near-cli-rs 0.30.1)"
-    v=$(NO_COLOR=1 near --version 2>/dev/null | awk '/near-cli-rs/ { print $2 }' | tail -1)
-    [ "$v" = 0.30.1 ] || die "near-cli-rs es '${v:-?}' y la sintaxis de este script es la de 0.30.1"
-    cadena=$(curl -sf -m 30 -X POST "$RPC" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":"arras","method":"status","params":[]}' | jq -r '.result.chain_id // empty') ||
-      die "el RPC $RPC no respondio a status"
-    [ "$cadena" = "$RED" ] || die "ARRAS_RPC=$RPC es de la red '${cadena:-?}', no de $RED"
-    [ -n "${ARRAS_KMS_KEY:-}" ] || die "ARRAS_KMS_KEY es obligatoria en el modo real: la llave KMS propia de Arras (decision 230) con la que van las llaves a SSM"
-    mkdir -p "$EST"
-  fi
+  comun_preparar
   echo "== Arras $RED, modo $MODO, padre $P, paso $PASO"
   [ "$MODO" = seco ] && echo "== EN SECO: nada se ejecuta. Modo real: --$RED-ok"
 

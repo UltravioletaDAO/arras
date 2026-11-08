@@ -21,6 +21,13 @@ Accounts that appear below:
 | [`fe0a5742...1079`](https://nearblocks.io/address/fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079) | the deployer's funding account; also the paying agent in the test flows |
 | [`826e8c64...7af`](https://nearblocks.io/address/826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af) | a test worker (ERC-8004 identity 0) |
 | [`be5ec510...2902`](https://nearblocks.io/address/be5ec510aa303bd041a2411cb691a8e32907763116ab8cb6a4ac586695aa2902) | a second test worker, registered through the sponsor (ERC-8004 identity 2) |
+<!-- C0DER-V2-MAINNET: once v2 is live, add:
+| [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | Arras v2 escrow contract (keyless) |
+| [`em-capturer-v2.arras-escrow.near`](https://nearblocks.io/address/em-capturer-v2.arras-escrow.near) | Execution Market's capturer in v2: one function-call key (`release`, `refund`, `withdraw_for` on v2) |
+| [`em-arbiter-v2.arras-escrow.near`](https://nearblocks.io/address/em-arbiter-v2.arras-escrow.near) | the arbiter of operator `em` in v2: one function-call key (`resolve_dispute` on v2) |
+| [`agent-v2.arras-escrow.near`](https://nearblocks.io/address/agent-v2.arras-escrow.near) | the smoke test's agent: one function-call key (`authorize_from_budget` on v2) |
+| [`worker-v2.arras-escrow.near`](https://nearblocks.io/address/worker-v2.arras-escrow.near) | the smoke test's worker |
+-->
 
 The token is Circle's native USDC on NEAR, `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`.
 
@@ -151,3 +158,28 @@ Open in this run (Execution Market's side, not the contracts): the sponsored enr
 the same signed transactions after RPC timeouts, and the new worker could not rate back: Execution Market's rating call
 attaches 150 TGas (the contract's minimum is 120 TGas), so with the 0.01472 NEAR deposit it needs 0.1656 NEAR up front
 at the pessimistic gas price (most of it is refunded), and the worker's wallet held 0.03 NEAR. Both are being fixed in Execution Market.
+
+## 6. Arras v2 on mainnet
+
+Not deployed yet. `scripts/mainnet-v2.sh` (the runbook in [docs/MAINNET.md](MAINNET.md), section 8) deploys the
+reproducible wasm of `ddc5121` (sha256 `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`) into
+`v2.arras-escrow.near` and runs the smoke test of the security track; its testnet rehearsal of 2026-11-07 is in
+MAINNET.md, section 8.6.
+
+<!-- C0DER-V2-MAINNET: once it ran, replace "Not deployed yet. ..." with the date and the command, and paste the table
+from `scripts/mainnet-v2.sh --mainnet-ok enlaces` (block times from NearBlocks):
+| Step | Signed by | Transaction |
+|---|---|---|
+| hub -> v2 / hub -> parent | the funding account | |
+| `em-capturer-v2.` / `em-arbiter-v2.` | the parent | |
+| USDC storage for v2 | the funding account | |
+| **deploy + private `new`** (10 USDC per payment, 1,000 USDC global TVL) | v2 | |
+| `register_operator em` (capturer, arbiter, 7-day window, ticket) / sponsorship pool 0.1 NEAR | the owner / the funding account | |
+| capturer: function-call key / its full-access key deleted | the capturer | |
+| arbiter: function-call key / its full-access key deleted | the arbiter | |
+| **all keys of `v2.arras-escrow.near` deleted** | v2 | |
+| smoke: the budget, 0.10 USDC for `agent-v2.` with the operator's ticket | the funding account (the human) | |
+| smoke: the agent's `authorize_from_budget` of 0.05 to `worker-v2.` / release / `withdraw_for` worker and fee recipient | the agent (function-call key) / the capturer (function-call key) | |
+| smoke: the agent's second payment / the human opens a dispute / the arbiter returns it all / `withdraw_for` the human | the agent / the funding account / the arbiter (function-call key) / the capturer | |
+| smoke: `revoke_agent` / `storage_withdraw` | the funding account | |
+-->
