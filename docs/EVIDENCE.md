@@ -2,8 +2,10 @@
 
 Every mainnet transaction behind the claims in the README, with a link to the NearBlocks explorer. Times are the block
 times (UTC) that NearBlocks reports. Hashes and times were read from the NearBlocks public API on 2026-11-06 and from
-the logs of the runs; nothing here needs a key to check. Testnet transactions are in the README ("Testnet
-deployments", "Arras v2 on testnet") and in [docs/MAINNET.md](MAINNET.md) (the rehearsals).
+the logs of the runs; those of section 6 (2026-11-08) from the run's log and, for each transaction, its final status,
+signer, block and block time, read through an RPC node by the deployer. Nothing here needs a key to check. Testnet
+transactions are in the README ("Testnet deployments", "Arras v2 on testnet") and in [docs/MAINNET.md](MAINNET.md) (the
+rehearsals).
 
 Accounts that appear below:
 
@@ -18,16 +20,14 @@ Accounts that appear below:
 | [`em-fees.arras-escrow.near`](https://nearblocks.io/address/em-fees.arras-escrow.near) | Execution Market's fee recipient |
 | [`em-identity.near`](https://nearblocks.io/address/em-identity.near) | Execution Market's identity sponsor: pays the ERC-8004 registration of new workers |
 | [`uvd-facilitator.near`](https://nearblocks.io/address/uvd-facilitator.near) | the x402-rs facilitator's relayer: sends signed NEP-366 delegate actions (the payer's `authorize`, the capturer's `release` and `withdraw_for`) and pays their gas |
-| [`fe0a5742...1079`](https://nearblocks.io/address/fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079) | the deployer's funding account; also the paying agent in the test flows |
+| [`fe0a5742...1079`](https://nearblocks.io/address/fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079) | the deployer's funding account; also the paying agent in the test flows, and the human of v2's smoke test (section 6) |
 | [`826e8c64...7af`](https://nearblocks.io/address/826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af) | a test worker (ERC-8004 identity 0) |
 | [`be5ec510...2902`](https://nearblocks.io/address/be5ec510aa303bd041a2411cb691a8e32907763116ab8cb6a4ac586695aa2902) | a second test worker, registered through the sponsor (ERC-8004 identity 2) |
-<!-- C0DER-V2-MAINNET: once v2 is live, add:
 | [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | Arras v2 escrow contract (keyless) |
 | [`em-capturer-v2.arras-escrow.near`](https://nearblocks.io/address/em-capturer-v2.arras-escrow.near) | Execution Market's capturer in v2: one function-call key (`release`, `refund`, `withdraw_for` on v2) |
 | [`em-arbiter-v2.arras-escrow.near`](https://nearblocks.io/address/em-arbiter-v2.arras-escrow.near) | the arbiter of operator `em` in v2: one function-call key (`resolve_dispute` on v2) |
-| [`agent-v2.arras-escrow.near`](https://nearblocks.io/address/agent-v2.arras-escrow.near) | the smoke test's agent: one function-call key (`authorize_from_budget` on v2) |
-| [`worker-v2.arras-escrow.near`](https://nearblocks.io/address/worker-v2.arras-escrow.near) | the smoke test's worker |
--->
+| [`agent-v2.arras-escrow.near`](https://nearblocks.io/address/agent-v2.arras-escrow.near) | a test account, the smoke test's agent: one function-call key (`authorize_from_budget` on v2) |
+| [`worker-v2.arras-escrow.near`](https://nearblocks.io/address/worker-v2.arras-escrow.near) | a test account, the smoke test's worker |
 
 The token is Circle's native USDC on NEAR, `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`.
 
@@ -69,8 +69,9 @@ funding account) to the team's test workers: 13 became payments (`get_config` an
 refused with `E14` (no storage paid):
 [`A5oCxCMAVsiqJh9qa8SuymH87Lg5L13wU2oi1UMQgChV`](https://nearblocks.io/txns/A5oCxCMAVsiqJh9qa8SuymH87Lg5L13wU2oi1UMQgChV)
 (2026-11-06 01:26:40Z, to a new test worker; the only one of the 14 with no release or refund). A rejection keeps
-nothing: `ft_on_transfer` hands the whole amount back to the token. So far every mainnet payment is one of the
-team's own end-to-end tests of Execution Market's production deployment.
+nothing: `ft_on_transfer` hands the whole amount back to the token. So far every mainnet payment through v1 is one of
+the team's own end-to-end tests of Execution Market's production deployment; the 2 payments through v2 are the team's
+smoke test of v2 (section 6).
 
 ## 3. `registry-v1` deployed (2026-11-04, 03:47:09Z to 03:49:43Z)
 
@@ -159,27 +160,36 @@ the same signed transactions after RPC timeouts, and the new worker could not ra
 attaches 150 TGas (the contract's minimum is 120 TGas), so with the 0.01472 NEAR deposit it needs 0.1656 NEAR up front
 at the pessimistic gas price (most of it is refunded), and the worker's wallet held 0.03 NEAR. Both are being fixed in Execution Market.
 
-## 6. Arras v2 on mainnet
+## 6. Arras v2 on mainnet (2026-11-08, block times 02:19:52Z to 02:25:06Z)
 
-Not deployed yet. `scripts/mainnet-v2.sh` (the runbook in [docs/MAINNET.md](MAINNET.md), section 8) deploys the
-reproducible wasm of `ddc5121` (sha256 `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`) into
-`v2.arras-escrow.near` and runs the smoke test of the security track; its testnet rehearsal of 2026-11-07 is in
-MAINNET.md, section 8.6.
+`scripts/mainnet-v2.sh --mainnet-ok todo` and then `scripts/mainnet-v2.sh --mainnet-ok humo` (the smoke test of the
+security track), the sequence of [docs/MAINNET.md](MAINNET.md) section 8.4, run once from a clean checkout of `5800cb7`
+(`main` at the time; details in MAINNET.md, section 8.8). The wasm is the reproducible build of commit `ddc5121` (sha256
+`1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`), rebuilt from that checkout before the run with the
+same sha256. 31 transactions: 13 for the deployment (blocks 223552046 to 223552216) and 18 for the smoke test (blocks
+223552329 to 223552597), every one with a successful final status and signed by the account in the table. The smoke
+moved Circle's USDC, with the project's funding account as the human and two test accounts, `agent-v2.` and
+`worker-v2.`, as the agent and the worker.
 
-<!-- C0DER-V2-MAINNET: once it ran, replace "Not deployed yet. ..." with the date and the command, and paste the table
-from `scripts/mainnet-v2.sh --mainnet-ok enlaces` (block times from NearBlocks):
 | Step | Signed by | Transaction |
 |---|---|---|
-| hub -> v2 / hub -> parent | the funding account | |
-| `em-capturer-v2.` / `em-arbiter-v2.` | the parent | |
-| USDC storage for v2 | the funding account | |
-| **deploy + private `new`** (10 USDC per payment, 1,000 USDC global TVL) | v2 | |
-| `register_operator em` (capturer, arbiter, 7-day window, ticket) / sponsorship pool 0.1 NEAR | the owner / the funding account | |
-| capturer: function-call key / its full-access key deleted | the capturer | |
-| arbiter: function-call key / its full-access key deleted | the arbiter | |
-| **all keys of `v2.arras-escrow.near` deleted** | v2 | |
-| smoke: the budget, 0.10 USDC for `agent-v2.` with the operator's ticket | the funding account (the human) | |
-| smoke: the agent's `authorize_from_budget` of 0.05 to `worker-v2.` / release / `withdraw_for` worker and fee recipient | the agent (function-call key) / the capturer (function-call key) | |
-| smoke: the agent's second payment / the human opens a dispute / the arbiter returns it all / `withdraw_for` the human | the agent / the funding account / the arbiter (function-call key) / the capturer | |
-| smoke: `revoke_agent` / `storage_withdraw` | the funding account | |
--->
+| hub -> v2 / hub -> parent, 02:19:52Z / 02:20:00Z | the funding account | [`yuVjiZTxbEUfWuqHUKinVsB3rKToUBPgZA1Pdq7Rjwn`](https://nearblocks.io/txns/yuVjiZTxbEUfWuqHUKinVsB3rKToUBPgZA1Pdq7Rjwn) / [`HsbGxrzkZbSth6FzzixfQXmgE12kEqBX4mzfVzbGNjJP`](https://nearblocks.io/txns/HsbGxrzkZbSth6FzzixfQXmgE12kEqBX4mzfVzbGNjJP) |
+| `em-capturer-v2.` / `em-arbiter-v2.`, 02:20:10Z / 02:20:17Z | the parent | [`HxgECiVjU44bzzBt1d4C5Y4vaWb9kunRnbUEfLfx1W6p`](https://nearblocks.io/txns/HxgECiVjU44bzzBt1d4C5Y4vaWb9kunRnbUEfLfx1W6p) / [`54gmUtdYBubEV9fNayvmExvq5SLjbJfW1rv35eLhNPUS`](https://nearblocks.io/txns/54gmUtdYBubEV9fNayvmExvq5SLjbJfW1rv35eLhNPUS) |
+| USDC storage for v2, 02:20:26Z | the funding account | [`9Je5r1PUoSP63CUpw4J7xo6UYqcTcNe8su7Ed2w9jMkc`](https://nearblocks.io/txns/9Je5r1PUoSP63CUpw4J7xo6UYqcTcNe8su7Ed2w9jMkc) |
+| **deploy + private `new`** (10 USDC per payment, 1,000 USDC global TVL), 02:20:36Z | v2 | [`FdPJxM9kKsPiXeYBkqZnqTqqHKSkUBM2pM1hUg4uQQ1m`](https://nearblocks.io/txns/FdPJxM9kKsPiXeYBkqZnqTqqHKSkUBM2pM1hUg4uQQ1m) |
+| `register_operator em` (capturer, arbiter, 7-day window, ticket) / sponsorship pool 0.1 NEAR, 02:20:45Z / 02:20:53Z | the owner / the funding account | [`yAisZKJtbNJBW1RFTQpaQLn3tXZXEW3LHQSDtr1KGHf`](https://nearblocks.io/txns/yAisZKJtbNJBW1RFTQpaQLn3tXZXEW3LHQSDtr1KGHf) / [`F8HLKAn5NkZ9rwo1DezHBDTGmUrA3CLwL5tpPmqAiGTM`](https://nearblocks.io/txns/F8HLKAn5NkZ9rwo1DezHBDTGmUrA3CLwL5tpPmqAiGTM) |
+| capturer: function-call key / its full-access key deleted, 02:21:00Z / 02:21:06Z | the capturer | [`BzjsSt8VTSziSoU1vQUrnXWZRjwZukBL1yXyUd4c39EQ`](https://nearblocks.io/txns/BzjsSt8VTSziSoU1vQUrnXWZRjwZukBL1yXyUd4c39EQ) / [`4XZ6hcZnqheABpYQJzHKseoQA2CjgFj55VuTtEXsp1o6`](https://nearblocks.io/txns/4XZ6hcZnqheABpYQJzHKseoQA2CjgFj55VuTtEXsp1o6) |
+| arbiter: function-call key / its full-access key deleted, 02:21:14Z / 02:21:19Z | the arbiter | [`AAYdP4jS1PpAYdjMHYS9t9rcA3MkYcP8SHAsGFQhHXS4`](https://nearblocks.io/txns/AAYdP4jS1PpAYdjMHYS9t9rcA3MkYcP8SHAsGFQhHXS4) / [`FTPgCfvaYGNVn1UadTmW4mijneuV97oDQF2RtgS7xg6i`](https://nearblocks.io/txns/FTPgCfvaYGNVn1UadTmW4mijneuV97oDQF2RtgS7xg6i) |
+| **all keys of `v2.arras-escrow.near` deleted**, 02:21:28Z | v2 | [`Bqc63GgBiTWfrs9nAVHzE9piPLtPsxj6EcPSU7fDmVqt`](https://nearblocks.io/txns/Bqc63GgBiTWfrs9nAVHzE9piPLtPsxj6EcPSU7fDmVqt) |
+| smoke: hub -> parent / `agent-v2.` / `worker-v2.`, 02:22:35Z / 02:22:43Z / 02:22:50Z | the funding account / the parent / the parent | [`EQhHFMndwVj1TZfs7R4vWeb8nH8mNavbzABxr5GiLKr6`](https://nearblocks.io/txns/EQhHFMndwVj1TZfs7R4vWeb8nH8mNavbzABxr5GiLKr6) / [`6bzSzsyB8dGYd7ukT9qm2ZuU27U6tUgXixWupPJFai4W`](https://nearblocks.io/txns/6bzSzsyB8dGYd7ukT9qm2ZuU27U6tUgXixWupPJFai4W) / [`DCDv7YjH6A94jNLcH7fQ5t19b9SGJhytbzhie1jRYEH5`](https://nearblocks.io/txns/DCDv7YjH6A94jNLcH7fQ5t19b9SGJhytbzhie1jRYEH5) |
+| smoke: the agent's function-call key (`authorize_from_budget`) / its full-access key deleted, 02:22:56Z / 02:23:02Z | the agent | [`De7DhA1XE4PYTGdE8pj7BKVuN6axueLcsXKc7rAJNMtT`](https://nearblocks.io/txns/De7DhA1XE4PYTGdE8pj7BKVuN6axueLcsXKc7rAJNMtT) / [`5CQxZ8P1hiPGXqwziW8pk9RKAQq9DdvFJ4ZNqm24RXKp`](https://nearblocks.io/txns/5CQxZ8P1hiPGXqwziW8pk9RKAQq9DdvFJ4ZNqm24RXKp) |
+| smoke: USDC storage for `worker-v2.` / the hub's NEP-145 storage in v2, 02:23:11Z / 02:23:22Z | the funding account | [`2fVqngWP4bKx9dPMe8hJH1E2Z4JCG93kne9RVCKyanYY`](https://nearblocks.io/txns/2fVqngWP4bKx9dPMe8hJH1E2Z4JCG93kne9RVCKyanYY) / [`4Ncxu59bnuXJHCNZzBtBxMNRZbU1vAWHB8QGJXQqSXNT`](https://nearblocks.io/txns/4Ncxu59bnuXJHCNZzBtBxMNRZbU1vAWHB8QGJXQqSXNT) |
+| smoke: **the budget, 0.10 USDC for `agent-v2.` with the operator's ticket** (caps 0.05 per payment, 0.10 per day), 02:23:31Z | the funding account (the human) | [`8izehMAhAmaYyJy75mpG884LwCY96C7XHnoS4cJWNZGV`](https://nearblocks.io/txns/8izehMAhAmaYyJy75mpG884LwCY96C7XHnoS4cJWNZGV) |
+| smoke, payment `9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC`: **the agent's `authorize_from_budget` of 0.05 to `worker-v2.`** / release / `withdraw_for` the worker (0.0435) / `withdraw_for` the fee recipient (0.0065, the 13 %), 02:23:44Z / 02:23:52Z / 02:24:00Z / 02:24:10Z | the agent (function-call key); then the capturer (function-call key) | [`3Y9cAjyfgsVEFqeFuwxVMZgxvyAD8AHaDt6LKcy28JTi`](https://nearblocks.io/txns/3Y9cAjyfgsVEFqeFuwxVMZgxvyAD8AHaDt6LKcy28JTi) / [`52KbQt7q9aDJyWJDEcTnLc1uCcVdqaCVnyk7LeZueurw`](https://nearblocks.io/txns/52KbQt7q9aDJyWJDEcTnLc1uCcVdqaCVnyk7LeZueurw) / [`62tyfGbWHhYgLXey5makZhXZLRmFkB2tYhNEcWhJEfpv`](https://nearblocks.io/txns/62tyfGbWHhYgLXey5makZhXZLRmFkB2tYhNEcWhJEfpv) / [`9wV2pfNpeQFjwV9vdTYP2cvvTNoW9SLjjNLYGQbT6kwr`](https://nearblocks.io/txns/9wV2pfNpeQFjwV9vdTYP2cvvTNoW9SLjjNLYGQbT6kwr) |
+| smoke, payment `8428jJdxtdVfJwrMKc7ircLp1Yr6D5nra5e16ZbRNS8w`: the agent's second payment of 0.05 / **the human opens a dispute** / **the arbiter returns it all to the human** / `withdraw_for` the human (0.05), 02:24:22Z / 02:24:29Z / 02:24:37Z / 02:24:46Z | the agent / the funding account / the arbiter (function-call key) / the capturer | [`FrbHGrPRn6ZwYrr4UZcVzpBST73zn5QUi7Yx6qZ79Ty1`](https://nearblocks.io/txns/FrbHGrPRn6ZwYrr4UZcVzpBST73zn5QUi7Yx6qZ79Ty1) / [`2PXjnXi7hQb4MhrjgvPgKDMPx5HBZQLCBoXXUCRqS8wK`](https://nearblocks.io/txns/2PXjnXi7hQb4MhrjgvPgKDMPx5HBZQLCBoXXUCRqS8wK) / [`6VsgyjUj64hbk4kMFinyniJkyunJ1s3aZj4bdacNouKa`](https://nearblocks.io/txns/6VsgyjUj64hbk4kMFinyniJkyunJ1s3aZj4bdacNouKa) / [`6Kaca22TyYbrpJkkcwNYqYb2pUR4pMKfYMVDERVLAS52`](https://nearblocks.io/txns/6Kaca22TyYbrpJkkcwNYqYb2pUR4pMKfYMVDERVLAS52) |
+| smoke: `revoke_agent` / `storage_withdraw`, 02:24:58Z / 02:25:06Z | the funding account | [`Cc75eHk1vMFAfAs1jsPRwrQCrVwCWkBXgs9ttdi5gch2`](https://nearblocks.io/txns/Cc75eHk1vMFAfAs1jsPRwrQCrVwCWkBXgs9ttdi5gch2) / [`3QsUMq9Ve5UhwHPRjCQLYzZk2x94oZKzhZdEbbHXHcWw`](https://nearblocks.io/txns/3QsUMq9Ve5UhwHPRjCQLYzZk2x94oZKzhZdEbbHXHcWw) |
+
+At the end, `get_config` read `tvl_global` 0, `in_flight` 0, `budgets_total` 0 and `payments` 2: the smoke's two. The
+read-only checks of v2's code, its operator, the agent's key and both payments are in the README ("Check it
+yourself"). This run changed nothing in Execution Market or in the facilitator: the facilitator's
+`NEAR_ESCROW_CONTRACTS_MAINNET` still lists v1 only (pointing them at v2 is MAINNET.md, section 8.9).
