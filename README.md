@@ -5,10 +5,13 @@ one `ft_transfer_call`; an operator (Execution Market) releases it to the worker
 back to the payer by refund or, after a deadline, by reclaim. Version 1 holds a single token (native NEAR USDC), is
 immutable (no `migrate`, no upgrade path) and its account has **no access keys** after deploy.
 
-> **Disclosure (NEAR HACKATHON):** "diseno y vectores escritos antes del hackaton en un repo privado (2026-10-26);
-> codigo escrito desde el 2026-11-01 (SHA de inicio `3a2ebdfc832afd179298fb4f861f23409356fb01`)".
-> In English: the design and the test vectors were written before the hackathon in a private repo (2026-10-26); all
-> code was written from 2026-11-01 on, starting at commit `3a2ebdf`. Details in [HACKATHON.md](HACKATHON.md).
+> **Disclosure (NEAR HACKATHON):** the design and the test vectors were written on 2026-10-25/26 in a private
+> planning repo, before the hackathon started (2026-11-01) but inside its window, which
+> [Q-001](https://nearhackathon.com/HACKATHON.md) opens at the announcement: "Code before 2026-11-01? Yes, from the
+> announcement on 2026-10-19 [...]. The window runs from then to 2026-11-14. Earlier commits are baseline." All code was
+> written from 2026-11-01 on, starting at commit `3a2ebdfc832afd179298fb4f861f23409356fb01`, with the help of AI coding
+> agents (the commits carry `Co-Authored-By: Claude Opus 5.5`), which Q-005 allows. Details in
+> [HACKATHON.md](HACKATHON.md).
 
 Status: v1 is **live on NEAR mainnet** (`v1.arras-escrow.near`, keyless, since 2026-11-03) and Execution Market's
 production deployment settles NEAR tasks through it (so far, the team's own end-to-end tests); the ERC-8004 port
@@ -92,6 +95,19 @@ below are what they returned. The v2 rows (the last five) are from 2026-11-08, a
 near-cli returned them; the first gives what that command shows, with the facts that
 `scripts/mainnet-v2.sh --mainnet-ok verificar` read through the RPC.
 
+If that RPC refuses or rate-limits you: a fresh near-cli-rs 0.30.1 configuration points its `mainnet` connection at
+`https://archival-rpc.mainnet.fastnear.com/` (`near config show-connections`), and NEAR's list of public RPC providers,
+<https://docs.near.org/api/rpc/providers> (the one the rules give in Q-009), marks FastNear's archival nodes as paid
+only (read 2026-11-08). Every command below reads the current state (`now`), so a non-archival public endpoint from
+that list is enough. Point the connection at one, for example FastNear's free endpoint, and run the rows unchanged:
+
+```sh
+near config edit-connection mainnet --key rpc_url --value https://free.rpc.fastnear.com/
+```
+
+It needs no TTY (`near config add-connection` asks interactively); the same command with another endpoint of the list,
+or with the old URL, changes it again.
+
 | Do | See |
 |---|---|
 | `near account view-account-summary v1.arras-escrow.near network-config mainnet now` (also for the three ERC-8004 contracts and `registry-v1` of the table; v2 below) | `Local Contract (SHA-256 checksum hex)` = the sha256 of the table; `Access keys: Account is locked (no access keys)`. The "Delegated stake" line prints a handler error from `poolv1.near`, unrelated to the contract |
@@ -121,7 +137,7 @@ Market's own code is not in this repository; its use of the contracts can be see
 **Built during the hackathon.** The repository was created on 2026-11-01. The hackathon work is everything after the
 start commit `3a2ebdf`:
 [3a2ebdf...main](https://github.com/UltravioletaDAO/arras/compare/3a2ebdfc832afd179298fb4f861f23409356fb01...main).
-[HACKATHON.md](HACKATHON.md) lists what existed before: the x402-rs facilitator's NEAR `exact` payments,
+[HACKATHON.md](HACKATHON.md) lists what existed before 2026-11-01: the x402-rs facilitator's NEAR `exact` payments,
 Execution Market on EVM networks, and the Arras design and test vectors. It also lists what was deployed and
 when. The pinned libraries are listed under "Repository" below.
 
@@ -288,6 +304,14 @@ All are immutable (private `new` in the deploy transaction, no `migrate`, no own
 registration file is `near:mainnet:identity-registry.erc-8004.near` (CAIP-2 has no `near` namespace registered yet).
 
 ## Try it
+
+**How long it takes.** U-16 runs 10,000 random sequences in each escrow crate, and in debug that is about 5 minutes
+per crate: with `cargo test --workspace --lib --locked` on 2026-11-08, v1's unit tests took 274 s and v2's 355 s (299 s
+and 446 s with the machine under load), nearly all of it U-16; every other crate takes seconds. `--release` is slower,
+not faster: the release profile is the one tuned for the wasm (`opt-level = "z"`), and the same run on the same busy
+machine took 589 s and 737 s after a 4-minute rebuild. For a quick pass, `ARRAS_PROPTEST_CASES` lowers the number of
+sequences: `ARRAS_PROPTEST_CASES=1000 cargo test --workspace --lib --locked` passed the 576 unit tests in 94 s with the
+build cached (v1 30 s, v2 58 s). Without the variable, U-16 runs its 10,000.
 
 | Do | See |
 |---|---|
@@ -554,7 +578,7 @@ The checks below are on the first rehearsal's contract, except the last row, the
 | `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows, v2's smoke test), with explorer links |
 | `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`) |
 | `docs/handoffs/` | handoffs between workers (decisions and what is left) |
-| `HACKATHON.md` | what existed before the hackathon and what was built during it |
+| `HACKATHON.md` | what existed before 2026-11-01, what was built from then on, and the window of Q-001 |
 
 Pinned: near-sdk and near-contract-standards `=5.29.1`, near-workspaces `=0.23.0`, cargo-near 0.22.0, near-cli-rs
 0.30.1. `Cargo.lock` is committed (the reproducible build requires it).

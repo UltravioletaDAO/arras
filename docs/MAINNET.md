@@ -1,12 +1,16 @@
-# Arras v1 on NEAR mainnet: the runbook (H-3)
+# Arras on NEAR mainnet: the runbooks of v1 (H-3) and v2 (H-11)
 
-Arras v2 has its own runbook in [section 8](#8-arras-v2-on-mainnet-the-runbook-h-11) (`scripts/mainnet-v2.sh`):
-rehearsed on testnet and **deployed to mainnet on 2026-11-08** (8.8).
+This file holds two runbooks, one per escrow:
 
-Status: **deployed on 2026-11-03** (02:30:11Z to 02:32:30Z by the script's clock; block times 02:30:39Z to
+| Sections | Runbook | Script | On mainnet |
+|---|---|---|---|
+| [1](#1-what-goes-on-chain) to [7](#7-the-mainnet-run-2026-11-03) | Arras v1 (H-3) | `scripts/mainnet.sh` | `v1.arras-escrow.near`, deployed 2026-11-03 (section 7) |
+| [8](#8-arras-v2-on-mainnet-the-runbook-h-11) (8.1 to 8.9) | Arras v2 (H-11) | `scripts/mainnet-v2.sh` | `v2.arras-escrow.near`, rehearsed on testnet and deployed 2026-11-08 (8.8) |
+
+v1's status: **deployed on 2026-11-03** (02:30:11Z to 02:32:30Z by the script's clock; block times 02:30:39Z to
 02:32:19Z), with the one command of section 4, after the testnet rehearsals of section 6. `v1.arras-escrow.near` has
 the pinned wasm and no access keys; section 7 has the run and its transactions, and [EVIDENCE.md](EVIDENCE.md) the
-mainnet transactions since. The text below is the runbook as it was written before the run (2026-11-02/03).
+mainnet transactions since. Sections 1 to 6 are v1's runbook as it was written before the run (2026-11-02/03).
 
 ## 1. What goes on chain
 
