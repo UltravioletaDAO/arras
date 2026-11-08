@@ -38,7 +38,7 @@ deployment (below). `git log --format='%h %aI %s' 3a2ebdf..HEAD` lists each comm
 | `v1.arras-dev.testnet` | `0fb7929` | `811e454f6975c97d91cbd5fdb4cf3385acf000ff01f2e46a6a1840b4de5897a0` | first deployment, keyless, before the self-review fixes |
 | `arras-v2-1103.testnet` | `c416989` | `8ef765f9f6c3b967cd55501f0eb3c8856b24085acabb479745624b9682f5d66a` | **v2** (agent budgets, disputes, operator tickets), keyless, deployed 2026-11-03 |
 | `v2.arras-v2e-1107.testnet` | `ddc5121` (the merge of the reviewed v2) | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | first rehearsal of the v2 mainnet script and its smoke test, with the script as it was before its own money review; keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8.6) |
-| `v2.arras-v2f-1107.testnet` | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | second rehearsal, from scratch with the final script, after the two rounds of the script's money review (it found the up-front gas reserve behind the script's last fix, docs/MAINNET.md 8.3); keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8.6) |
+| `v2.arras-v2f-1107.testnet` | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | second rehearsal, after the two rounds of the script's money review: it found the up-front reserve behind the script's last fix (docs/MAINNET.md 8.3) and finished with the final script; keyless, deployed 2026-11-07 (docs/MAINNET.md, section 8.6) |
 
 Every wasm above is a reproducible build (`sourcescan/cargo-near:0.21.1-rust-1.96.0`; the two rehearsals share the
 pinned wasm of `ddc5121`); each carries its commit in the NEP-330 metadata (`contract_source_metadata`). Transactions
@@ -55,10 +55,11 @@ worker, and a payment without the operator's ticket was refused. The contract en
 Transactions, events and balances: README, "Arras v2 on testnet".
 
 On 2026-11-07 the v2 mainnet script ran end to end on testnet over the same layout as mainnet, twice: first on
-`v2.arras-v2e-1107.testnet`, then from scratch with the final script on `v2.arras-v2f-1107.testnet`. Each time with its
-smoke test: an agent with only a function-call key paid from a human's budget with the operator's tickets, the capturer
-released it, and a disputed payment went back to the human through the arbiter. The token was a test NEP-141 (Circle's
-testnet faucet sits behind a reCAPTCHA). Transactions: docs/MAINNET.md, section 8.6.
+`v2.arras-v2e-1107.testnet`, then on `v2.arras-v2f-1107.testnet`, which found the up-front reserve behind the script's
+last fix and finished with the final script. Each time with its smoke test: an agent with only a function-call key paid
+from a human's budget with the operator's tickets, the capturer released it, and a disputed payment went back to the
+human through the arbiter. The token was a test NEP-141 (Circle's testnet faucet sits behind a reCAPTCHA).
+Transactions: docs/MAINNET.md, section 8.6.
 
 ## Deployed during the hackathon (mainnet)
 

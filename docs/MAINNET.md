@@ -313,9 +313,10 @@ its testnet rehearsals.
 the flag of the same network (`--mainnet-ok` with `ARRAS_RED=mainnet`), no key ever printed, the existing keys read from
 SSM through a pipe, the new keys handed to SSM by printed commands (`secretos`), and the contract account without keys
 at the end. What both scripts share (arguments, networks, account rules, caps, transactions, RPC reads, the pinned
-wasm, keys through a pipe) lives once in `scripts/arras-comun.sh`; v1 behaves as before: the 347 asserts of v1's cases
-in `scripts/test_mainnet.sh` are the same, and the only change to them is in case t21, which runs a copy of the script
-and now copies `scripts/arras-comun.sh` next to it.
+wasm, keys through a pipe) lives once in `scripts/arras-comun.sh`. v1 runs the same sequence, and its script changed
+only around it, for example: `ARRAS_RPC` is no longer printed, the RPC reads retry, and integers with leading zeros are
+refused. The 347 asserts of v1's cases in `scripts/test_mainnet.sh` are the same, and the only change to them is in
+case t21, which runs a copy of the script and now copies `scripts/arras-comun.sh` next to it.
 
 ### 8.1 What goes on chain
 
@@ -491,10 +492,9 @@ contract bounds it: per payment and per day caps of the budget, the 60-day horiz
 ### 8.6 Testnet rehearsal (2026-11-07): `arras-v2e-1107.testnet`
 
 The mainnet layout was rebuilt on testnet first, with v1's script and a new implicit funding account (case a), then v2
-went on top with `scripts/mainnet-v2.sh --testnet-ok todo` and `humo`, with the mainnet defaults of that run. Two were
-lowered afterwards with what it measured (the agent's NEAR, 0.1 -> 0.03, and the hub's free NEAR for the
-`ft_transfer_call`, 0.15 -> 0.1) and raised again with what the second rehearsal below measured (8.3): in the final
-script the agent's NEAR is 0.06 and the hub's free NEAR for the `ft_transfer_call` is 0.15. The token was a test
+went on top with `scripts/mainnet-v2.sh --testnet-ok todo` and `humo`, with the mainnet defaults of that run. Two
+defaults went up with what the second rehearsal below measured (8.3): in the final script the agent's NEAR is 0.06 and
+the hub's free NEAR for the `ft_transfer_call` is 0.15. The token was a test
 NEP-141 (`usdc-ensayo-1107.testnet`, `contracts/test-ft`, 6 decimals) through `ARRAS_USDC_TESTNET`, which only testnet
 accepts: Circle's testnet faucet sits behind a reCAPTCHA. Circle's testnet USDC already went through v1 and v2 on testnet
 (README). All runs exited 0; a second `todo` and a second `humo` sent no transaction (31 before and after).
@@ -517,7 +517,7 @@ accepts: Circle's testnet faucet sits behind a reCAPTCHA. Circle's testnet USDC 
 | smoke, payment `HfTEaoU9...`: the agent's authorize / **the payer opens a dispute** / **the arbiter returns all of it** / `withdraw_for` the payer (0.05) | [`FR5L8nbj...`](https://testnet.nearblocks.io/txns/FR5L8nbjxipxcinYEtHCT7oZ1wH6CPn2qxDuooM3veYm) / [`HtvwdaFM...`](https://testnet.nearblocks.io/txns/HtvwdaFMbKDMjRNyTQDNfsaTeXFBNtX3i2N8gAR2rWyE) / [`6WgejNRV...`](https://testnet.nearblocks.io/txns/6WgejNRVyrT1Cc4Yugf8p1BNgJyfth8hDaLKT5rbo2Yy) / [`3eKe5Fun...`](https://testnet.nearblocks.io/txns/3eKe5FunRFccYe5dXMkcktGyzXJin28puVQxMPrG7zqa) |
 | smoke: `revoke_agent` / `storage_withdraw` | [`Aue8sc1b...`](https://testnet.nearblocks.io/txns/Aue8sc1bqLwk74eYAD5Y1CXr1BNqfuuqS8SksM2HPWjJ) / [`A2zt75wB...`](https://testnet.nearblocks.io/txns/A2zt75wBvkszFRtCjGTddPoCwQ5bDEvTcqU1mhLDgNsE) |
 
-**Second rehearsal, with the final script (2026-11-07): `arras-v2f-1107.testnet`.** The same sequence from scratch,
+**Second rehearsal, which finished with the final script (2026-11-07): `arras-v2f-1107.testnet`.** The same sequence from scratch,
 with a new funding account, after the money review's two rounds. It is the one that found the up-front reserve of 8.3:
 the agent's 0.03 (that day's default) and then its key's 0.03 allowance could not cover a 30 TGas call, and the script
 now refuses before signing and says how to top up; the defaults went to 0.06. It also went through two transient
@@ -630,10 +630,12 @@ it. Execution Market and the facilitator did not change (8.9).
    Its lifecycle gate reads `get_operator("em").capturers` on v2: `["em-capturer-v2.arras-escrow.near"]`.
    That capturer starts with 0.15 NEAR of balance and of allowance (v1's started with 0.5): its FunctionCall key
    cannot sign a call that attaches more than about 142 TGas (the up-front reserve of 8.3), and the allowance lasts
-   about 300 calls of ~0.0005 NEAR when the capturer signs its own transactions (for v1, section 3 counts none of the
-   allowance through the facilitator's NEP-366 relay, and section 5 says the relayer pays the gas). Before pointing
-   Execution Market at v2, measure the gas that the facilitator attaches to `release` and `withdraw_for` against this
-   key; if the key does not fit, the capturer is changed with `update_operator` (8.7).
+   about 200 calls (each call also needs its up-front reserve in the allowance) when the capturer signs its own
+   transactions (for v1, section 3 counts none of the allowance through the facilitator's NEP-366 relay, and in
+   [EVIDENCE.md](EVIDENCE.md) the relayer `uvd-facilitator.near` sends the capturer's `release` and `withdraw_for` and
+   pays their gas: its row in the accounts table, and section 5). Before pointing Execution Market at v2, measure the
+   gas that the facilitator attaches to `release` and `withdraw_for` against this key; if the key does not fit, the
+   capturer is changed with `update_operator` (8.7).
 3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
    `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
    or the owner's `update_operator` without the ticket (8.1).

@@ -72,8 +72,9 @@ The v2 escrow is live since 2026-11-08: `scripts/mainnet-v2.sh` deployed the rep
 ([`Bqc63GgB...`](https://nearblocks.io/txns/Bqc63GgBiTWfrs9nAVHzE9piPLtPsxj6EcPSU7fDmVqt)) and ran the smoke test of
 the security track, with the project's funding account as the human and test accounts as the agent and the worker
 ([docs/EVIDENCE.md](docs/EVIDENCE.md), section 6; the checks are below). It was rehearsed twice on testnet first
-(`v2.arras-v2e-1107.testnet`, and from scratch with the final script `v2.arras-v2f-1107.testnet`; "Arras v2 on testnet"
-below). Execution Market and the x402-rs facilitator still use v1 only: pointing them at v2 is a later step
+(`v2.arras-v2e-1107.testnet`, then `v2.arras-v2f-1107.testnet`, which found the up-front reserve behind the script's
+last fix and finished with the final script; "Arras v2 on testnet" below). Execution Market and the x402-rs facilitator
+still use v1 only: pointing them at v2 is a later step
 ([docs/MAINNET.md](docs/MAINNET.md), section 8.9).
 
 The run that shows it all together is Execution Market's golden flow on 2026-11-06 at 01:17Z
@@ -478,10 +479,11 @@ test, the security track: a human (the funding account) deposited a 0.10 budget 
 budget ticket; the agent, holding only a function-call key for `authorize_from_budget`, paid 0.05 to a worker with a
 payment ticket; the capturer released it (0.0435 to the worker, 0.0065 to the fee recipient); the agent paid another
 0.05, the human disputed it and the arbiter gave all of it back. The token was a test NEP-141
-(`usdc-ensayo-1107.testnet`; Circle's testnet faucet sits behind a reCAPTCHA). A second rehearsal from scratch with the
-final script, after the two rounds of that review (`v2.arras-v2f-1107.testnet`), measured what each call reserves up
-front and recovered from transient failures by running each step again. Every transaction, the measurements and the
-budget for mainnet: [docs/MAINNET.md](docs/MAINNET.md), section 8.
+(`usdc-ensayo-1107.testnet`; Circle's testnet faucet sits behind a reCAPTCHA). A second rehearsal, after
+the two rounds of that review (`v2.arras-v2f-1107.testnet`), recovered from transient failures by running each step
+again, found the up-front reserve behind the script's last fix (what each call reserves up front) and finished with the
+final script. Every transaction, the measurements and the budget for mainnet: [docs/MAINNET.md](docs/MAINNET.md),
+section 8.
 
 The checks below are on the first rehearsal's contract, except the last row, the second rehearsal's.
 
@@ -492,7 +494,7 @@ The checks below are on the first rehearsal's contract, except the last row, the
 | the operator | `... get_operator json-args '{"operator_id":"em"}' ...` | capturer `em-capturer-v2.arras-v2e-1107.testnet`, arbiter `em-arbiter-v2.arras-v2e-1107.testnet`, `arbiter_window_ns` 604800000000000, a `ticket_pubkey` |
 | the agent | `near account list-keys agent-v2.arras-v2e-1107.testnet network-config testnet now` | one key: only `authorize_from_budget` on `v2.arras-v2e-1107.testnet` |
 | the two smoke payments | `... get_payment json-args '{"payment_id":"5AkgphxKw9ghWReKiJ5j1uUWE9ytPoxm1e6PGUKTzZHe"}' ...` and `HfTEaoU9bnXG6CpfxUWvhr1rV8RTEbU5v12ir6CsKwF6` | `Released`; `Resolved` with `refunded` 50000 |
-| the second rehearsal, with the final script: code = reproducible build, no keys | `near account view-account-summary v2.arras-v2f-1107.testnet network-config testnet now` | SHA-256 `1541525c...fa77`; no access keys (what its `verificar` read: [docs/MAINNET.md](docs/MAINNET.md), 8.6) |
+| the second rehearsal, which finished with the final script: code = reproducible build, no keys | `near account view-account-summary v2.arras-v2f-1107.testnet network-config testnet now` | SHA-256 `1541525c...fa77`; no access keys (what its `verificar` read: [docs/MAINNET.md](docs/MAINNET.md), 8.6) |
 
 ## Security model
 
