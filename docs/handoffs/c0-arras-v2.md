@@ -4,8 +4,7 @@ Rama `0xultravioleta/c0-arras-v2`, desde `origin/main` 7312a9d. Worker de la Mac
 
 ## Que se hizo
 
-- `contracts/escrow-v2`: el contrato v1 (mismo comportamiento) mas la sec. 4 de la prescripcion
-  (`c0der:docs/plans/2026-10-26-near-escrow-prescripcion.md`):
+- `contracts/escrow-v2`: el contrato v1 (mismo comportamiento) mas la sec. 4 de la prescripcion:
   - **presupuesto de agente**: `msg` `budget` en `ft_transfer_call`; `authorize_from_budget` sin deposito (lo firma
     una function-call key limitada al contrato y a ese metodo); topes por pago y por dia UTC; `withdraw_budget`,
     `revoke_agent`, `set_budget_caps` (1 yocto). El pago del agente queda en escrow con `payer = owner`: lo libera el
