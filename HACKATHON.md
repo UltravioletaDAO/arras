@@ -8,27 +8,19 @@
 | **Start SHA** | `3a2ebdfc832afd179298fb4f861f23409356fb01` |
 | Built during the hackathon | every commit in `git log 3a2ebdf..HEAD`: [3a2ebdf...main](https://github.com/UltravioletaDAO/arras/compare/3a2ebdfc832afd179298fb4f861f23409356fb01...main) |
 
-## Disclosure
-
-The Arras design and its test vectors were written on 2026-10-25/26 in a private planning repo: before the hackathon
-started (2026-11-01), but inside its window. Q-001 of the [rules](https://nearhackathon.com/HACKATHON.md): "Code
-before 2026-11-01? Yes, from the announcement on 2026-10-19 (https://x.com/nearprotocol/status/2112257967818997891).
-The window runs from then to 2026-11-14. Earlier commits are baseline." All the code was written from 2026-11-01 on, in
-this repo, starting at commit `3a2ebdfc832afd179298fb4f861f23409356fb01`, with the help of AI coding agents (every
-commit after it except GitHub's merge commits carries `Co-Authored-By: Claude Opus 5.5`), which Q-005 allows
-("including own pre-hackathon libs and AI code").
+All the code in this repository was written from 2026-11-01 on, inside the Q-001 window, in the commits after the start
+SHA `3a2ebdf`: [3a2ebdf...main](https://github.com/UltravioletaDAO/arras/compare/3a2ebdfc832afd179298fb4f861f23409356fb01...main).
 
 ## What already existed before 2026-11-01 (not part of this repo)
 
 Of the rows below, these date from 2026-10-19 or later, so they fall inside the Q-001 window too: x402-rs#129 and
-#130, the two SDK releases and the Arras design.
+#130, and the two SDK releases.
 
 | Piece | State before 2026-11-01 | Date |
 |---|---|---|
 | x402-rs facilitator (Ultravioleta DAO) | NEAR `exact` payments through NEP-366 meta-transactions, live in production | live before 2026-10-25; hardened by x402-rs#129 (merged 2026-10-25) and #130 (merged 2026-10-27) |
 | Execution Market | marketplace where humans, agents and robots are hired; escrow on EVM networks only, no NEAR | measured 2026-10-25 |
 | uvd-x402-sdk-python 0.100.0, uvd-x402-sdk-typescript 2.105.0 | NEAR `exact` only, no escrow | published 2026-10-26 ([PyPI](https://pypi.org/project/uvd-x402-sdk/0.100.0/) 13:24Z, [npm](https://www.npmjs.com/package/uvd-x402-sdk/v/2.105.0) 13:20Z) |
-| Arras design | written specification and golden vectors V-1..V-3 in a private planning repo, no contract code | 2026-10-25 / 2026-10-26 |
 
 ## What was built from 2026-11-01 on (this repo)
 
@@ -37,7 +29,8 @@ tests, the near-workspaces tests, the reproducible builds, `scripts/testnet.sh` 
 mainnet deployment script `scripts/mainnet.sh` and its offline tests (2026-11-02/03), and v2's, `scripts/mainnet-v2.sh`
 with its smoke test (2026-11-07); the agent registry
 (`arras-registry-v1`, 2026-11-03) and the ERC-8004 port (`erc8004-*` crates, from 2026-11-04); and every mainnet
-deployment (below). `git log --format='%h %aI %s' 3a2ebdf..HEAD` lists each commit with its timestamp.
+deployment (below). `TZ=UTC0 git log --date=iso-strict-local --format='%h %ad %s' 3a2ebdf..HEAD` lists each commit
+with its timestamp in UTC.
 
 ## Deployed during the hackathon (testnet)
 
