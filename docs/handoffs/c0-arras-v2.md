@@ -4,8 +4,8 @@ Rama `0xultravioleta/c0-arras-v2`, desde `origin/main` 7312a9d. Worker de la Mac
 
 ## Que se hizo
 
-- `contracts/escrow-v2`: el contrato v1 (mismo comportamiento) mas lo nuevo del diseno de Arras v2 (README, "Arras v2:
-  agent budgets, disputes and operator tickets"):
+- `contracts/escrow-v2`: el contrato v1 (mismo comportamiento) mas lo nuevo del diseno inicial de v2 (lo implementado
+  esta en el README, "Arras v2: agent budgets, disputes and operator tickets"):
   - **presupuesto de agente**: `msg` `budget` en `ft_transfer_call`; `authorize_from_budget` sin deposito (lo firma
     una function-call key limitada al contrato y a ese metodo); topes por pago y por dia UTC; `withdraw_budget`,
     `revoke_agent`, `set_budget_caps` (1 yocto). El pago del agente queda en escrow con `payer = owner`: lo libera el
@@ -21,20 +21,20 @@ Rama `0xultravioleta/c0-arras-v2`, desde `origin/main` 7312a9d. Worker de la Mac
 - `docs/vectores.json`: seccion `v2` (diff solo aditivo; los vectores de v1 no cambian).
 - `scripts/testnet-v2.sh` y el recorrido en el README ("Arras v2 on testnet").
 
-## Apartes del diseno de Arras v2 (aceptados por c0der en RESPUESTA del 2026-11-03 00:08Z)
+## Apartes del diseno inicial de v2 (aceptados por c0der en RESPUESTA del 2026-11-03 00:08Z)
 
 1. **Mensaje del ticket con dominio y contrato**: `borsh("arras:v2:operator_ticket", cuenta_del_contrato, sujeto,
-   expiry)`; el diseno decia `borsh(payment_id, expiry)`. Sin dominio ni contrato, un ticket valdria en otro contrato
-   que confie en la misma llave. Vectores T-1/T-2, recomputados con OpenSSL.
+   expiry)`; el diseno inicial decia `borsh(payment_id, expiry)`. Sin dominio ni contrato, un ticket valdria en otro
+   contrato que confie en la misma llave. Vectores T-1/T-2, recomputados con OpenSSL.
 2. **Ticket tambien en el deposito de presupuesto y en `authorize_from_budget`** cuando el operador tiene llave; si
    no, el griefing de F-5 entra por el presupuesto.
 3. **Clave del presupuesto sin `token`**: v2 es de un solo token fijo en `new`, como v1.
 4. **`dispute_deadline` opcional** (vale `reclaim_after`): un `msg` de v1 es un `msg` valido de v2 con el mismo
    `payment_id`; el SDK de v1 sirve tal cual y EM cambia la direccion por configuracion.
 
-Decidido en lo que el diseno dejaba abierto: codigos `E47`, `E48`, `E50`..`E57`, `E60`..`E67` con nombre; plazo del
-arbitro congelado en el pago al autorizar, en `[1 minuto, 30 dias]`; arbitro rotable; storage de la disputa (86
-bytes) cobrado al autorizar y devuelto al compactar si no se uso; la pausa no frena disputas, `withdraw_budget` ni
+Decidido en lo que el diseno inicial dejaba abierto: codigos `E47`, `E48`, `E50`..`E57`, `E60`..`E67` con nombre;
+plazo del arbitro congelado en el pago al autorizar, en `[1 minuto, 30 dias]`; arbitro rotable; storage de la disputa
+(86 bytes) cobrado al autorizar y devuelto al compactar si no se uso; la pausa no frena disputas, `withdraw_budget` ni
 `revoke_agent`.
 
 ## Auto-refutacion (antes del PR)
@@ -59,9 +59,9 @@ P3-N2: la llave publica de los vectores, cuya semilla esta publicada, se rechaza
 Declarados (sin cambio de codigo): P3-3 (con un `msg` de v1 el receiver puede disputar hasta `reclaim_after - 1` y
 congelar el reclaim del payer el plazo del arbitro, consecuencia del aparte 4), P3-4 (`dispute_deadline` no esta en el
 `payment_id` ni en el ticket), P3-6 (el storage de un presupuesto patrocinado vuelve al pool solo con `revoke_agent`),
-P3-7 (la ventana es el dia UTC: alrededor de medianoche el agente gasta hasta 2x el tope diario, como dice el diseno),
-P3-8 (la regla del vencimiento es la del diseno; el encargo dice "al ultimo estado acordado"; refinada despues por
-RARRAS-6 P2-1, abajo), P3-9 (`ticket_pubkey`
+P3-7 (la ventana es el dia UTC: alrededor de medianoche el agente gasta hasta 2x el tope diario, como dice el diseno
+inicial), P3-8 (la regla del vencimiento es la del diseno inicial; el encargo dice "al ultimo estado acordado";
+refinada despues por RARRAS-6 P2-1, abajo), P3-9 (`ticket_pubkey`
 se muestra como `ed25519:<b58>`; se acepta tambien sin prefijo).
 
 ## Refutacion de c0der: RARRAS-6, ronda 1 (2026-11-03)

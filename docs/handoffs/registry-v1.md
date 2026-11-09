@@ -392,7 +392,7 @@ Sin red (`HTTPS_PROXY=http://127.0.0.1:9`, `--offline`), sin credenciales (`AWS_
 | Union | `scripts/test_mainnet.sh` con `/bin/bash` 3.2.57 y `/opt/homebrew/bin/bash` 5.3.20 | 347 asserts pasan, 0 fallan, con los dos |
 | Formato | `cargo fmt --all -- --check` | limpio |
 | Lint | `cargo clippy --offline -p arras-registry-v1 -p arras-test-escrow --all-targets -- -D warnings` | limpio |
-| Pre-CI de c0der | el script de pre-CI (`--repo . --base origin/main --ejecutar`) | verde por vacio (0 pasos: no hay workflows) |
+| Pre-CI de c0der | el script de pre-CI de c0der, que no esta en este repo (`--repo . --base origin/main --ejecutar`) | verde por vacio (0 pasos: no hay workflows) |
 | Secretos | `gitleaks git --log-opts=origin/main..HEAD` | sin hallazgos |
 | Mutaciones | `mutar.py` (115 mutantes, `timeout` por mutante, revertidos con `git checkout`, arbol limpio entre uno y otro) | **115 de 115 muertas**, todas por un test que falla (0 timeouts, 0 rojos sin test) |
 | Wasm | `cargo near build non-reproducible-wasm` (lo hace `compile_project` del sandbox) | 231.516 bytes |

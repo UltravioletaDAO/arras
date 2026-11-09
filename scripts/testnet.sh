@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Arras v1 en testnet: los pasos del README ("Testnet deployments"), en orden (near-cli-rs 0.30.1, cargo-near 0.22.0).
+# Arras v1 en testnet: los pasos que registra el README ("Testnet deployments"); near-cli-rs 0.30.1, cargo-near 0.22.0.
 #
 # Uso: scripts/testnet.sh <paso> | todo
 #   1 padre        cuenta padre por el faucet de testnet y su saldo
@@ -214,7 +214,7 @@ paso5() {
 paso6() {
   run near contract call-function as-transaction "$C" register_operator json-args "{\"operator_id\":\"em\",\"input\":{\"owner\":\"owner.$P\",\"capturers\":[\"$CAPT\"],\"fee_bps\":1300,\"fee_recipient\":\"em-fees.$P\",\"min_amount\":\"10000\",\"tope_tvl_operador\":\"200000000\",\"tope_tvl_por_payer\":\"20000000\",\"sponsor_max_por_payer\":\"20000000000000000000000\"}}" prepaid-gas '30.0 Tgas' attached-deposit '1 yoctoNEAR' sign-as "owner.$P" network-config "$NET" "$SIGN" send
   # fund_operator_storage lo puede firmar cualquiera: lo firma el padre, porque owner tiene 0,5 NEAR y no le alcanzan
-  # para adjuntar 0,5 NEAR y pagar el gas (la sec. 8 lo firmaba owner).
+  # para adjuntar 0,5 NEAR y pagar el gas (el diseno inicial lo firmaba owner).
   run near contract call-function as-transaction "$C" fund_operator_storage json-args '{"operator_id":"em"}' prepaid-gas '30.0 Tgas' attached-deposit '0.5 NEAR' sign-as "$P" network-config "$NET" "$SIGN" send
   run near contract call-function as-transaction "$C" storage_deposit json-args "{\"account_id\":\"payer-demo.$P\"}" prepaid-gas '30.0 Tgas' attached-deposit '0.05 NEAR' sign-as "payer-demo.$P" network-config "$NET" "$SIGN" send
   run near contract call-function as-read-only "$C" get_operator json-args '{"operator_id":"em"}' network-config "$NET" now

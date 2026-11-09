@@ -575,6 +575,8 @@ The checks below are on the first rehearsal's contract, except the last row, the
 
 Pinned: near-sdk and near-contract-standards `=5.29.1`, near-workspaces `=0.23.0`, cargo-near 0.22.0, near-cli-rs
 0.30.1. `Cargo.lock` is committed (the reproducible build requires it).
+The workspace skeleton comes from `cargo near new` (cargo-near 0.22.0): `rust-toolchain.toml`, the `cfg(near)` lint
+block of `Cargo.toml` and the `[package.metadata.near.reproducible_build]` block of seven contract crates.
 Built with AI coding assistants, as [Q-005](https://nearhackathon.com/HACKATHON.md) allows.
 
 ## License

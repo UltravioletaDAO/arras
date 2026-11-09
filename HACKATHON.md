@@ -29,7 +29,8 @@ tests, the near-workspaces tests, the reproducible builds, `scripts/testnet.sh` 
 mainnet deployment script `scripts/mainnet.sh` and its offline tests (2026-11-02/03), and v2's, `scripts/mainnet-v2.sh`
 with its smoke test (2026-11-07); the agent registry
 (`arras-registry-v1`, 2026-11-03) and the ERC-8004 port (`erc8004-*` crates, from 2026-11-04); and every mainnet
-deployment (below). `git log --format='%h %aI %s' 3a2ebdf..HEAD` lists each commit with its timestamp.
+deployment (below). `TZ=UTC0 git log --date=iso-strict-local --format='%h %ad %s' 3a2ebdf..HEAD` lists each commit
+with its timestamp in UTC.
 
 ## Deployed during the hackathon (testnet)
 
