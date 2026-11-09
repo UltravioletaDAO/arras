@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Arras v1 en testnet: los pasos de la sec. 8 de la prescripcion, en orden (near-cli-rs 0.30.1, cargo-near 0.22.0).
+# Arras v1 en testnet: los pasos del README ("Testnet deployments"), en orden (near-cli-rs 0.30.1, cargo-near 0.22.0).
 #
 # Uso: scripts/testnet.sh <paso> | todo
 #   1 padre        cuenta padre por el faucet de testnet y su saldo

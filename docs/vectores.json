@@ -1,5 +1,5 @@
 {
-  "_fuente": "prescripcion del escrow Arras, sec. 7 (recomputados por el refutador el 2026-10-26); probados por U-01 y U-02 en contracts/escrow-core",
+  "_fuente": "vectores dorados del escrow Arras: payment_id V-1..V-3 y tarifas F-1..F-7; probados por U-01 y U-02 en contracts/escrow-core",
   "payment_id": {
     "formula": "base58(sha256(borsh(preimagen)))",
     "preimagen": [
@@ -127,7 +127,7 @@
     ]
   },
   "v2": {
-    "_fuente": "Arras v2 (H-9): prescripcion sec. 4 con los apartes del PR de v2; probados por los tests de contracts/escrow-v2 (vectores_v2_del_json). Los vectores de v1 de arriba no cambian y valen igual en v2.",
+    "_fuente": "Arras v2 (H-9): msg de v2, VB-1, tickets T-1/T-2 y disputa; probados por los tests de contracts/escrow-v2 (vectores_v2_del_json). Los vectores de v1 de arriba no cambian y valen igual en v2.",
     "payment_id": "la misma formula y la misma preimagen que v1 (v = 1): dispute_deadline y operator_ticket no entran",
     "msg_authorize": {
       "regla": "el msg de v1 mas, al final y en este orden, dispute_deadline (U64 string; si falta vale reclaim_after) y operator_ticket ({expiry, sig}); ambos opcionales: un msg de v1 es un msg valido de v2 con el mismo payment_id",

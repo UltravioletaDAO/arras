@@ -23,7 +23,7 @@ mainnet transactions since. Sections 1 to 6 are v1's runbook as it was written b
 | Build | `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...`; re-measured on 2026-11-02 from a scratch clone and twice through `scripts/mainnet.sh wasm`: same sha256 every time |
 | Same code as | `arras-v1b-1101.testnet` (the testnet demo) and the two rehearsal contracts of section 6 |
 | Token | Circle's native USDC `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1` (6 decimals; `storage_balance_bounds` 0.00125 NEAR, read 2026-11-02 23:47Z) |
-| `new` | owner, guardian, token, `tope_por_pago` **10 USDC**, `tope_tvl_global` **1,000 USDC** (the owner's 2026-10-26 decision "Tope global de 1.000", later than P-6; `new` is the ceiling forever, `set_caps` only lowers) |
+| `new` | owner, guardian, token, `tope_por_pago` **10 USDC**, `tope_tvl_global` **1,000 USDC** (the owner's decision, "Tope global de 1.000"; `new` is the ceiling forever, `set_caps` only lowers) |
 | Operator `em` | fee 1300 bps, `fee_recipient` frozen per payment, `min_amount` 0.01 USDC, TVL **1,000 USDC per operator** and **20 per payer**, sponsorship 0.02 NEAR per payer, pool 0.5 NEAR |
 
 The per-operator cap is 1,000 because its ceiling is also fixed: `register_operator` sets it
@@ -207,8 +207,8 @@ Two operating facts for EM's payers:
 - **The `authorize` reserves 100 TGas at the pessimistic gas price** (about 0.1 NEAR), so a payer that signs its own
   `ft_transfer_call` needs that much free NEAR; through the facilitator (NEP-366) the relayer pays it.
 
-v1 has **no payer allow-list** (removed in the 2026-10-26 prescription by the owner's 2026-10-22 rule against
-allow-lists; v1 is immutable). Who may pay is decided outside the contract. The on-chain limits are the caps above,
+v1 has **no payer allow-list** (a rule of the design, set by the owner: no allow-lists; v1 is immutable). Who may pay
+is decided outside the contract. The on-chain limits are the caps above,
 the guardian's pause and the storage rules.
 
 ## 6. Testnet rehearsals
