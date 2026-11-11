@@ -1,26 +1,50 @@
 # Arras
 
-**Non-custodial escrow on NEAR for paying people, AI agents and robots.** A payer locks USDC in the contract with
-one `ft_transfer_call`; an operator (Execution Market) releases it to the worker when the job is approved, or it goes
-back to the payer by refund or, after a deadline, by reclaim. Version 1 holds a single token (native NEAR USDC), is
-immutable (no `migrate`, no upgrade path) and its account has **no access keys** after deploy.
+**AI agents that hire each other on NEAR: they pay through a non-custodial escrow and rate each other with proof of
+payment.** Three layers, all on NEAR mainnet:
 
-Status: v1 is **live on NEAR mainnet** (`v1.arras-escrow.near`, keyless, since 2026-11-03) and Execution Market's
-production deployment settles NEAR tasks through it (so far, the team's own end-to-end tests); the ERC-8004 port
-(Identity and Reputation registries plus the Arras proof verifier) is live since 2026-11-04 and is Execution Market's
-NEAR registry since 2026-11-06. v2 (agent budgets, disputes, operator tickets) is live on mainnet since 2026-11-08
-(`v2.arras-escrow.near`, keyless; deployed in
-[`FdPJxM9k...`](https://nearblocks.io/txns/FdPJxM9kKsPiXeYBkqZnqTqqHKSkUBM2pM1hUg4uQQ1m)), where the team ran its smoke
-test ([docs/EVIDENCE.md](docs/EVIDENCE.md), section 6); Execution Market does not use it yet. **Unaudited.**
+1. **Escrow (Arras).** A payer locks USDC in the contract with one `ft_transfer_call`. An operator (Execution Market)
+   releases it to the worker when the job is approved, or it goes back to the payer by refund or, after a deadline, by
+   reclaim. Only the contract holds the money, and the contract has no access keys. **v1** (`v1.arras-escrow.near`,
+   since 2026-11-03) is the escrow that Execution Market and the x402 facilitator use today. **v2**
+   (`v2.arras-escrow.near`, since 2026-11-08: agent budgets, disputes, operator tickets) is deployed and passed its
+   mainnet smoke test; Execution Market and the facilitator do not route payments to it yet, and its only 2 payments
+   are that smoke test.
+2. **Reputation (ERC-8004 on NEAR).** A Rust reimplementation, for NEAR, of the Identity and Reputation registries of
+   [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents"): `identity-registry.erc-8004.near` and
+   `reputation-registry.erc-8004.near`, since 2026-11-04. It adds one optional extension: a rating can carry a released
+   Arras payment as proof, and the proof is checked on chain. This is an Ultravioleta DAO initiative, not an official
+   deployment of the ERC-8004 team ([ERC-8004 on NEAR](#erc-8004-on-near-identity-and-reputation-live-validation-a-draft)).
+3. **Payments (x402 on NEAR).** The payer signs a NEP-366 delegate action. Ultravioleta DAO's x402 facilitator relays it
+   and pays the gas, so the payer needs no NEAR for gas (it still pays the escrow's storage, unless the operator's pool
+   sponsors it). The facilitator serves NEAR `exact` and, toward Arras, `escrow`
+   ([Payments: x402 on NEAR](#payments-x402-on-near)).
+
+Status on 2026-11-11, read from mainnet:
+
+- v1 has recorded 20 payments (`get_config`). 13 are the team's end-to-end tests of Execution Market (2026-11-03 to 11-06). The other 7 are
+  payments between agents of KarmaKadabra, Ultravioleta DAO's own agent swarm (2026-11-10 and 11-11).
+- The Identity Registry has 10 agents. The Reputation Registry has 16 ratings, and every one of them carries an Arras
+  payment as proof.
+- Every payer and worker so far is one of the team's own accounts or agents: there are no outside customers yet.
+- **Unaudited:** there has been no external audit. What exists instead is under
+  [Audit status](#audit-status-no-external-audit) and [Security model](#security-model).
 
 ## For NEAR HACKATHON judges
 
-**What it is.** A non-custodial USDC escrow on NEAR for paying people, AI agents and robots for work, plus a port of
-[ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents": agent identity and reputation registries) in
-which a rating can carry an on-chain proof that the two sides really did business through Arras. Execution Market, a
-marketplace where agents hire humans and other agents for tasks, uses it in production for NEAR tasks. The 13 mainnet
-payments through v1 so far (0.10 USDC each) are the team's own end-to-end tests, with a test agent and test workers;
-the 2 through v2 (0.05 USDC each) are the team's smoke test of v2.
+**What it is.** A way for AI agents that have never met to do business on NEAR. Each agent has an ERC-8004 identity
+(an NFT in the Identity Registry). When one agent hires another, it locks USDC in the Arras escrow, which pays the
+worker when the job is approved or returns the money to the payer. Afterwards each side rates the other in the ERC-8004
+Reputation Registry, and the rating carries the Arras payment as an on-chain proof that the deal happened. The payer
+needs no NEAR for gas: an x402 facilitator relays its signed meta-transaction. Execution Market, a marketplace where
+agents hire humans and other agents for tasks, runs this in production for NEAR tasks.
+
+- **On mainnet (2026-11-10/11):** KarmaKadabra, Ultravioleta DAO's own swarm of agents, hires its own agents through Execution Market
+  on NEAR. On 2026-11-11 it completed 6 agent-to-agent tasks with a rating in each direction:
+  [Agents hiring agents](#agents-hiring-agents-the-karmakadabra-swarm-on-near-mainnet), 24 transactions.
+- **Who paid:** every v1 payment so far (20) is the team's own. 13 are end-to-end tests with a test agent and test
+  workers (0.10 USDC each), and 7 are swarm agents paying swarm agents (0.01 USDC each). The 2 payments through v2
+  (0.05 USDC each) are the team's smoke test of v2.
 
 **The problem.** Over x402 on NEAR, an agent could only pay up front (`exact`): nothing held the money until the work
 was checked, and nothing tied a rating to a real deal, so reputation was free to fake. With Arras the payer's own
@@ -83,9 +107,12 @@ the fee recipient. Then each side rated the other with that payment as proof ([`
 
 **Check it yourself: read-only, no keys.** These commands use [near-cli-rs](https://github.com/near/near-cli-rs) 0.30.1
 and the mainnet RPC from your own near-cli configuration. They were run against mainnet on 2026-11-06, and the results
-below are what they returned. The v2 rows (the last five) are from 2026-11-08, after v2's smoke test: the last four as
-near-cli returned them; the first gives what that command shows, with the facts that
-`scripts/mainnet-v2.sh --mainnet-ok verificar` read through the RPC.
+below are what they returned. The five v2 rows (from `view-account-summary v2.arras-escrow.near` to the disputed
+payment) are from 2026-11-08, after v2's smoke test: the last four as near-cli returned them; the first gives what that
+command shows, with the facts that `scripts/mainnet-v2.sh --mainnet-ok verificar` read through the RPC. The four swarm
+rows were read on 2026-11-11 through FastNear's free endpoint, with the same view methods called over JSON-RPC (near-cli
+prints the same JSON), and the facilitator row with the `curl` shown. The agent and payment counts only grow; a
+verified summary can also drop if a rater revokes a rating.
 
 If that RPC refuses or rate-limits you: a fresh near-cli-rs 0.30.1 configuration points its `mainnet` connection at
 `https://archival-rpc.mainnet.fastnear.com/` (`near config show-connections`), and NEAR's list of public RPC providers,
@@ -117,6 +144,11 @@ or with the old URL, changes it again.
 | `near account list-keys agent-v2.arras-escrow.near network-config mainnet now` | one key, `ed25519:3TJqivtjEskrdMQTQ8LWpdQcFNN6rFdZpNyGwAfxvdFU`: `only do ["authorize_from_budget"] function calls on v2.arras-escrow.near with an allowance of 0.0591054940912723 NEAR` |
 | `near contract call-function as-read-only v2.arras-escrow.near get_payment json-args '{"payment_id":"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC"}' network-config mainnet now` | the smoke's first payment: `"status": "Released"`, `amount` and `released` `50000` (0.05 USDC), `refunded` `0`, `payer` the funding account `fe0a5742...1079` (the human), `receiver` `worker-v2.arras-escrow.near`, `operator_id` `em`, `fee_bps` 1300, `"dispute": null` |
 | the same with `'{"payment_id":"8428jJdxtdVfJwrMKc7ircLp1Yr6D5nra5e16ZbRNS8w"}'` | the disputed one: `"status": "Resolved"`, `amount` and `refunded` `50000` (all of it back to the payer), `released` `0`, `dispute.opened_by` `Payer` |
+| `near contract call-function as-read-only v1.arras-escrow.near get_payment json-args '{"payment_id":"CFz3NrBxvbnf4netMY5EExdpFuGBsBZaGk8q6QmLos6b"}' network-config mainnet now` | the first swarm task (agent to agent): `"status": "Released"`, `amount` and `released` `10000` (0.01 USDC), `payer` `kk-davidtherich.karmakadabra.near`, `receiver` `kk-validator.karmakadabra.near`, `operator_id` `em`, `fee_bps` 1300 |
+| `near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback_proof json-args '{"agent_id":"8","client_address":"kk-davidtherich.karmakadabra.near","feedback_index":"1"}' network-config mainnet now` (and `read_feedback` with the same arguments) | the paying agent's rating of the worker agent (agent 8, owned by `kk-validator.karmakadabra.near`): `"proof": "CFz3NrBx..."` (the payment above), `"counterparty": "kk-validator.karmakadabra.near"`, `"role": "receiver"`, `"context": "em"`, `"weight": "10000"`; `read_feedback`: `"value": "90"`, `tag2` `execution-market` |
+| `near contract call-function as-read-only reputation-registry.erc-8004.near get_verified_summary json-args '{"agent_id":"8","verifier":"erc8004-verifier.arras-escrow.near"}' network-config mainnet now` | agent 8's proof-backed reputation: `"count": "4"`, `"summary_value": "81"`, `"weight_sum": "40000"` (the USDC released in the 4 paid tasks behind those ratings) |
+| `near contract call-function as-read-only identity-registry.erc-8004.near nft_total_supply json-args '{}' network-config mainnet now` | `"10"` agents (agents 3 to 9 are swarm agents under `karmakadabra.near`; `nft_token` with `'{"token_id":"8"}'` gives `reference` `https://execution.market/profile/near:kk-validator.karmakadabra.near`) |
+| `curl -s https://facilitator.ultravioletadao.xyz/supported \| jq -c '.kinds[] \| select(.network=="near:mainnet") \| {scheme, feePayer: .extra.feePayer, contracts: .extra.nearEscrow.contracts}'` | `{"scheme":"exact","feePayer":"uvd-facilitator.near","contracts":null}` and `{"scheme":"escrow","feePayer":"uvd-facilitator.near","contracts":["v1.arras-escrow.near"]}`: the facilitator relays NEAR payments, and its escrow scheme pays into v1 only |
 
 To rebuild the code and compare hashes: `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path
 contracts/<crate>/Cargo.toml` (Docker), with `escrow-v1` at commit `8da7174`, `registry-v1` at `8cec4e6`, and
@@ -130,8 +162,81 @@ Market's own code is not in this repository; its use of the contracts can be see
 start commit `3a2ebdf`:
 [3a2ebdf...main](https://github.com/UltravioletaDAO/arras/compare/3a2ebdfc832afd179298fb4f861f23409356fb01...main).
 [HACKATHON.md](HACKATHON.md) lists what existed before 2026-11-01: the x402-rs facilitator's NEAR `exact` payments,
-Execution Market on EVM networks, and the uvd-x402-sdk releases for Python and TypeScript (NEAR `exact` only). It also
-lists what was deployed and when. The pinned libraries are listed under "Repository" below.
+Execution Market on EVM networks, KarmaKadabra on EVM networks, the Open Wallet Standard's NEAR support, and the
+uvd-x402-sdk releases for Python and TypeScript (NEAR `exact` only). It also lists what was deployed and when. The
+pinned libraries are listed under "Repository" below.
+
+## Agents hiring agents: the KarmaKadabra swarm on NEAR mainnet
+
+KarmaKadabra is Ultravioleta DAO's own swarm of AI agents. On NEAR, each agent is a named account under
+`karmakadabra.near` with its own ERC-8004 identity (agents 3 to 9). The agents hire each other through Execution
+Market, and every step is a NEAR transaction:
+
+1. The paying agent locks the price in Arras v1 with an `ft_transfer_call` inside a NEP-366 delegate action. The x402
+   facilitator's relayer, `uvd-facilitator.near`, sends it and pays the gas.
+2. Execution Market's capturer, `em-capturer.arras-escrow.near`, releases the payment when the work is approved. It
+   signs with its function-call key, and the facilitator relays that delegate action too.
+3. Each side rates the other with `give_feedback_with_proof`, using that payment as proof. These two transactions are
+   signed directly by the rating agents.
+
+The agents are set up to sign through the Open Wallet Standard, with the public `OwsNearSigner` of uvd-x402-sdk
+0.109.0 (see [Who we are](#who-we-are-ultravioleta-dao-on-near)). KarmaKadabra's own code is private and is not part
+of this submission, so that part cannot be checked from here. Everything below is on chain.
+
+On 2026-11-11 the swarm completed 6 tasks of 0.01 USDC each. Each one has a lock, a release (0.0087 USDC credited to the worker
+agent and 0.0013 to Execution Market's fee recipient), and a rating in each direction. Each rating returned its
+`feedback_index` and logged a `new_feedback` event whose `proof.verifier` is `erc8004-verifier.arras-escrow.near`.
+That makes 24 transactions. Each one was read on 2026-11-11 from the NearBlocks API (signer, actions, status) and from
+the RPC's transaction status (receipts and logs). FastNear's free endpoint is not archival, so a few days later the
+transaction status needs NearBlocks or an archival RPC; the `get_payment` and `read_feedback*` views keep working.
+Block times are UTC:
+
+| Execution Market task | Payer agent -> worker agent | Lock (Arras payment id) | Release | Payer rates worker | Worker rates payer |
+|---|---|---|---|---|---|
+| `63b8a9f6` | `kk-davidtherich` -> `kk-validator` | [`2mM23eX3...`](https://nearblocks.io/txns/2mM23eX3uWmcJi4bP31uGgQhz19nPUxm9JUt2HmTTGZw) 03:03:51Z (`CFz3NrBx...`) | [`d6qVxfkz...`](https://nearblocks.io/txns/d6qVxfkzhcYmDKzsapNUpzdTVUYDvfjC6n6jZkfNJQ6) 03:08:55Z | [`4FR8c14h...`](https://nearblocks.io/txns/4FR8c14hxV95WSrQF9Ti3D1UFQ7PjKKehgoVc92PnVgC) agent 8, 90 | [`Bfp1DKAL...`](https://nearblocks.io/txns/Bfp1DKALEvXS5Au1Ta4WrbjTeFrUsNYqqw72BHt3Csrm) agent 6, 80 |
+| `5f1b834a` | `kk-cymatix` -> `kk-validator` | [`Cup39erz...`](https://nearblocks.io/txns/Cup39erzLeAAmBJESoHUo8yBaUQbwLFUKCEB2YkUB6fH) 03:04:53Z (`DKCFTmDx...`) | [`7sf24V45...`](https://nearblocks.io/txns/7sf24V459BkkBcPpHHQjQJzgbCH1RwV6jxG1xM9Cbqeh) 03:09:53Z | [`BrnJQSmb...`](https://nearblocks.io/txns/BrnJQSmbYgMhksa6rfpowwi7pfV6oCNCLMqk5AeipzVL) agent 8, 75 | [`AMZDyEPh...`](https://nearblocks.io/txns/AMZDyEPhB5anUVJ5u1dYmFoaQ3abWMWftkEC5rWNkNS6) agent 7, 80 |
+| `a06e7c04` | `kk-athanw` -> `kk-karma-hello` | [`A2PrmD9U...`](https://nearblocks.io/txns/A2PrmD9UEDgsk715VuXXV1T9vaxSF4QnLVhx2Xf2zGDa) 03:09:23Z (`HjA58DJE...`) | [`4c8Grmiz...`](https://nearblocks.io/txns/4c8GrmizTHdkRaNfPnPWEFLUyG4ANmu2KCfjzSfAvezA) 03:14:18Z | [`3hEpfxc7...`](https://nearblocks.io/txns/3hEpfxc7auYt9ow9DgGLrFupvPZbe6BCi7MhDcLvSES3) agent 9, 85 | [`9FR6Nks1...`](https://nearblocks.io/txns/9FR6Nks131hkzV4PC4p21JuC71e8GvGGMLK3hUhbDjGG) agent 5, 80 |
+| `238d8ad8` | `kk-0xroypi` -> `kk-karma-hello` | [`9SPVgerk...`](https://nearblocks.io/txns/9SPVgerk8DT2kmGE6h4MH4NDgo43Z5xerdKviKgieuYh) 03:13:19Z (`JW3pPyDX...`) | [`4VetLjym...`](https://nearblocks.io/txns/4VetLjymGk2G6w6ob21NbPiAhTnAdURfxqJPPsd6EDU4) 03:18:46Z | [`Aw8nvxEn...`](https://nearblocks.io/txns/Aw8nvxEnybyadvEWZdLr6fewAU7gHdDZJpTiVEhkMXPQ) agent 9, 85 | [`9reGWxDQ...`](https://nearblocks.io/txns/9reGWxDQomUe91f4WCeLs2QC1cMncKWyp2ehtcCkEewa) agent 4, 80 |
+| `a1f11dbe` | `kk-cymatix` -> `kk-validator` | [`6JKKUykL...`](https://nearblocks.io/txns/6JKKUykLPRKuvU3nAVRLt1RemwSHvtGU52xUuvp5XrQM) 13:28:49Z (`8xdR2tBk...`) | [`fN6mQ6Wi...`](https://nearblocks.io/txns/fN6mQ6Wink4SyvFHFuS8i3t8SifmR1ra7qj2KWzHMMb) 13:34:31Z | [`5hamRS3U...`](https://nearblocks.io/txns/5hamRS3UKNBaLbHs1moRASjUjx5CMFiZywYDzyPpSp15) agent 8, 80 | [`BGsa9eoG...`](https://nearblocks.io/txns/BGsa9eoGyGWUWi9Xd6QRoDurQYRQPKbdLnq7tRRURLiZ) agent 7, 88 |
+| `54c56f0a` | `kk-davidtherich` -> `kk-validator` | [`HbgfUdec...`](https://nearblocks.io/txns/HbgfUdecdtxWsvRjKESb2Mp9jPdxWjK9hNNN5hSV3qhe) 13:37:35Z (`E78uP1Yh...`) | [`5osno8Wh...`](https://nearblocks.io/txns/5osno8WhMGewXb6sBFuQ4fbNTd6fqSJkwX9kncUwBhRK) 13:42:36Z | [`3qXFY2ji...`](https://nearblocks.io/txns/3qXFY2jiT8fJptAD61VAqWDD5KBX6VGJB7khH5JH1JhU) agent 8, 80 | [`2CSckwmg...`](https://nearblocks.io/txns/2CSckwmggHohH5RaR1d9mY9ZcyEmwnepXoANcNDxTrgD) agent 6, 88 |
+
+The account names in the table are shortened: each one ends in `.karmakadabra.near`. The full payment ids, the times of
+the ratings and the read-only checks are in [docs/EVIDENCE.md](docs/EVIDENCE.md), section 7. The quickest checks are
+the swarm rows of "Check it yourself" above: `get_payment` for one of these payments, `read_feedback_proof` for its
+rating, and `get_verified_summary` for an agent's proof-backed reputation.
+
+## Payments: x402 on NEAR
+
+[x402](https://www.x402.org) is payment over HTTP: a server answers `402 Payment Required` with its terms, the client
+signs a payment, and a facilitator verifies and settles it. Ultravioleta DAO runs an x402 facilitator,
+<https://facilitator.ultravioletadao.xyz>. Its code is the open-source fork
+[UltravioletaDAO/x402-rs](https://github.com/UltravioletaDAO/x402-rs). On NEAR it works like this: the payer signs a
+NEP-366 delegate action holding either the `ft_transfer` of USDC (scheme `exact`) or the `ft_transfer_call` into Arras
+(scheme `escrow`). The facilitator's relayer, `uvd-facilitator.near`, sends it and pays the gas. The payer's own
+signature is what moves its USDC; the relayer cannot change the delegate action without breaking that signature.
+
+| What | Since | Evidence |
+|---|---|---|
+| NEAR `exact` | the code and the relayer account since 2025-12-04 (UTC) | x402-rs commit [`45f2fedd`](https://github.com/UltravioletaDAO/x402-rs/commit/45f2fedd73469859f4fb5f8823731f824863e649) ("Add NEAR Protocol support for USDC payments"); `uvd-facilitator.near` created in [`F1QFBWvn...`](https://nearblocks.io/txns/F1QFBWvnyEnwtd8BhbwgUXsqjKFb7kNVX7KjqaegQAQm) |
+| NEAR `escrow` into Arras v1, operator `em` | merged 2026-11-01 ([x402-rs#134](https://github.com/UltravioletaDAO/x402-rs/pull/134)), with pre-validation before relaying since 2026-11-03 ([#137](https://github.com/UltravioletaDAO/x402-rs/pull/137)); the first mainnet escrow payment it relayed was on 2026-11-03 | [docs/EVIDENCE.md](docs/EVIDENCE.md), section 2; the `/supported` row of "Check it yourself" (v1 only today) |
+| Client SDKs: [`uvd-x402-sdk`](https://pypi.org/project/uvd-x402-sdk/) for Python and [`uvd-x402-sdk`](https://www.npmjs.com/package/uvd-x402-sdk) for TypeScript | Arras v1 escrow signing since Python 0.104.0 and TypeScript 2.108.0 (uploaded 2026-11-03 UTC; their CHANGELOG headings say 11-02), for `v1.arras-escrow.near` on mainnet since Python 0.106.0 and TypeScript 2.110.0 (2026-11-03); the OWS signer for NEAR (`OwsNearSigner`) since Python 0.109.0 (2026-11-05) | the registries' release pages; the CHANGELOGs ([Python](https://github.com/UltravioletaDAO/uvd-x402-sdk-python/blob/main/CHANGELOG.md), [TypeScript](https://github.com/UltravioletaDAO/uvd-x402-sdk-typescript/blob/main/CHANGELOG.md)) |
+
+The facilitator's and the SDKs' hackathon work lives in their own repositories and is not part of this submission's
+code. HACKATHON.md lists what they could do before 2026-11-01.
+
+## Who we are: Ultravioleta DAO on NEAR
+
+- **A NEAR validator.** `ultravioletadao.pool.near` is in the current mainnet validator set with over 43,000 NEAR
+  staked (RPC `validators`, 2026-11-11). Its pool account was created on 2025-10-13
+  ([`7ZmvTHTn...`](https://nearblocks.io/txns/7ZmvTHTn6LUXkbu2BnrLxV9w7VB2hy11LgcgvWm4wVAW)). To check:
+  `curl -s https://free.rpc.fastnear.com -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"validators","params":[null]}' | jq -c '.result.current_validators[] | select(.account_id=="ultravioletadao.pool.near") | {account_id, stake}'`.
+- **An x402 facilitator with NEAR since December 2025** (the section above).
+- **NEAR support in the Open Wallet Standard.** OWS ([open-wallet-standard/core](https://github.com/open-wallet-standard/core))
+  provides local, policy-gated signing for many chains. A member of this team contributed its NEAR support:
+  [#221](https://github.com/open-wallet-standard/core/pull/221) (Ed25519, Borsh and NEP-413), merged on 2026-05-05,
+  before the hackathon window, and [#271](https://github.com/open-wallet-standard/core/pull/271) (signing NEP-413
+  off-chain messages), merged on 2026-11-10. This is context, not part of the submission. It is why KarmaKadabra's
+  agents can sign their NEAR transactions with OWS (through the SDK's `OwsNearSigner`; KarmaKadabra's code is private).
 
 ## The problem
 
@@ -271,16 +376,31 @@ Execution Market's NEAR ratings went there until its configuration switched to t
 2026-11-06; its last rating there is from 2026-11-04 at 08:04Z
 ([`DV8a9kd1...`](https://nearblocks.io/txns/DV8a9kd1aHHHnUbEji7fGR4wjdBr2nF71gMykGNFPuid)).
 
-## ERC-8004 on NEAR (Identity, Reputation and Validation registries)
+## ERC-8004 on NEAR (Identity and Reputation live, Validation a draft)
 
-A faithful port of [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents", reference implementation
-2.0.0 of `erc-8004/erc-8004-contracts`) to NEAR, in new crates; `contracts/registry-v1` and its live deployment are not
-touched. Plan and the full EVM -> NEAR table: [docs/plans/erc8004-near-port.md](docs/plans/erc8004-near-port.md);
-interface, deploy plan and what was run: [docs/handoffs/erc8004-near.md](docs/handoffs/erc8004-near.md). **Live on
-mainnet since 2026-11-04** (testnet first, the same day), immutable and keyless; the transactions are in
-[docs/EVIDENCE.md](docs/EVIDENCE.md), section 4. Validation is not deployed. **Unaudited.** The accounts under
-`erc-8004.near` are this project's deployment, not an official one of the ERC-8004 team, which asks for a single
-deployment per chain coordinated with it.
+**Whose it is.** These registries are an initiative of Ultravioleta DAO. They are **not** an official deployment of
+the ERC-8004 team. That team asks for a single deployment per chain, coordinated with it ("only one deployment per
+chain (a singleton)... we invite you to coordinate with the ERC-8004 team", 8004.org/learn, read 2026-11-04). We are
+asking the ERC-8004 team to recognize `identity-registry.erc-8004.near` and `reputation-registry.erc-8004.near` as the
+reference deployment on NEAR. Unless and until they do, treat these accounts as this project's own deployment. **Live on mainnet
+since 2026-11-04** (testnet first, the same day), immutable and keyless; the transactions are in
+[docs/EVIDENCE.md](docs/EVIDENCE.md), section 4. `contracts/registry-v1` and its live deployment are a separate,
+earlier registry and were not touched.
+
+**What "faithful port" means here.** It is a reimplementation, in Rust for NEAR, of the interface and the semantics of
+the official contracts `IdentityRegistryUpgradeable.sol` and `ReputationRegistryUpgradeable.sol`. The source is
+`erc-8004/erc-8004-contracts` at commit `b9e466c250744a7e06b13dff9d3c2844ed64f825`, version 2.0.0 (the version the Base
+deployment reports), read against the EIP text at `ethereum/ERCs` `503591a6`
+([plan](docs/plans/erc8004-near-port.md), section 0).
+
+It is **not** the EVM bytecode, and no Solidity is compiled or run on NEAR. Each function, check, error, limit and event
+of the Solidity was mapped one by one to a NEAR method, and every deviation is written down with its reason (plan,
+sections 1 to 6). `get_version` returns `"2.0.0"`
+([`erc8004-common/src/lib.rs:19`](contracts/erc8004-common/src/lib.rs#L19)).
+
+Plan and the full EVM -> NEAR table: [docs/plans/erc8004-near-port.md](docs/plans/erc8004-near-port.md). Interface,
+deploy plan and what was run: [docs/handoffs/erc8004-near.md](docs/handoffs/erc8004-near.md). Both are working notes
+in Spanish.
 
 | Crate | Account (mainnet) | What it is |
 |---|---|---|
@@ -294,6 +414,78 @@ All are immutable (private `new` in the deploy transaction, no `migrate`, no own
 `erc8004` 1.0.0 (`registered`, `metadata_set`, `uri_updated`, `agent_wallet_pending`, `new_feedback`, `feedback_revoked`, `response_appended`,
 `validation_request`, `validation_response`) plus NEP-171 `nft_mint`/`nft_transfer`. The NEAR `agentRegistry` in a
 registration file is `near:mainnet:identity-registry.erc-8004.near` (CAIP-2 has no `near` namespace registered yet).
+
+### What is the same as the EVM reference
+
+| ERC-8004 (EVM) | On NEAR | Where |
+|---|---|---|
+| `agentId`, a counter from 0 | the same counter, as a decimal string; it is also the NFT's `token_id` | [`erc8004-identity/src/lib.rs:199`](contracts/erc8004-identity/src/lib.rs#L199), [`views.rs:93`](contracts/erc8004-identity/src/views.rs#L93) |
+| ERC-721 identity, `tokenURI` = agentURI | a NEP-171/177/178/181 NFT; agentURI = `metadata.reference` | [`lib.rs:170`](contracts/erc8004-identity/src/lib.rs#L170), [`views.rs:106`](contracts/erc8004-identity/src/views.rs#L106) |
+| on-chain metadata, key -> bytes; the reserved key `agentWallet` | `set_metadata` / `get_metadata` (bytes as base64); `agentWallet` refused as a key, set to the owner on `register`, cleared on every transfer | [`registry.rs:137`](contracts/erc8004-identity/src/registry.rs#L137), [`registry.rs:32`](contracts/erc8004-identity/src/registry.rs#L32), [`nft.rs:93`](contracts/erc8004-identity/src/nft.rs#L93) |
+| `giveFeedback`: `value` (`int128`), `valueDecimals` 0..18, two tags, endpoint, URI and hash; the owner or an approved operator cannot rate its own agent | the same fields and limits; the self-rating check is the same rule (`E23`) | [`erc8004-common/src/validate.rs:17`](contracts/erc8004-common/src/validate.rs#L17), [`erc8004-reputation/src/feedback.rs:65`](contracts/erc8004-reputation/src/feedback.rs#L65), [`feedback.rs:125`](contracts/erc8004-reputation/src/feedback.rs#L125) |
+| `revokeFeedback`, `appendResponse` (anyone may respond) | `revoke_feedback` (the client only), `append_response` | [`feedback.rs:263`](contracts/erc8004-reputation/src/feedback.rs#L263), [`feedback.rs:295`](contracts/erc8004-reputation/src/feedback.rs#L295) |
+| `getSummary` needs a non-empty `clientAddresses` (the EIP's sybil defence) | `get_summary` panics with `E30` on an empty list | [`views.rs:114`](contracts/erc8004-reputation/src/views.rs#L114) |
+| `readFeedback`, `readAllFeedback`, `getClients`, `getLastIndex`, `getResponseCount`, `getVersion` | the same views in snake_case | [`erc8004-reputation/src/views.rs`](contracts/erc8004-reputation/src/views.rs) |
+
+### Where it differs from the EVM reference
+
+The plan lists 33 deviations, each with its reason ([plan, section 6](docs/plans/erc8004-near-port.md)). These are the
+ones an integrator notices:
+
+| What differs | Why | Where |
+|---|---|---|
+| **Ids and numbers are strings.** `agent_id`, `feedback_index`, `value` and amounts are canonical decimal strings (`"01"` and `"-0"` are refused); `bytes` are base64 and `bytes32` 64 lowercase hex characters | NEAR's JSON has no 256-bit integers; one canonical form leaves no aliases | [`validate.rs:86`](contracts/erc8004-common/src/validate.rs#L86) |
+| **Addresses are NEAR accounts**, and "none" is `null` instead of the zero address | NEAR | [`erc8004-common/src/types.rs`](contracts/erc8004-common/src/types.rs) |
+| **The NFT is NEP-171, not ERC-721.** No `setApprovalForAll` (an "operator" is a per-agent NEP-178 approval); only the owner approves; up to 8 approvals that add up; a transfer to the current owner is refused (`E20`) | NEP-171/178 conventions | [`lib.rs:253`](contracts/erc8004-identity/src/lib.rs#L253), [`nft.rs:236`](contracts/erc8004-identity/src/nft.rs#L236), [`nft.rs:84`](contracts/erc8004-identity/src/nft.rs#L84) |
+| **`agentWallet` is set in two steps**: the owner (or an approved account) proposes it, then the wallet itself calls `accept_agent_wallet` before the deadline; a caller that proposes its own account gets it at once. No EIP-712 or ERC-1271 signature | a NEAR contract cannot check that a public key belongs to a named account (it cannot read access keys), so the wallet's own transaction is the proof, as `ecrecover` is in EVM; it also covers contract wallets | [`registry.rs:166`](contracts/erc8004-identity/src/registry.rs#L166), [`registry.rs:205`](contracts/erc8004-identity/src/registry.rs#L205) |
+| **Events are NEP-297 logs** (`standard` `erc8004`, `version` `1.0.0`) instead of Solidity events, plus NEP-171 `nft_mint` / `nft_transfer`; there is no ERC-4906 `MetadataUpdate` | NEAR has no EVM logs | [`erc8004-common/src/events.rs:9`](contracts/erc8004-common/src/events.rs#L9) |
+| **Storage is paid by the caller.** Each call charges the bytes it adds (at `storage_byte_cost`) and refunds the rest of the deposit; freed storage goes back to the agent's current owner; `register` also keeps a 77-byte reserve per token, so a 1-yocto transfer never grows the contract's storage unpaid | NEAR storage staking | [`erc8004-identity/src/lib.rs:265`](contracts/erc8004-identity/src/lib.rs#L265), [`lib.rs:145`](contracts/erc8004-identity/src/lib.rs#L145), [`feedback.rs:169`](contracts/erc8004-reputation/src/feedback.rs#L169) |
+| **The rating's identity check is a cross-contract call.** `give_feedback` asks the Identity Registry (`check_agent`) and returns the `feedback_index` from its callback, or `null` with the log `erc8004:rechazo:<CODE>` and the whole deposit back | NEAR contracts cannot read each other's state synchronously | [`feedback.rs:240`](contracts/erc8004-reputation/src/feedback.rs#L240), [`feedback.rs:253`](contracts/erc8004-reputation/src/feedback.rs#L253) |
+| **Limits that EVM does not have**: caps on every string and list, and URIs must carry a scheme (`https://`, `ipfs://`, ...), so a bare CID is refused | storage is paid, and a receipt's logs are capped at 16 KB | [`validate.rs:32`](contracts/erc8004-common/src/validate.rs#L32), [`registry.rs:24`](contracts/erc8004-identity/src/registry.rs#L24) |
+| **Exactly 1 yoctoNEAR** on calls that change owner, wallet or approvals | NEP-171/178 convention: it forces a full-access key | [`nft.rs:128`](contracts/erc8004-identity/src/nft.rs#L128) |
+| **`summary_value` is exact in 256 bits**; EVM truncates it into `int128` and can flip its sign | correctness; the value is a string of up to 56 digits | [`erc8004-common/src/summary.rs:155`](contracts/erc8004-common/src/summary.rs#L155) |
+| **Views return `null`** where EVM reverts (for example `read_feedback` of a missing index) | fewer error cases for clients | [`views.rs:146`](contracts/erc8004-reputation/src/views.rs#L146) |
+| **Immutable**: no upgrade proxy, no owner, private `new`, every key deleted. The Solidity is UUPS-upgradeable | the owner's choice; a fix ships as a new versioned account | [`erc8004-identity/src/lib.rs:196`](contracts/erc8004-identity/src/lib.rs#L196) |
+
+### The payment-proof extension
+
+`give_feedback_with_proof` is not part of ERC-8004. It takes a `verifier` account and a `proof`. The registry asks the
+verifier contract, in the same transaction, who the counterparty is. The rating is accepted only if that counterparty is
+the rated agent's owner or `agentWallet`. The Arras verifier (`erc8004-verifier.arras-escrow.near`) answers only for a
+released payment in `v1.arras-escrow.near` between the rater and that account. The registry keeps no list of verifiers:
+a reader filters ratings by the verifier it trusts, just as ERC-8004 readers filter by client.
+
+The extension sits behind the cargo feature `feedback-proofs`
+([`erc8004-reputation/Cargo.toml:18`](contracts/erc8004-reputation/Cargo.toml#L18),
+[`src/lib.rs:25`](contracts/erc8004-reputation/src/lib.rs#L25)). The feature is **on by default, and the deployed
+Reputation Registry includes it**. Plain `give_feedback` is unchanged by the extension (with the deviations above). Building with
+`--no-default-features` gives the pure port, without the extension (`cargo test -p erc8004-reputation
+--no-default-features --lib` tests it).
+
+### Validation: a draft, not deployed
+
+`contracts/erc8004-validation` follows the official `ValidationRegistryUpgradeable.sol`, but it is marked draft. Its
+`get_config` answers `"status": "BORRADOR"` (Spanish for "draft",
+[`lib.rs:581`](contracts/erc8004-validation/src/lib.rs#L581)), and its `Cargo.toml` has no reproducible-build block, so
+`cargo near build reproducible-wasm`, the only build this repository deploys, fails on it on purpose. The reason is that the ERC-8004 team has not finished that section: 8004.org says
+the Validation Registry "is still undergoing technical due diligence and is not yet available". The account
+`validation-registry.erc-8004.near` is reserved, with no code.
+
+### Audit status: no external audit
+
+No external firm has audited these contracts, nor the escrow. Here is what was done instead, and how to rerun it:
+
+| What | How to check |
+|---|---|
+| Unit tests for every guard and every result of every callback, plus the worst-case storage and log size of each call (run on 2026-11-11 at `9f8332f`, all passing: 21 in `erc8004-common`, 102 in `erc8004-identity`, 90 in `erc8004-reputation` (65 without the extension), 19 in the verifier, 27 in the Validation draft) | `cargo test -p erc8004-common -p erc8004-identity -p erc8004-reputation -p erc8004-arras-verifier -p erc8004-validation --lib` |
+| 14 sandbox tests (WE-00..WE-12; WE-05 twice) that run the three contracts together on a local NEAR node, with real Arras v1 payments. WE-05 runs once against v1 built here and once against the exact mainnet wasm (sha256-checked) | `cargo test -p erc8004-reputation --test workspaces` (`-- --nocapture` prints gas and storage) |
+| The 256-bit summary checked against vectors computed independently in Python, and a seeded differential test of 2,000 random cases against an `i128` reference | [`summary.rs:313`](contracts/erc8004-common/src/summary.rs#L313), [`summary.rs:353`](contracts/erc8004-common/src/summary.rs#L353) |
+| Mutation testing by hand: one mutation per guard, each run with a timeout and reverted. Of 212 mutants, 210 were killed by a named failing test and 2 are equivalent | the table in [docs/handoffs/erc8004-near.md](docs/handoffs/erc8004-near.md), "Lo que corri" |
+| Adversarial reviews of the diff by AI review agents (Q-005): the first round found one P1. `U256` ordering compared the least significant word first, so summaries mixing signs could come out with the wrong sign. The later rounds found no P1, and two P2: a pending `agentWallet` survived the revocation of the approval that proposed it (now cancelled, deviation I-9), and three surviving mutants needed tests (storage refunds over an ownership cycle, a reverted transfer with a pending wallet, 256-bit carries). All of it was fixed in the deployed commit `f18e25c` | same handoff, the bold "Refutador" paragraphs; the fix is the hand-written `Ord` in [`summary.rs`](contracts/erc8004-common/src/summary.rs) |
+| Keyless and immutable on mainnet, with code equal to the reproducible build | `near account list-keys identity-registry.erc-8004.near network-config mainnet now` (empty); the sha256 rows of "Check it yourself" |
+
+The escrow has its own assurance: U-16, a property test over 10,000 random sequences per escrow crate (money
+invariant), its sandbox tests, and the money reviews recorded in the handoffs ([Security model](#security-model)).
 
 ## Try it
 
@@ -568,9 +760,9 @@ The checks below are on the first rehearsal's contract, except the last row, the
 | `scripts/arras-comun.sh` | what both deployment scripts share (networks, flags, caps, transactions, RPC reads, the pinned wasm, keys through a pipe), written once |
 | `scripts/test_cadena.py` | the fake chain of the offline tests of `scripts/mainnet-v2.sh` |
 | `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal, and the mainnet run of 2026-11-03; section 8, v2's runbook, its testnet rehearsals and its mainnet run of 2026-11-08 |
-| `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows, v2's smoke test), with explorer links |
-| `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`) |
-| `docs/handoffs/` | handoffs between workers (decisions and what is left) |
+| `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows, v2's smoke test, the KarmaKadabra swarm's agent-to-agent tasks), with explorer links |
+| `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`); working notes in Spanish |
+| `docs/handoffs/` | handoffs from one development session to the next (decisions, what was run, what is left); working notes in Spanish |
 | `HACKATHON.md` | the start SHA and the window of Q-001, what existed before 2026-11-01, what was built from then on, and what was deployed when |
 
 Pinned: near-sdk and near-contract-standards `=5.29.1`, near-workspaces `=0.23.0`, cargo-near 0.22.0, near-cli-rs

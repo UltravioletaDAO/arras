@@ -18,9 +18,11 @@ Of the rows below, these date from 2026-10-19 or later, so they fall inside the 
 
 | Piece | State before 2026-11-01 | Date |
 |---|---|---|
-| x402-rs facilitator (Ultravioleta DAO) | NEAR `exact` payments through NEP-366 meta-transactions, live in production | live before 2026-10-25; hardened by x402-rs#129 (merged 2026-10-25) and #130 (merged 2026-10-27) |
+| x402-rs facilitator (Ultravioleta DAO) | NEAR `exact` payments through NEP-366 meta-transactions, live in production | code since 2025-12-04 UTC ([`45f2fedd`](https://github.com/UltravioletaDAO/x402-rs/commit/45f2fedd73469859f4fb5f8823731f824863e649)); relayer `uvd-facilitator.near` created the same day; hardened by x402-rs#129 (merged 2026-10-25) and #130 (merged 2026-10-27) |
 | Execution Market | marketplace where humans, agents and robots are hired; escrow on EVM networks only, no NEAR | measured 2026-10-25 |
 | uvd-x402-sdk-python 0.100.0, uvd-x402-sdk-typescript 2.105.0 | NEAR `exact` only, no escrow | published 2026-10-26 ([PyPI](https://pypi.org/project/uvd-x402-sdk/0.100.0/) 13:24Z, [npm](https://www.npmjs.com/package/uvd-x402-sdk/v/2.105.0) 13:20Z) |
+| KarmaKadabra (Ultravioleta DAO's agent swarm) | agents that buy and sell work with ERC-8004 identities and x402 payments, on EVM networks; nothing on NEAR | private repository, created 2025-10-22 |
+| Open Wallet Standard ([open-wallet-standard/core](https://github.com/open-wallet-standard/core)), an outside open-source project | NEAR support (Ed25519, Borsh, NEP-413), contributed by a member of this team in [#221](https://github.com/open-wallet-standard/core/pull/221) | merged 2026-05-05, before the Q-001 window: baseline. A later contribution, [#271](https://github.com/open-wallet-standard/core/pull/271) (NEP-413 off-chain messages, merged 2026-11-10), is in another repository and is not part of this submission |
 
 ## What was built from 2026-11-01 on (this repo)
 
@@ -31,6 +33,13 @@ with its smoke test (2026-11-07); the agent registry
 (`arras-registry-v1`, 2026-11-03) and the ERC-8004 port (`erc8004-*` crates, from 2026-11-04); and every mainnet
 deployment (below). `TZ=UTC0 git log --date=iso-strict-local --format='%h %ad %s' 3a2ebdf..HEAD` lists each commit
 with its timestamp in UTC.
+
+Also built during the hackathon, but in their own repositories and not part of this submission's code: the
+facilitator's NEAR `escrow` scheme into Arras ([x402-rs#134](https://github.com/UltravioletaDAO/x402-rs/pull/134), merged
+2026-11-01, and [#137](https://github.com/UltravioletaDAO/x402-rs/pull/137), merged 2026-11-03), the SDKs' Arras
+escrow signing (from uvd-x402-sdk 0.104.0 for Python and 2.108.0 for TypeScript, both uploaded 2026-11-03 UTC; for
+`v1.arras-escrow.near` on mainnet from 0.106.0 and 2.110.0) and their ERC-8004 helpers (from 0.108.0 and 2.112.0),
+Execution Market's NEAR integration, and KarmaKadabra's NEAR rail. Their use of the contracts can be seen on chain.
 
 ## Deployed during the hackathon (testnet)
 
@@ -96,9 +105,13 @@ lives in their own repositories):
 | 2026-11-04 08:04Z | Execution Market's golden flow with both ratings in `registry.arras-escrow.near` | EVIDENCE.md, section 3 |
 | 2026-11-06 01:17Z to 01:19Z | Execution Market's golden flow on the ERC-8004 registries: the payer's identity, the payment through Arras and a rating in each direction with the payment as proof; from then on ERC-8004 is Execution Market's NEAR registry | EVIDENCE.md, section 5 |
 | 2026-11-06 01:42Z to 01:47Z | a new worker's identity registered and transferred by Execution Market's sponsor account, `em-identity.near` | EVIDENCE.md, section 5 |
+| 2026-11-10 07:54Z | the first payment between two KarmaKadabra agents through Arras v1 (0.01 USDC; payment `F8hZ6Um9Ub7drzfodhsKubFXbvvyhgKqrBJFFn8K6maM`) | [`3RWqDjMx...`](https://nearblocks.io/txns/3RWqDjMxXKDw1kxMCdNnKg2DH2E3WjCL4GveiNY7UVQV) |
+| 2026-11-11 03:03Z to 16:05Z | 6 agent-to-agent tasks of the KarmaKadabra swarm through Execution Market: each with a lock in Arras v1, a release, and a proof-backed ERC-8004 rating in each direction (24 transactions) | EVIDENCE.md, section 7 |
 
-So far all 13 mainnet payments through v1 (0.10 USDC each) are the team's own end-to-end tests: one test agent paying
-the team's test workers. The 2 payments through v2 (0.05 USDC each) are the team's smoke test above.
+So far every mainnet payment is the team's own. Through v1 there are 20 (`get_config`, 2026-11-11): 13 end-to-end tests
+of Execution Market, one test agent paying the team's test workers (0.10 USDC each, 2026-11-03 to 11-06), and 7
+payments between KarmaKadabra agents (0.01 USDC each, 2026-11-10 and 11-11). The 2 payments through v2 (0.05 USDC
+each) are the team's smoke test above.
 
 ## License
 

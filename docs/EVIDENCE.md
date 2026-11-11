@@ -3,7 +3,10 @@
 Every mainnet transaction behind the claims in the README, with a link to the NearBlocks explorer. Times are the block
 times (UTC) that NearBlocks reports. Hashes and times were read from the NearBlocks public API on 2026-11-06 and from
 the logs of the runs; those of section 6 (2026-11-08) from the run's log and, for each transaction, its final status,
-signer, block and block time, read through an RPC node by the deployer. Nothing here needs a key to check. Testnet
+signer, block and block time, read through an RPC node by the deployer; those of section 7 (2026-11-11) from the
+NearBlocks public API and the transaction status of FastNear's free RPC endpoint, read on 2026-11-11 (that endpoint is
+not archival: a few days later, check those transactions on NearBlocks or through an archival RPC). Nothing here needs
+a key to check. Testnet
 transactions are in the README ("Testnet deployments", "Arras v2 on testnet") and in [docs/MAINNET.md](MAINNET.md) (the
 rehearsals).
 
@@ -28,6 +31,7 @@ Accounts that appear below:
 | [`em-arbiter-v2.arras-escrow.near`](https://nearblocks.io/address/em-arbiter-v2.arras-escrow.near) | the arbiter of operator `em` in v2: one function-call key (`resolve_dispute` on v2) |
 | [`agent-v2.arras-escrow.near`](https://nearblocks.io/address/agent-v2.arras-escrow.near) | a test account, the smoke test's agent: one function-call key (`authorize_from_budget` on v2) |
 | [`worker-v2.arras-escrow.near`](https://nearblocks.io/address/worker-v2.arras-escrow.near) | a test account, the smoke test's worker |
+| `kk-<name>.karmakadabra.near` (for example [`kk-validator.karmakadabra.near`](https://nearblocks.io/address/kk-validator.karmakadabra.near)) | agents of KarmaKadabra, Ultravioleta DAO's own agent swarm; each holds an ERC-8004 identity (agents 3 to 9) |
 
 The token is Circle's native USDC on NEAR, `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`.
 
@@ -69,9 +73,10 @@ funding account) to the team's test workers: 13 became payments (`get_config` an
 refused with `E14` (no storage paid):
 [`A5oCxCMAVsiqJh9qa8SuymH87Lg5L13wU2oi1UMQgChV`](https://nearblocks.io/txns/A5oCxCMAVsiqJh9qa8SuymH87Lg5L13wU2oi1UMQgChV)
 (2026-11-06 01:26:40Z, to a new test worker; the only one of the 14 with no release or refund). A rejection keeps
-nothing: `ft_on_transfer` hands the whole amount back to the token. So far every mainnet payment through v1 is one of
-the team's own end-to-end tests of Execution Market's production deployment; the 2 payments through v2 are the team's
-smoke test of v2 (section 6).
+nothing: `ft_on_transfer` hands the whole amount back to the token. As of 2026-11-06, every mainnet payment through v1
+was one of the team's own end-to-end tests of Execution Market's production deployment; section 7 adds 7 payments
+between KarmaKadabra agents (2026-11-10 and 11-11). The 2 payments through v2 are the team's smoke test of v2
+(section 6).
 
 ## 3. `registry-v1` deployed (2026-11-04, 03:47:09Z to 03:49:43Z)
 
@@ -193,3 +198,50 @@ At the end, `get_config` read `tvl_global` 0, `in_flight` 0, `budgets_total` 0 a
 read-only checks of v2's code, its operator, the agent's key and both payments are in the README ("Check it
 yourself"). This run changed nothing in Execution Market or in the facilitator: the facilitator's
 `NEAR_ESCROW_CONTRACTS_MAINNET` still lists v1 only (pointing them at v2 is MAINNET.md, section 8.9).
+
+## 7. Agents hiring agents: the KarmaKadabra swarm (2026-11-11, 03:03:51Z to 16:05:29Z)
+
+Six Execution Market tasks between agents of KarmaKadabra, Ultravioleta DAO's own agent swarm. Every payer and every
+worker is one of the swarm's agents (`<name>.karmakadabra.near`, shortened below to `<name>`); every task paid 0.01 USDC.
+For each task:
+
+- **lock**: the paying agent's `ft_transfer_call` of 10000 (0.01 USDC) to `v1.arras-escrow.near`, inside a NEP-366
+  delegate action relayed by `uvd-facilitator.near`. The escrow logged `authorized` with the payment id below and
+  returned `"0"`, so the token kept the whole amount in the escrow.
+- **release**: `release` signed by `em-capturer.arras-escrow.near` with its function-call key, inside a delegate action
+  relayed by `uvd-facilitator.near`. The escrow logged `released` with `amount` 10000, `net` 8700 and `fee` 1300.
+- **two ratings**: `give_feedback_with_proof` on `reputation-registry.erc-8004.near` with
+  `verifier` `erc8004-verifier.arras-escrow.near` and the payment id as `proof`, each signed by the rating agent. The
+  same transaction called Identity `check_agent`, the verifier and the escrow's `get_payment`. Each one returned a
+  `feedback_index` and logged `new_feedback`. `tag2` is `execution-market`, `tag1` is `worker_rating:knowledge_access`
+  (payer rates worker) or `agent_rating:knowledge_access` (worker rates payer).
+
+All 24 transactions have a successful final status.
+
+| Task | Payer -> worker | Arras payment id | Lock | Release | Payer rates worker | Worker rates payer |
+|---|---|---|---|---|---|---|
+| `63b8a9f6` | `kk-davidtherich` -> `kk-validator` | `CFz3NrBxvbnf4netMY5EExdpFuGBsBZaGk8q6QmLos6b` | [`2mM23eX3...`](https://nearblocks.io/txns/2mM23eX3uWmcJi4bP31uGgQhz19nPUxm9JUt2HmTTGZw) 03:03:51Z | [`d6qVxfkz...`](https://nearblocks.io/txns/d6qVxfkzhcYmDKzsapNUpzdTVUYDvfjC6n6jZkfNJQ6) 03:08:55Z | [`4FR8c14h...`](https://nearblocks.io/txns/4FR8c14hxV95WSrQF9Ti3D1UFQ7PjKKehgoVc92PnVgC) 13:02:56Z: agent 8, 90 | [`Bfp1DKAL...`](https://nearblocks.io/txns/Bfp1DKALEvXS5Au1Ta4WrbjTeFrUsNYqqw72BHt3Csrm) 16:03:48Z: agent 6, 80 |
+| `5f1b834a` | `kk-cymatix` -> `kk-validator` | `DKCFTmDx4ny4n3RsETdFFPmL42ozhCTf3E3nxugNbmmf` | [`Cup39erz...`](https://nearblocks.io/txns/Cup39erzLeAAmBJESoHUo8yBaUQbwLFUKCEB2YkUB6fH) 03:04:53Z | [`7sf24V45...`](https://nearblocks.io/txns/7sf24V459BkkBcPpHHQjQJzgbCH1RwV6jxG1xM9Cbqeh) 03:09:53Z | [`BrnJQSmb...`](https://nearblocks.io/txns/BrnJQSmbYgMhksa6rfpowwi7pfV6oCNCLMqk5AeipzVL) 12:58:46Z: agent 8, 75 | [`AMZDyEPh...`](https://nearblocks.io/txns/AMZDyEPhB5anUVJ5u1dYmFoaQ3abWMWftkEC5rWNkNS6) 16:04:13Z: agent 7, 80 |
+| `a06e7c04` | `kk-athanw` -> `kk-karma-hello` | `HjA58DJEjboTajMi5AvfEtH6zgtfhzQWnc4oVWVaDAYY` | [`A2PrmD9U...`](https://nearblocks.io/txns/A2PrmD9UEDgsk715VuXXV1T9vaxSF4QnLVhx2Xf2zGDa) 03:09:23Z | [`4c8Grmiz...`](https://nearblocks.io/txns/4c8GrmizTHdkRaNfPnPWEFLUyG4ANmu2KCfjzSfAvezA) 03:14:18Z | [`3hEpfxc7...`](https://nearblocks.io/txns/3hEpfxc7auYt9ow9DgGLrFupvPZbe6BCi7MhDcLvSES3) 16:05:29Z: agent 9, 85 | [`9FR6Nks1...`](https://nearblocks.io/txns/9FR6Nks131hkzV4PC4p21JuC71e8GvGGMLK3hUhbDjGG) 16:04:30Z: agent 5, 80 |
+| `238d8ad8` | `kk-0xroypi` -> `kk-karma-hello` | `JW3pPyDXd1TTPQC5tstAAprjHkYjspyDcMH6HM2cc9o` | [`9SPVgerk...`](https://nearblocks.io/txns/9SPVgerk8DT2kmGE6h4MH4NDgo43Z5xerdKviKgieuYh) 03:13:19Z | [`4VetLjym...`](https://nearblocks.io/txns/4VetLjymGk2G6w6ob21NbPiAhTnAdURfxqJPPsd6EDU4) 03:18:46Z | [`Aw8nvxEn...`](https://nearblocks.io/txns/Aw8nvxEnybyadvEWZdLr6fewAU7gHdDZJpTiVEhkMXPQ) 16:04:38Z: agent 9, 85 | [`9reGWxDQ...`](https://nearblocks.io/txns/9reGWxDQomUe91f4WCeLs2QC1cMncKWyp2ehtcCkEewa) 16:04:44Z: agent 4, 80 |
+| `a1f11dbe` | `kk-cymatix` -> `kk-validator` | `8xdR2tBkHveUKzT1kt8SENSgirR7w6meaH5JUo2ZHBmY` | [`6JKKUykL...`](https://nearblocks.io/txns/6JKKUykLPRKuvU3nAVRLt1RemwSHvtGU52xUuvp5XrQM) 13:28:49Z | [`fN6mQ6Wi...`](https://nearblocks.io/txns/fN6mQ6Wink4SyvFHFuS8i3t8SifmR1ra7qj2KWzHMMb) 13:34:31Z | [`5hamRS3U...`](https://nearblocks.io/txns/5hamRS3UKNBaLbHs1moRASjUjx5CMFiZywYDzyPpSp15) 13:34:48Z: agent 8, 80 | [`BGsa9eoG...`](https://nearblocks.io/txns/BGsa9eoGyGWUWi9Xd6QRoDurQYRQPKbdLnq7tRRURLiZ) 13:36:21Z: agent 7, 88 |
+| `54c56f0a` | `kk-davidtherich` -> `kk-validator` | `E78uP1YhqqfVdi89FWU3jkfmbzMRb6Eec6aDh2nGkPGP` | [`HbgfUdec...`](https://nearblocks.io/txns/HbgfUdecdtxWsvRjKESb2Mp9jPdxWjK9hNNN5hSV3qhe) 13:37:35Z | [`5osno8Wh...`](https://nearblocks.io/txns/5osno8WhMGewXb6sBFuQ4fbNTd6fqSJkwX9kncUwBhRK) 13:42:36Z | [`3qXFY2ji...`](https://nearblocks.io/txns/3qXFY2jiT8fJptAD61VAqWDD5KBX6VGJB7khH5JH1JhU) 13:42:45Z: agent 8, 80 | [`2CSckwmg...`](https://nearblocks.io/txns/2CSckwmggHohH5RaR1d9mY9ZcyEmwnepXoANcNDxTrgD) 13:44:34Z: agent 6, 88 |
+
+Read-only checks (any of the six payment ids, agents and clients):
+
+```sh
+near contract call-function as-read-only v1.arras-escrow.near get_payment json-args '{"payment_id":"CFz3NrBxvbnf4netMY5EExdpFuGBsBZaGk8q6QmLos6b"}' network-config mainnet now
+#   "status": "Released", "amount": "10000", "released": "10000", "payer": "kk-davidtherich.karmakadabra.near",
+#   "receiver": "kk-validator.karmakadabra.near", "operator_id": "em", "fee_bps": 1300
+near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback_proof json-args '{"agent_id":"8","client_address":"kk-davidtherich.karmakadabra.near","feedback_index":"1"}' network-config mainnet now
+#   "proof": "CFz3NrBx...", "counterparty": "kk-validator.karmakadabra.near", "role": "receiver", "context": "em", "weight": "10000"
+near contract call-function as-read-only reputation-registry.erc-8004.near get_verified_summary json-args '{"agent_id":"8","verifier":"erc8004-verifier.arras-escrow.near"}' network-config mainnet now
+#   on 2026-11-11: "count": "4", "summary_value": "81", "weight_sum": "40000"
+```
+
+On 2026-11-11 the registries held 10 agents (`nft_total_supply`) and 16 ratings (`read_all_feedback` of agents 0 to
+9), none revoked, all with an Arras proof (`get_verified_summary` per agent). 4 come from the earlier sections (the
+smoke of section 4 and the runs of section 5); 12 are the swarm's, above. Through v1, `get_config` counted 20 payments:
+the 13 of section 2, the 6 above, and one more between two swarm agents on 2026-11-10 at 07:54:52Z
+([`3RWqDjMx...`](https://nearblocks.io/txns/3RWqDjMxXKDw1kxMCdNnKg2DH2E3WjCL4GveiNY7UVQV), read on NearBlocks: `kk-saemtwentytwo` -> `kk-karma-hello`, 0.01
+USDC; payment `F8hZ6Um9Ub7drzfodhsKubFXbvvyhgKqrBJFFn8K6maM`, `Released` in `get_payment`).
