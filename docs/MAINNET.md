@@ -1,11 +1,13 @@
 # Arras on NEAR mainnet: the runbooks of v1 (H-3) and v2 (H-11)
 
-This file holds two runbooks, one per escrow:
+This file holds the runbooks of the two escrow contracts and, in section 9, the deploy plan of the payment-proof
+verifier that lets a payment of the Arras escrow contract with disputes serve as the proof of an ERC-8004 rating:
 
 | Sections | Runbook | Script | On mainnet |
 |---|---|---|---|
 | [1](#1-what-goes-on-chain) to [7](#7-the-mainnet-run-2026-11-03) | Arras v1 (H-3) | `scripts/mainnet.sh` | `v1.arras-escrow.near`, deployed 2026-11-03 (section 7) |
 | [8](#8-arras-v2-on-mainnet-the-runbook-h-11) (8.1 to 8.9) | Arras v2 (H-11) | `scripts/mainnet-v2.sh` | `v2.arras-escrow.near`, rehearsed on testnet and deployed 2026-11-08 (8.8) |
+| [9](#9-the-payment-proof-verifier-erc-8004-the-plan) (9.1 to 9.5) | the payment-proof verifier | the commands of 9.3 | `payment-proof.arras-escrow.near`, **not deployed** (c0der applies it) |
 
 v1's status: **deployed on 2026-11-03** (02:30:11Z to 02:32:30Z by the script's clock; block times 02:30:39Z to
 02:32:19Z), with the one command of section 4, after the testnet rehearsals of section 6. `v1.arras-escrow.near` has
@@ -643,3 +645,160 @@ it. Execution Market and the facilitator did not change (8.9).
 3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
    `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
    or the owner's `update_operator` without the ticket (8.1).
+
+## 9. The payment-proof verifier (ERC-8004): the plan
+
+Status: **not deployed**. c0der applies it after the merge; nothing here was run on chain. It is the proof verifier
+that lets a task paid through the Arras escrow contract with disputes, `v2.arras-escrow.near`, be rated on chain with
+the payment as the proof. The Reputation Registry takes the verifier as a parameter of `give_feedback_with_proof`, so
+nothing changes in `reputation-registry.erc-8004.near`, and `erc8004-verifier.arras-escrow.near` keeps verifying the
+payments of `v1.arras-escrow.near`. The interface is the same: `verify_feedback_proof({"client", "proof": <payment_id>})`
+returns `{"counterparty", "role", "context", "weight"}` or fails with the same `ERC8004_ARV_*` codes, and `get_config`
+has the same fields (`"contract": "erc8004-arras-verifier"` is the name of that interface; `"escrow"` tells the two
+verifiers apart).
+
+### 9.1 What goes on chain
+
+| Fact | Value |
+|---|---|
+| Crate | `contracts/erc8004-payment-proof` (immutable: private `new` in the deploy transaction, no `migrate`, no owner, no state but the escrow) |
+| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). This branch's head, `«REV»`, built twice from two clean clones: sha256 `«SHA»`, «LEN» bytes |
+| Build | `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...`, the same image as every other crate here |
+| Account | `payment-proof.arras-escrow.near`, a new child of `arras-escrow.near` (parent key in SSM `/arras/mainnet/padre`). c0der read on 2026-11-11 (block 224120662) that it does not exist yet |
+| `new` | `{"escrow": "v2.arras-escrow.near"}` |
+| The escrow it trusts | `v2.arras-escrow.near`: keyless since [`Bqc63GgB...`](https://nearblocks.io/txns/Bqc63GgBiTWfrs9nAVHzE9piPLtPsxj6EcPSU7fDmVqt) (8.8), code hash `2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e` (8.1); c0der read both again on 2026-11-11 at 21:35Z (block 224120662): 0 keys, the same code hash. A verifier trusts whoever controls its escrow, so step 0 reads them once more |
+
+### 9.2 What counts as a proof
+
+The verifier reads `get_payment(proof)` and fails closed unless the answer is exactly a `Payment` of that escrow: its
+19 fields and the 4 of its `dispute` (no field more or less, `dispute` and `resolved_at` present with `null` when
+empty, no repeated key), canonical integers, 64-character lowercase hex hashes, one of the 7 statuses, the status
+consistent with `dispute` (an open dispute only in `Disputed`, a resolved one only in `Resolved`, none otherwise) and
+`released + refunded <= amount`. Then, as for the other verifier: `released > 0` in any status, `payer != receiver`,
+and the rater is the payer or the receiver. `weight` is `released`, before the fee (as in the other verifier); `context`
+is the `operator_id`.
+
+**Disputes count, for what was released.** `released` only grows (a release adds what it releases, the resolution of a
+dispute adds `to_receiver`; refund, reclaim and opening a dispute do not touch it) and each increase is credited to the
+receiver (and the fee to the fee recipient) for good. So a `Disputed` payment counts for what was released before the
+dispute was opened, and a `Resolved` one for what reached the receiver in total, whether the arbiter decided it or the
+expired-dispute rule did. A dispute that returned everything to the payer, with nothing released before, is
+`released == 0` and fails (`E13`), like a refund. Disputed payments are not excluded: either party can open a dispute
+while the payment is live, and excluding them would let one party stop the other from ever rating it.
+
+How long a payment can serve as proof: until anyone compacts it, 7 days after `reclaim_after` (or after the dispute's
+resolution, if later). A rating already given stays: the Reputation Registry keeps the proof it verified.
+
+### 9.3 The sequence (c0der)
+
+The reads go through the private RPC, and near-cli's mainnet connection has to point at it too (as in 8.4).
+
+```bash
+# 0. The escrow it trusts, once more (mandatory): no keys and the pinned code.
+near account list-keys v2.arras-escrow.near network-config mainnet now
+#    -> an empty table
+near account view-account-summary v2.arras-escrow.near network-config mainnet now
+#    -> code hash 2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e; anything else: stop here
+near account view-account-summary payment-proof.arras-escrow.near network-config mainnet now
+#    -> the account does not exist (if it does, stop: the name is taken)
+
+# 1. Reproducible wasm (NEP-330), TWICE from TWO clean clones of the merge commit, WITHOUT CARGO_TARGET_DIR
+#    (cargo-near 0.22.0 deletes the artifact when it is set). Docker, with the image of the crate's Cargo.toml.
+REV=<MERGE_SHA>
+ORIGEN="$(git -C <your arras checkout> rev-parse --show-toplevel)"
+for n in 1 2; do
+  D="$HOME/arras-build/payment-proof-$REV-$n"
+  git clone -q "$ORIGEN" "$D" && git -C "$D" checkout -q "$REV" && test -z "$(git -C "$D" status --porcelain)"
+  ( cd "$D" && env -u CARGO_TARGET_DIR cargo near build reproducible-wasm \
+      --manifest-path contracts/erc8004-payment-proof/Cargo.toml )
+done
+shasum -a 256 "$HOME"/arras-build/payment-proof-"$REV"-{1,2}/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm
+W="$HOME/arras-build/payment-proof-$REV-1/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm"
+wc -c < "$W"
+#    -> the same sha256 twice (otherwise stop); it is the code hash of step 4. The size should be close to «LEN»
+#       bytes; up to «MAXLEN» bytes fit in the funding of 9.4.
+
+# 2. The parent pays the account (9.4) plus ~0.01 NEAR of gas.
+near account view-account-summary arras-escrow.near network-config mainnet now
+
+# 3. The account; its new key goes to near-cli's legacy keychain (steps 4, 5 and 6 use it).
+near account create-account fund-myself payment-proof.arras-escrow.near '«FUND» NEAR' autogenerate-new-keypair \
+  save-to-legacy-keychain sign-as arras-escrow.near network-config mainnet \
+  sign-with-access-key-file <(aws ssm get-parameter --region us-east-2 --name /arras/mainnet/padre \
+    --with-decryption --output json | jq -j '.Parameter.Value') send
+
+# 4. Deploy + private `new` in ONE transaction (nobody else can call `new`).
+near contract deploy payment-proof.arras-escrow.near use-file "$W" with-init-call new \
+  json-args '{"escrow":"v2.arras-escrow.near"}' \
+  prepaid-gas '30.0 Tgas' attached-deposit '0 NEAR' network-config mainnet sign-with-legacy-keychain send
+
+# 5. Verify BEFORE deleting the key.
+near account view-account-summary payment-proof.arras-escrow.near network-config mainnet now
+#    -> the code hash is the base58 of the sha256 of step 1
+near contract call-function as-read-only payment-proof.arras-escrow.near get_config json-args '{}' \
+  network-config mainnet now
+#    -> {"contract":"erc8004-arras-verifier","escrow":"v2.arras-escrow.near","min_gas_verify":"25000000000000",
+#        "gas_get_payment":"10000000000000","gas_on_payment":"10000000000000"}
+near contract call-function as-read-only payment-proof.arras-escrow.near contract_source_metadata json-args '{}' \
+  network-config mainnet now
+#    -> "link": "https://github.com/UltravioletaDAO/arras/tree/<REV>", "version": "0.1.0", build_info with the image
+#       by digest and the path contracts/erc8004-payment-proof, standards erc8004 "1.0.0" and nep330 "1.3.0"
+
+# 5b. Smoke, mandatory before deleting the key (no deposit; it writes no state): the two payments of the smoke of 8.8,
+#     on chain until their compaction (7 days after their reclaim_after: from about 2026-11-17). The verifier signs
+#     its own calls (its key, its NEAR: ~0.0005 per call). The hub is their payer, and worker-v2 their receiver.
+H=fe0a574258f8277099875e46d4ca0043cdb6274ff2501b375a0d3d64bc211079
+near contract call-function as-read-only v2.arras-escrow.near get_payment \
+  json-args '{"payment_id":"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC"}' network-config mainnet now
+#    -> "status": "Released", "released": "50000", "payer": $H, "receiver": "worker-v2.arras-escrow.near"
+near contract call-function as-transaction payment-proof.arras-escrow.near verify_feedback_proof \
+  json-args "{\"client\":\"$H\",\"proof\":\"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC\"}" \
+  prepaid-gas '50.0 Tgas' attached-deposit '0 NEAR' sign-as payment-proof.arras-escrow.near \
+  network-config mainnet sign-with-legacy-keychain send
+#    -> {"counterparty":"worker-v2.arras-escrow.near","role":"receiver","context":"em","weight":"50000"}
+near contract call-function as-transaction payment-proof.arras-escrow.near verify_feedback_proof \
+  json-args "{\"client\":\"$H\",\"proof\":\"8428jJdxtdVfJwrMKc7ircLp1Yr6D5nra5e16ZbRNS8w\"}" \
+  prepaid-gas '50.0 Tgas' attached-deposit '0 NEAR' sign-as payment-proof.arras-escrow.near \
+  network-config mainnet sign-with-legacy-keychain send
+#    -> fails with ERC8004_ARV_E13: the Resolved payment whose dispute returned everything to the payer
+#    If either answer differs, the key stays and nothing is deleted. A first payment of the real cycle (an agent
+#    rated with `give_feedback_with_proof` and this verifier) is the golden flow of the consumers (9.5); a rating is
+#    permanent, so it is not part of this smoke.
+
+# 6. No keys (irreversible: the verifier becomes immutable). Every key that list-keys prints, comma-separated.
+near account list-keys payment-proof.arras-escrow.near network-config mainnet now
+near account delete-keys payment-proof.arras-escrow.near public-keys '<the keys of list-keys>' \
+  network-config mainnet sign-with-legacy-keychain send
+near account list-keys payment-proof.arras-escrow.near network-config mainnet now
+#    -> an empty table
+# 7. The file of the deleted key in near-cli's legacy keychain is useless now: delete it.
+```
+
+**Testnet first (optional, the same commands with `network-config testnet`).** The escrow of the testnet rehearsal,
+`v2.arras-v2e-1107.testnet`, is keyless and runs the pinned wasm (8.6): `new({"escrow": "v2.arras-v2e-1107.testnet"})`
+on a new account under a testnet parent of c0der's, and the smoke of 5b with its two payments,
+`5AkgphxKw9ghWReKiJ5j1uUWE9ytPoxm1e6PGUKTzZHe` (Released) and `HfTEaoU9bnXG6CpfxUWvhr1rV8RTEbU5v12ir6CsKwF6` (Resolved
+with everything back to the payer), until their compaction (from about 2026-11-16); their payer is the rehearsal's
+funding account (README, "Arras v2 on testnet").
+
+### 9.4 How much NEAR
+
+Measured in the sandbox (WP-07, the wasm of `compile_project`): the account without keys holds the wasm plus 164
+bytes of account and state. With the reproducible wasm of this branch's head («LEN» bytes) that is «BYTES» bytes,
+«NEAR» NEAR, and the funding is that plus 0.1 NEAR, rounded up to the tenth, as for the other verifier: **«FUND»
+NEAR**, from the parent. The 0.1 covers the key while it is on (82 bytes), the gas of the deploy (under 0.01 NEAR),
+of the two smoke calls (~0.0005 each, 5.5 TGas measured per `verify_feedback_proof`) and of `delete-keys`, and a
+wasm up to «MAXLEN» bytes. Creating the account costs the parent ~0.0071 more (section 3). What stays: the storage,
+for good (the account has no keys). The verifier needs nothing else: it holds no state per call and takes no deposit.
+
+### 9.5 What the consumers change
+
+- **One verifier per escrow.** A payment of `v1.arras-escrow.near` is rated with `erc8004-verifier.arras-escrow.near`; a
+  payment of `v2.arras-escrow.near`, with `payment-proof.arras-escrow.near`. An SDK that maps a network to one verifier
+  and one escrow maps each escrow to its verifier.
+- **The same `get_config` and codes.** `contract` is `erc8004-arras-verifier` in both, so a check of that field accepts
+  the new one; the check of `escrow` is the one that tells them apart.
+- **Reading reputation.** `get_verified_summary` and `list_verified_feedback` take one verifier: a view of an agent
+  adds the two (with the same client filter) or shows them apart.
+- **Who rates a budget payment.** With `authorize_from_budget` the payer is the budget's owner, not the agent that signs
+  it: the owner or the receiver rates.
