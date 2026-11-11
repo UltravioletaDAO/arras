@@ -380,9 +380,10 @@ Execution Market's NEAR ratings went there until its configuration switched to t
 
 **Whose it is.** These registries are an initiative of Ultravioleta DAO. They are **not** an official deployment of
 the ERC-8004 team. That team asks for a single deployment per chain, coordinated with it ("only one deployment per
-chain (a singleton)... we invite you to coordinate with the ERC-8004 team", 8004.org/learn, read 2026-11-04). We are
-asking the ERC-8004 team to recognize `identity-registry.erc-8004.near` and `reputation-registry.erc-8004.near` as the
-reference deployment on NEAR. Unless and until they do, treat these accounts as this project's own deployment. **Live on mainnet
+chain (a singleton)... we invite you to coordinate with the ERC-8004 team", 8004.org/learn, read 2026-11-04). We intend
+to propose `identity-registry.erc-8004.near` and `reputation-registry.erc-8004.near` to the ERC-8004 team as the
+reference NEAR deployment. Until that team recognizes them, treat these accounts as this project's own deployment.
+**Live on mainnet
 since 2026-11-04** (testnet first, the same day), immutable and keyless; the transactions are in
 [docs/EVIDENCE.md](docs/EVIDENCE.md), section 4. `contracts/registry-v1` and its live deployment are a separate,
 earlier registry and were not touched.
