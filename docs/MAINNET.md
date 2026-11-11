@@ -665,7 +665,7 @@ verifiers apart).
 | Fact | Value |
 |---|---|
 | Crate | `contracts/erc8004-payment-proof` (immutable: private `new` in the deploy transaction, no `migrate`, no owner, no state but the escrow) |
-| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). The code of the PR, commit `6e3d030`, built twice from two clean clones on 2026-11-11: sha256 `4e2e20d7310f273f88c69fd3730a3995e72cb825ecd9b0ab6ad0d2d1cf82ed07` both times, 125,139 bytes |
+| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). The code of the PR, built twice from two clean clones of each commit on 2026-11-11: `6e3d030`, sha256 `4e2e20d7310f273f88c69fd3730a3995e72cb825ecd9b0ab6ad0d2d1cf82ed07`; `495c3af` (the last commit that changes the crate's source, only its doc comments), sha256 `f9a6fec0d16367ca16110fcd37bd084eeb95c78a2d190655984bf688a9082513`; 125,139 bytes each, both clones identical |
 | Build | `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...`, the same image as every other crate here |
 | Account | `payment-proof.arras-escrow.near`, a new child of `arras-escrow.near` (parent key in SSM `/arras/mainnet/padre`). c0der read on 2026-11-11 (block 224120662) that it does not exist yet |
 | `new` | `{"escrow": "v2.arras-escrow.near"}` |
