@@ -1127,6 +1127,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "erc8004-payment-proof"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arras-escrow-core",
+ "arras-escrow-v2",
+ "erc8004-common",
+ "near-sdk",
+ "near-workspaces",
+ "proptest",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "erc8004-reputation"
 version = "0.1.0"
 dependencies = [
