@@ -28,6 +28,14 @@
 //!   `Resolved` no valieran, un payer abriria una despues de una liberacion parcial para que el receiver no lo califique
 //!   nunca (y al reves). La calificacion de un trato disputado es de las que mas informan.
 //!
+//! **`released > 0` no implica que actuo el operador.** La disputa vencida a favor del receiver sube `released` sin el
+//! capturer ni el arbitro: un payer que se paga a si mismo (dos cuentas) abre la disputa antes de `release_deadline`,
+//! espera el plazo del arbitro y cualquiera la cierra. Le cuesta lo mismo que una liberacion (la tarifa del operador),
+//! pero no necesita al operador. Con `ticket_pubkey` en el operador (como `em` en mainnet) todo pago necesita su firma
+//! y el costo es el de v1; sin ticket, `context` solo dice en que operador se autorizo el pago. El verificador podria
+//! reconocer esa via (`resolved_at >= opened_at + arbiter_window_ns`), pero no separar lo liberado antes de lo que dio
+//! el plazo, asi que no la rechaza: rechazarla le quitaria la calificacion al worker al que el payer le trabo el pago.
+//!
 //! Cualquiera puede llamarlo (es una lectura con un callback); el Reputation Registry es quien ata `client` al que
 //! califica.
 

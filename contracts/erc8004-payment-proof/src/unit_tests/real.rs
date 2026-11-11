@@ -209,9 +209,10 @@ proptest! {
         (status, dispute) in estado_y_disputa(),
         terms in any::<u8>(),
     ) {
-        let released = if amount == 0 { 0 } else { r1 % (amount + 1) };
-        let resto = amount - released;
-        let refunded = if resto == 0 { 0 } else { r2 % (resto + 1) };
+        // `x % (n + 1)` en `[0, n]`, sin desbordar con `n = u128::MAX`.
+        let hasta = |x: u128, n: u128| n.checked_add(1).map_or(x, |m| x % m);
+        let released = hasta(r1, amount);
+        let refunded = hasta(r2, amount - released);
         let p = Payment {
             operator_id: "em".into(),
             payer: payer.clone(),

@@ -8,6 +8,7 @@ use near_sdk::serde_json::{Value, json};
 use near_sdk::test_utils::{VMContextBuilder, get_created_receipts};
 use near_sdk::{NearToken, testing_env};
 
+mod callback;
 mod real;
 
 const CONTRACT: &str = "payment-proof.arras-dev.testnet";
@@ -213,6 +214,15 @@ fn gas_de_menos_es_e03() {
     let c = new_contract();
     ctx(OTHER, MIN_GAS_VERIFY.saturating_sub(Gas::from_gas(1)));
     c.verify_feedback_proof(acc(PAYER), PID.into()).detach();
+}
+
+/// El orden de v1: la proof se mira antes que el gas.
+#[test]
+#[should_panic(expected = "ERC8004_ARV_E02")]
+fn proof_no_canonica_con_gas_de_menos_es_e02() {
+    let c = new_contract();
+    ctx(OTHER, MIN_GAS_VERIFY.saturating_sub(Gas::from_gas(1)));
+    c.verify_feedback_proof(acc(PAYER), String::new()).detach();
 }
 
 #[test]
@@ -569,6 +579,13 @@ fn un_numero_no_canonico_es_e11() {
         for v in malos(u64_fuera) {
             e11(&con_disputa(campo, v));
         }
+    }
+    // `resolved_at` no canonico tambien en una disputa abierta: si el espejo lo leyera como `null`, la coherencia no
+    // lo frenaria (de la ronda del refutador).
+    for v in malos(u64_fuera) {
+        let mut p = pago(PAYER, WORKER, "Disputed", 1);
+        p["dispute"]["resolved_at"] = v;
+        e11(&p);
     }
 }
 
