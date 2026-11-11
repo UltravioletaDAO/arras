@@ -5,10 +5,9 @@ times (UTC) that NearBlocks reports. Hashes and times were read from the NearBlo
 the logs of the runs; those of section 6 (2026-11-08) from the run's log and, for each transaction, its final status,
 signer, block and block time, read through an RPC node by the deployer; those of section 7 (2026-11-11) from the
 NearBlocks public API and the transaction status of FastNear's free RPC endpoint, read on 2026-11-11 (that endpoint is
-not archival: a few days later, check those transactions on NearBlocks or through an archival RPC). Nothing here needs
-a key to check. Testnet
-transactions are in the README ("Testnet deployments", "Arras v2 on testnet") and in [docs/MAINNET.md](MAINNET.md) (the
-rehearsals).
+not archival: about a day later, check those transactions on NearBlocks or through an archival RPC). Nothing here
+needs a key to check. Testnet transactions are in the README ("Testnet deployments", "Arras v2 on testnet") and in
+[docs/MAINNET.md](MAINNET.md) (the rehearsals).
 
 Accounts that appear below:
 
@@ -27,7 +26,7 @@ Accounts that appear below:
 | [`826e8c64...7af`](https://nearblocks.io/address/826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af) | a test worker (ERC-8004 identity 0) |
 | [`be5ec510...2902`](https://nearblocks.io/address/be5ec510aa303bd041a2411cb691a8e32907763116ab8cb6a4ac586695aa2902) | a second test worker, registered through the sponsor (ERC-8004 identity 2) |
 | [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | Arras v2 escrow contract (keyless) |
-| [`em-capturer-v2.arras-escrow.near`](https://nearblocks.io/address/em-capturer-v2.arras-escrow.near) | the capturer of operator `em` in v2 (Execution Market does not use v2 yet): one function-call key (`release`, `refund`, `withdraw_for` on v2) |
+| [`em-capturer-v2.arras-escrow.near`](https://nearblocks.io/address/em-capturer-v2.arras-escrow.near) | the capturer of operator `em` in v2 (on 2026-11-11, Execution Market does not pay through v2): one function-call key (`release`, `refund`, `withdraw_for` on v2) |
 | [`em-arbiter-v2.arras-escrow.near`](https://nearblocks.io/address/em-arbiter-v2.arras-escrow.near) | the arbiter of operator `em` in v2: one function-call key (`resolve_dispute` on v2) |
 | [`agent-v2.arras-escrow.near`](https://nearblocks.io/address/agent-v2.arras-escrow.near) | a test account, the smoke test's agent: one function-call key (`authorize_from_budget` on v2) |
 | [`worker-v2.arras-escrow.near`](https://nearblocks.io/address/worker-v2.arras-escrow.near) | a test account, the smoke test's worker |
@@ -80,8 +79,9 @@ between KarmaKadabra agents (2026-11-10 and 11-11). The 2 payments through v2 ar
 
 ## 3. `registry-v1` deployed (2026-11-04, 03:47:09Z to 03:49:43Z)
 
-The first agent registry (identity = the NEAR account, a rating needs a released Arras payment): reproducible build of
-the merge commit `8cec4e6` (sha256 `b7b4593025769e5a12e70ebad7a78faecf523eb834b2f01338727e2833933197`).
+The first agent registry (identity = the NEAR account, a rating needs an Arras payment that released money):
+reproducible build of the merge commit `8cec4e6` (sha256
+`b7b4593025769e5a12e70ebad7a78faecf523eb834b2f01338727e2833933197`).
 
 | Step | Transaction |
 |---|---|
@@ -196,8 +196,9 @@ funding account as the human and two test accounts, `agent-v2.` and `worker-v2.`
 
 At the end, `get_config` read `tvl_global` 0, `in_flight` 0, `budgets_total` 0 and `payments` 2: the smoke's two. The
 read-only checks of v2's code, its operator, the agent's key and both payments are in the README ("Check it
-yourself"). This run changed nothing in Execution Market or in the facilitator: the facilitator's
-`NEAR_ESCROW_CONTRACTS_MAINNET` still lists v1 only (pointing them at v2 is MAINNET.md, section 8.9).
+yourself"). This run changed nothing in Execution Market or in the facilitator: after it, the facilitator's
+`NEAR_ESCROW_CONTRACTS_MAINNET` still listed v1 only, and on 2026-11-11 its `/supported` lists v1 only (pointing them
+at v2 is MAINNET.md, section 8.9).
 
 ## 7. Agents hiring agents: the KarmaKadabra swarm (2026-11-11, 03:03:51Z to 16:05:29Z)
 
@@ -238,6 +239,11 @@ near contract call-function as-read-only reputation-registry.erc-8004.near read_
 near contract call-function as-read-only reputation-registry.erc-8004.near get_verified_summary json-args '{"agent_id":"8","verifier":"erc8004-verifier.arras-escrow.near"}' network-config mainnet now
 #   on 2026-11-11: "count": "4", "summary_value": "81", "weight_sum": "40000"
 ```
+
+`get_payment` answers until someone compacts the payment, which `compact` allows from 7 days after its
+`reclaim_after`: from 2026-12-09 for the six payments above, and from 2026-12-08 for the one of 2026-11-10 below.
+After that it returns `null`, and `get_config`'s `payments` is lower; the transactions above still show each payment,
+and `read_feedback_proof` keeps the payment id as the proof.
 
 On 2026-11-11 the registries held 10 agents (`nft_total_supply`) and 16 ratings (`read_all_feedback` of agents 0 to
 9), none revoked, all with an Arras proof (`get_verified_summary` per agent). 4 come from the earlier sections (the
