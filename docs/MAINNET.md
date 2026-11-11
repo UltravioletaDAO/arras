@@ -662,7 +662,7 @@ verifiers apart).
 | Fact | Value |
 |---|---|
 | Crate | `contracts/erc8004-payment-proof` (immutable: private `new` in the deploy transaction, no `migrate`, no owner, no state but the escrow) |
-| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). This branch's head, `«REV»`, built twice from two clean clones: sha256 `«SHA»`, «LEN» bytes |
+| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). The code of the PR, commit `6e3d030`, built twice from two clean clones on 2026-11-11: sha256 `4e2e20d7310f273f88c69fd3730a3995e72cb825ecd9b0ab6ad0d2d1cf82ed07` both times, 125,139 bytes |
 | Build | `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...`, the same image as every other crate here |
 | Account | `payment-proof.arras-escrow.near`, a new child of `arras-escrow.near` (parent key in SSM `/arras/mainnet/padre`). c0der read on 2026-11-11 (block 224120662) that it does not exist yet |
 | `new` | `{"escrow": "v2.arras-escrow.near"}` |
@@ -715,14 +715,14 @@ done
 shasum -a 256 "$HOME"/arras-build/payment-proof-"$REV"-{1,2}/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm
 W="$HOME/arras-build/payment-proof-$REV-1/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm"
 wc -c < "$W"
-#    -> the same sha256 twice (otherwise stop); it is the code hash of step 4. The size should be close to «LEN»
-#       bytes; up to «MAXLEN» bytes fit in the funding of 9.4.
+#    -> the same sha256 twice (otherwise stop); it is the code hash of step 4. The size should be close to 125,139
+#       bytes; up to 138,754 bytes fit in the funding of 9.4.
 
 # 2. The parent pays the account (9.4) plus ~0.01 NEAR of gas.
 near account view-account-summary arras-escrow.near network-config mainnet now
 
 # 3. The account; its new key goes to near-cli's legacy keychain (steps 4, 5 and 6 use it).
-near account create-account fund-myself payment-proof.arras-escrow.near '«FUND» NEAR' autogenerate-new-keypair \
+near account create-account fund-myself payment-proof.arras-escrow.near '1.4 NEAR' autogenerate-new-keypair \
   save-to-legacy-keychain sign-as arras-escrow.near network-config mainnet \
   sign-with-access-key-file <(aws ssm get-parameter --region us-east-2 --name /arras/mainnet/padre \
     --with-decryption --output json | jq -j '.Parameter.Value') send
@@ -784,11 +784,12 @@ funding account (README, "Arras v2 on testnet").
 ### 9.4 How much NEAR
 
 Measured in the sandbox (WP-07, the wasm of `compile_project`): the account without keys holds the wasm plus 164
-bytes of account and state. With the reproducible wasm of this branch's head («LEN» bytes) that is «BYTES» bytes,
-«NEAR» NEAR, and the funding is that plus 0.1 NEAR, rounded up to the tenth, as for the other verifier: **«FUND»
+bytes of account and state. With the reproducible wasm of `6e3d030` (125,139 bytes) that is 125,303 bytes,
+1.25303 NEAR, and the funding is that plus 0.1 NEAR, rounded up to the tenth, as for the other verifier: **1.4
 NEAR**, from the parent. The 0.1 covers the key while it is on (82 bytes), the gas of the deploy (under 0.01 NEAR),
-of the two smoke calls (~0.0005 each, 5.5 TGas measured per `verify_feedback_proof`) and of `delete-keys`, and a
-wasm up to «MAXLEN» bytes. Creating the account costs the parent ~0.0071 more (section 3). What stays: the storage,
+of the two smoke calls (~0.0005 each, 5.5 TGas measured per `verify_feedback_proof`; each 50 TGas call also
+reserves ~0.052 NEAR up front, 8.3, which comes back and fits in the ~0.14 NEAR left free after the deploy) and of
+`delete-keys`, and a wasm up to 138,754 bytes. Creating the account costs the parent ~0.0071 more (section 3). What stays: the storage,
 for good (the account has no keys). The verifier needs nothing else: it holds no state per call and takes no deposit.
 
 ### 9.5 What the consumers change
