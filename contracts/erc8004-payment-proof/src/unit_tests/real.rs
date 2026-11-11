@@ -185,7 +185,12 @@ fn estado_y_disputa() -> impl Strategy<Value = (PaymentStatus, Option<Dispute>)>
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    // Sin `failure_persistence`: un contraejemplo no deja archivos en el arbol (los mutantes lo necesitan limpio).
+    #![proptest_config(ProptestConfig {
+        cases: 512,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
 
     /// Cualquier `Payment` coherente que el escrow serialice se lee entero y da lo que dice la decision.
     #[test]
