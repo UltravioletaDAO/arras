@@ -69,7 +69,9 @@ fn on_payment_con_el_payment_real_mas_largo() {
 fn on_payment_en_el_tope_exacto_y_un_byte_mas() {
     let c = new_contract();
     let mut b = serde_json::to_vec(&pago_parcial()).unwrap();
-    b.resize(MAX_PAYMENT_RESULT_LEN, b' ');
+    // El tope es 8 KiB justos (literal, no la constante: asi un cambio del tope tambien pone el test en rojo).
+    assert_eq!(MAX_PAYMENT_RESULT_LEN, 8192);
+    b.resize(8192, b' ');
     ctx_cb(PromiseResult::Successful(b.clone()));
     assert_eq!(c.on_payment(acc(PAYER)).weight, U128(400_000));
     b.push(b' ');
