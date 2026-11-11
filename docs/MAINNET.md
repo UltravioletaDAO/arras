@@ -712,7 +712,8 @@ The reads go through the private RPC, and near-cli's mainnet connection has to p
 near account list-keys v2.arras-escrow.near network-config mainnet now
 #    -> an empty table
 near account view-account-summary v2.arras-escrow.near network-config mainnet now
-#    -> code hash 2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e; anything else: stop here
+#    -> "Local Contract (SHA-256 checksum hex)" 1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77
+#       (the pin of 8.1; base58 2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e) and no access keys; anything else: stop
 near account view-account-summary payment-proof.arras-escrow.near network-config mainnet now
 #    -> the account does not exist (if it does, stop: the name is taken)
 
@@ -731,7 +732,7 @@ shasum -a 256 "$HOME"/arras-build/payment-proof-"$REV"-{1,2}/target/near/erc8004
 W="$HOME/arras-build/payment-proof-$REV-1/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm"
 wc -c < "$W"
 #    -> the same sha256 twice (otherwise stop); it is the code hash of step 4. The size should be close to 125,139
-#       bytes; up to 138,749 bytes fit in the funding of 9.4.
+#       bytes; up to 134,249 bytes fit in the funding of 9.4.
 
 # 2. The parent pays the account (9.4) plus ~0.01 NEAR of gas.
 near account view-account-summary arras-escrow.near network-config mainnet now
@@ -749,7 +750,7 @@ near contract deploy payment-proof.arras-escrow.near use-file "$W" with-init-cal
 
 # 5. Verify BEFORE deleting the key.
 near account view-account-summary payment-proof.arras-escrow.near network-config mainnet now
-#    -> its contract SHA-256 (hex) is the sha256 of step 1, and it has one access key: the one of step 3
+#    -> "Local Contract (SHA-256 checksum hex)" is the sha256 of step 1, and it has one access key: the one of step 3
 near contract call-function as-read-only payment-proof.arras-escrow.near get_config json-args '{}' \
   network-config mainnet now
 #    -> {"contract":"erc8004-arras-verifier","escrow":"v2.arras-escrow.near","min_gas_verify":"25000000000000",
@@ -768,7 +769,8 @@ near contract call-function as-read-only v2.arras-escrow.near get_payment \
   json-args '{"payment_id":"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC"}' network-config mainnet now
 #    -> "status": "Released", "released": "50000", "payer": $H, "receiver": "worker-v2.arras-escrow.near"
 #    If it is null (compacted), stop and pick another payment of v2.arras-escrow.near with "released" > 0 (list_payments
-#    of em), with its payer as the client; for the E13 check, one with "released": "0".
+#    of em), with its payer as the client; for the E13 check, a "Resolved" (or "Disputed") one with "released": "0",
+#    so that the mirror reads a real dispute.
 near contract call-function as-transaction payment-proof.arras-escrow.near verify_feedback_proof \
   json-args "{\"client\":\"$H\",\"proof\":\"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC\"}" \
   prepaid-gas '50.0 Tgas' attached-deposit '0 NEAR' sign-as payment-proof.arras-escrow.near \
@@ -803,12 +805,16 @@ funding account (README, "Arras v2 on testnet").
 
 Measured in the sandbox (WP-07, the wasm of `compile_project`): the account without keys holds the wasm plus 164
 bytes of account and state, with the sandbox's escrow `arras.test.near` (15 characters); with `v2.arras-escrow.near`
-(20) it is 169. With the reproducible wasm of `6e3d030` (125,139 bytes) that is 125,308 bytes, 1.25308 NEAR, and the funding is that plus 0.1 NEAR, rounded up to the tenth, as for the other verifier: **1.4
-NEAR**, from the parent. The 0.1 covers the key while it is on (82 bytes), the gas of the deploy (under 0.01 NEAR),
-of the two smoke calls (~0.0005 each, 5.5 TGas measured per `verify_feedback_proof`; each 50 TGas call also
-reserves ~0.052 NEAR up front, 8.3, which comes back and fits in the ~0.14 NEAR left free after the deploy) and of
-`delete-keys`, and a wasm up to 138,749 bytes. Creating the account costs the parent ~0.0071 more (section 3). What stays: the storage,
-for good (the account has no keys). The verifier needs nothing else: it holds no state per call and takes no deposit.
+(20) it is 169. With the reproducible wasm of `6e3d030` (125,139 bytes) that is 125,308 bytes, 1.25308 NEAR, and the
+funding is that plus 0.1 NEAR, rounded up to the tenth, as for the other verifier: **1.4 NEAR**, from the parent.
+
+The 0.1 covers the key while it is on (82 bytes), the gas burnt by the deploy (~0.003 NEAR), by the two smoke calls
+(~0.0005 each: 5.5 TGas measured per `verify_feedback_proof`) and by `delete-keys`, and the up-front reserve of each
+50 TGas smoke call (~0.052 NEAR, 8.3; it comes back), which has to fit in what is left free: about 0.14 NEAR with the
+wasm of `6e3d030`. That bounds the wasm at (1.4 - 0.003 - 0.052) x 100,000 - 169 - 82 = **134,249 bytes**; above
+that, the funding goes up by a tenth. Creating the account costs the parent ~0.0071 more (section 3). What stays: the
+storage, for good (the account has no keys). The verifier needs nothing else: it holds no state per call and takes
+no deposit.
 
 ### 9.5 What the consumers change
 
