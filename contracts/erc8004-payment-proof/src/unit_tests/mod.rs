@@ -504,8 +504,17 @@ fn un_status_que_no_es_del_escrow_es_e11() {
         json!(2),
         json!(true),
         Value::Null,
+        json!("Resolved "),
+        json!("resolved"),
+        json!("Dispute"),
     ] {
-        e11(&con("status", s));
+        // Con cada forma de `dispute` (sin, abierta y resuelta): un status de mas que el espejo mapeara a cualquiera
+        // de los 7 seria coherente con alguna, asi que lo frena el espejo y no la coherencia.
+        for forma in ["Released", "Disputed", "Resolved"] {
+            let mut p = pago(PAYER, WORKER, forma, 1);
+            p["status"] = s.clone();
+            e11(&p);
+        }
     }
 }
 
