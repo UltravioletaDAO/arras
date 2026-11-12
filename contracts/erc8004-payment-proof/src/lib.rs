@@ -2,7 +2,8 @@
 //! (`contracts/escrow-v2`, la cuenta `v2.arras-escrow.near`). Va en `payment-proof.arras-escrow.near` con
 //! `new({"escrow": "v2.arras-escrow.near"})`: UN escrow, fijo, contratos y no personas. Inmutable, sin estado que
 //! cambie, sin deposito. La misma interfaz y las mismas garantias que `contracts/erc8004-arras-verifier` (el de
-//! `v1.arras-escrow.near`, desplegado y sin tocar), sobre el `Payment` de este escrow.
+//! `v1.arras-escrow.near`, desplegado y sin tocar), sobre el `Payment` de este escrow, mas una que ese escrow no
+//! necesita porque no tiene disputas (`E16`).
 //!
 //! `verify_feedback_proof(client, proof)`: `proof` es el `payment_id` canonico (base58 de 32 bytes). Llama
 //! `escrow.get_payment(proof)` y en su callback exige el espejo estricto del `Payment` (los 19 campos exactos y los 4
@@ -75,8 +76,8 @@ pub const MIN_GAS_VERIFY: Gas = Gas::from_tgas(25);
 /// Tope de bytes de la respuesta de `get_payment` (un `Payment` con disputa ocupa menos de 1,5 KiB).
 pub const MAX_PAYMENT_RESULT_LEN: usize = 8 * 1024;
 /// `get_config.contract`: el mismo que el verificador de `v1.arras-escrow.near`. Es el nombre de la interfaz (los mismos
-/// campos de `get_config`, los mismos codigos `ERC8004_ARV_*`, la misma respuesta) y los SDK lo comparan tal cual; lo
-/// que distingue a los dos verificadores es `escrow`.
+/// campos de `get_config`, los codigos `ERC8004_ARV_*` con `E16` de mas, la misma respuesta) y los SDK lo comparan tal
+/// cual; lo que distingue a los dos verificadores es `escrow`.
 pub const CONTRACT_KIND: &str = "erc8004-arras-verifier";
 
 /// Los codigos del verificador de v1, con el mismo prefijo `ERC8004_ARV_` (los SDK los leen de la falla), y uno nuevo,
