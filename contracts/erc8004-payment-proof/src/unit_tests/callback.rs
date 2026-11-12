@@ -1,6 +1,6 @@
 //! `on_payment` con un resultado de promesa de verdad (el tope de 8 KiB y el indice 0, que si no solo cubre el
-//! sandbox), el `Payment` real mas largo, cuentas implicitas, y lo que el espejo a proposito no exige (de la ronda del
-//! refutador).
+//! sandbox), una cota del `Payment` mas largo que el escrow puede escribir, cuentas implicitas, y lo que el espejo a
+//! proposito no exige (de la ronda del refutador).
 
 use super::*;
 use arras_escrow_v2::{Dispute, Party, Payment, PaymentStatus};
@@ -20,7 +20,12 @@ fn ctx_cb(r: PromiseResult) {
     );
 }
 
-/// El `Payment` mas largo que el escrow puede escribir: cuentas de 64, operator de 32, u128/u64 maximos, disputa resuelta.
+/// Una cota del `Payment` mas largo que el escrow puede escribir: cada campo en el maximo de su tipo, que el escrow
+/// nunca supera. Cuentas de 64 y operator de 32; `amount` y `storage_charged` en u128::MAX; `released` y `refunded` de
+/// 39 cifras cada uno (lo mas largo que deja `released + refunded <= amount`); los u64 en u64::MAX (20 cifras);
+/// `fee_bps` en `MAX_FEE_BPS` (1800, el tope del escrow) y `fee_bps_max` en u16::MAX; `sponsored: false` (un byte mas
+/// que `true`); la disputa resuelta (`resolved_at` con numero, no `null`) y abierta por el receiver (`"Receiver"`, mas
+/// largo que `"Payer"`). Los estados con disputa (`Disputed`, `Resolved`) tienen el mismo largo.
 fn peor_caso() -> Payment {
     let a = |c: char| acc(&c.to_string().repeat(64));
     Payment {
@@ -28,9 +33,9 @@ fn peor_caso() -> Payment {
         payer: a('a'),
         receiver: a('b'),
         amount: U128(u128::MAX),
-        released: U128(u128::MAX - 1),
-        refunded: U128(1),
-        fee_bps: 1800,
+        released: U128(u128::MAX / 2),
+        refunded: U128(u128::MAX / 2),
+        fee_bps: arras_escrow_core::MAX_FEE_BPS,
         fee_recipient: a('c'),
         fee_bps_max: u16::MAX,
         created_at: U64(u64::MAX),
@@ -39,7 +44,7 @@ fn peor_caso() -> Payment {
         terms_hash: "f".repeat(64),
         status: PaymentStatus::Resolved,
         storage_charged: U128(u128::MAX),
-        sponsored: true,
+        sponsored: false,
         dispute_deadline: U64(u64::MAX),
         arbiter_window_ns: U64(u64::MAX),
         dispute: Some(Dispute {
@@ -52,16 +57,20 @@ fn peor_caso() -> Payment {
 }
 
 #[test]
-fn on_payment_con_el_payment_real_mas_largo() {
-    let b = serde_json::to_vec(&peor_caso()).unwrap();
-    // 1.007 bytes, el peor caso: un mutante del tope por debajo de eso (p. ej. 1000) seria un falso negativo para
-    // siempre y hoy solo lo veria un pago real tan largo; este test lo mata.
-    assert_eq!(b.len(), 1007);
+fn on_payment_con_la_cota_del_payment_mas_largo() {
+    let p = peor_caso();
+    assert_eq!(p.released.0.to_string().len(), 39);
+    assert_eq!(p.refunded.0.to_string().len(), 39);
+    assert!(p.released.0 + p.refunded.0 <= p.amount.0);
+    let b = serde_json::to_vec(&p).unwrap();
+    // 1.046 bytes: ningun `Payment` del escrow es mas largo. Un mutante del tope por debajo de eso (p. ej. 1000) seria
+    // un falso negativo para siempre y hoy solo lo veria un pago real tan largo; este test lo mata.
+    assert_eq!(b.len(), 1046);
     assert!(b.len() < MAX_PAYMENT_RESULT_LEN);
     let c = new_contract();
     ctx_cb(PromiseResult::Successful(b));
     let fp = c.on_payment(acc(&"a".repeat(64)));
-    assert_eq!(fp.weight, U128(u128::MAX - 1));
+    assert_eq!(fp.weight, U128(u128::MAX / 2));
     assert_eq!(fp.role, "receiver");
 }
 

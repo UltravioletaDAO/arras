@@ -1,6 +1,7 @@
 //! El espejo contra el `Payment` de verdad (`arras_escrow_v2::Payment`, solo en los tests): todo lo que el escrow
 //! serializa, en cualquiera de sus estados, deserializa campo por campo en `EscrowPayment`, y `check_payment` decide
-//! lo mismo que el modelo de la decision (`released > 0`, `payer != receiver`, `client` es parte).
+//! lo mismo que el modelo de la decision (`released > 0`, la disputa vencida a favor del receiver no, `payer !=
+//! receiver`, `client` es parte).
 
 use super::*;
 use arras_escrow_v2::{Dispute, Party, Payment, PaymentStatus};
@@ -43,6 +44,7 @@ fn real(
     }
 }
 
+/// Una disputa abierta antes de `release_deadline`; si `resolved`, la cerro el arbitro dentro de su plazo.
 fn disputa(opened_by: Party, resolved: bool) -> Dispute {
     Dispute {
         opened_by,
@@ -50,6 +52,14 @@ fn disputa(opened_by: Party, resolved: bool) -> Dispute {
         opened_at: U64(1_793_500_000_000_000_000),
         resolved_at: resolved.then_some(U64(1_793_510_000_000_000_000)),
     }
+}
+
+/// La misma disputa cerrada por `resolve_expired_dispute`: justo al vencer el plazo del arbitro (`opened_at +
+/// arbiter_window_ns`, el de [`real`]).
+fn vencida(opened_by: Party) -> Dispute {
+    let mut d = disputa(opened_by, true);
+    d.resolved_at = Some(U64(1_793_500_000_000_000_000 + 604_800_000_000_000));
+    d
 }
 
 fn bytes(p: &Payment) -> Vec<u8> {
@@ -98,47 +108,56 @@ fn r(status: PaymentStatus, released: u128, refunded: u128, d: Option<Dispute>) 
 fn cada_estado_que_escribe_el_escrow() {
     use Party::*;
     use PaymentStatus::*;
+    use VerifierError::{E13PagoSinLiberar as E13, E16DisputaVencida as E16};
     let abierta = |p| Some(disputa(p, false));
     let resuelta = |p| Some(disputa(p, true));
-    let casos: Vec<(Payment, Option<u128>)> = vec![
-        (r(Authorized, 0, 0, None), None),
-        (r(PartiallyReleased, 400_000, 0, None), Some(400_000)),
-        (r(Released, 1_000_000, 0, None), Some(1_000_000)),
-        (r(Refunded, 0, 1_000_000, None), None),
-        (r(Refunded, 400_000, 600_000, None), Some(400_000)),
-        (r(Reclaimed, 0, 1_000_000, None), None),
-        (r(Reclaimed, 250_000, 750_000, None), Some(250_000)),
-        (r(Disputed, 0, 0, abierta(Payer)), None),
-        (r(Disputed, 300_000, 0, abierta(Receiver)), Some(300_000)),
-        (r(Resolved, 0, 1_000_000, resuelta(Payer)), None),
+    let casos: Vec<(Payment, Result<u128, VerifierError>)> = vec![
+        (r(Authorized, 0, 0, None), Err(E13)),
+        (r(PartiallyReleased, 400_000, 0, None), Ok(400_000)),
+        (r(Released, 1_000_000, 0, None), Ok(1_000_000)),
+        (r(Refunded, 0, 1_000_000, None), Err(E13)),
+        (r(Refunded, 400_000, 600_000, None), Ok(400_000)),
+        (r(Reclaimed, 0, 1_000_000, None), Err(E13)),
+        (r(Reclaimed, 250_000, 750_000, None), Ok(250_000)),
+        (r(Disputed, 0, 0, abierta(Payer)), Err(E13)),
+        (r(Disputed, 300_000, 0, abierta(Payer)), Ok(300_000)),
+        (r(Disputed, 300_000, 0, abierta(Receiver)), Ok(300_000)),
+        // El arbitro, en su plazo.
+        (r(Resolved, 0, 1_000_000, resuelta(Payer)), Err(E13)),
         (
             r(Resolved, 500_000, 500_000, resuelta(Receiver)),
-            Some(500_000),
+            Ok(500_000),
         ),
-        (r(Resolved, 1_000_000, 0, resuelta(Payer)), Some(1_000_000)),
+        (r(Resolved, 1_000_000, 0, resuelta(Payer)), Ok(1_000_000)),
+        // Vencida: la del payer antes de release_deadline le da lo vivo al receiver (con o sin liberacion previa el
+        // `Payment` queda igual: `released == amount`); la del receiver se lo devuelve al payer.
+        (r(Resolved, 1_000_000, 0, Some(vencida(Payer))), Err(E16)),
+        (
+            r(Resolved, 300_000, 700_000, Some(vencida(Receiver))),
+            Ok(300_000),
+        ),
+        (r(Resolved, 0, 1_000_000, Some(vencida(Receiver))), Err(E13)),
     ];
-    for (p, peso) in casos {
+    for (p, esperado) in casos {
         let b = bytes(&p);
         let e: Option<EscrowPayment> = serde_json::from_slice(&b).unwrap();
         igual(&e.unwrap(), &p);
         for (client, role) in [(PAYER, "payer"), (WORKER, "receiver")] {
             let r = check_payment(&acc(client), Ok(b.clone()));
-            match peso {
-                Some(w) => {
+            match esperado {
+                Ok(w) => {
                     let fp = r.unwrap();
                     assert_eq!(fp.weight, U128(w));
                     assert_eq!(fp.context, "em");
                     // `role` es el de la contraparte.
                     assert_ne!(fp.role, role);
                 }
-                None => assert_eq!(r, Err(VerifierError::E13PagoSinLiberar), "{p:?}"),
+                Err(err) => assert_eq!(r, Err(err), "{p:?}"),
             }
         }
         assert_eq!(
             check_payment(&acc(OTHER), Ok(b)).err(),
-            Some(peso.map_or(VerifierError::E13PagoSinLiberar, |_| {
-                VerifierError::E15NoEsParte
-            }))
+            Some(esperado.map_or_else(|err| err, |_| VerifierError::E15NoEsParte))
         );
     }
 }
@@ -158,6 +177,31 @@ fn cuenta() -> impl Strategy<Value = AccountId> {
         Just(acc(&"0123456789abcdef".repeat(4))),
         Just(acc("em-capturer-v2.arras-escrow.near")),
     ]
+}
+
+/// Un instante cerca de `base` (en el borde, un nanosegundo antes o despues) o cualquiera.
+fn cerca(base: u64) -> impl Strategy<Value = u64> {
+    prop_oneof![
+        Just(base),
+        Just(base.saturating_sub(1)),
+        Just(base.saturating_add(1)),
+        any::<u64>(),
+    ]
+}
+
+/// `release_deadline`, `arbiter_window_ns` y la disputa (quien, `opened_at`, `resolved_at`) cerca de los dos bordes de la
+/// vencida: `opened_at` frente a `release_deadline` y `resolved_at` frente a `opened_at + arbiter_window_ns`.
+fn plazos() -> impl Strategy<Value = (u64, u64, u64, u64)> {
+    (
+        any::<u64>(),
+        prop_oneof![Just(604_800_000_000_000u64), any::<u64>()],
+    )
+        .prop_flat_map(|(rd, ventana)| {
+            cerca(rd).prop_flat_map(move |abierta| {
+                cerca(abierta.saturating_add(ventana))
+                    .prop_map(move |resuelta| (rd, ventana, abierta, resuelta))
+            })
+        })
 }
 
 fn estado_y_disputa() -> impl Strategy<Value = (PaymentStatus, Option<Dispute>)> {
@@ -208,11 +252,24 @@ proptest! {
         sponsored in any::<bool>(),
         (status, dispute) in estado_y_disputa(),
         terms in any::<u8>(),
+        (rd, ventana, abierta, resuelta) in plazos(),
+        cerca_de_los_bordes in any::<bool>(),
     ) {
         // `x % (n + 1)` en `[0, n]`, sin desbordar con `n = u128::MAX`.
         let hasta = |x: u128, n: u128| n.checked_add(1).map_or(x, |m| x % m);
         let released = hasta(r1, amount);
         let refunded = hasta(r2, amount - released);
+        // La mitad de las veces, los plazos y la disputa cerca de los bordes de la vencida.
+        let (release_deadline, arbiter_window_ns, dispute) = if cerca_de_los_bordes {
+            let d = dispute.map(|d| Dispute {
+                opened_at: U64(abierta),
+                resolved_at: d.resolved_at.map(|_| U64(resuelta)),
+                ..d
+            });
+            (rd, ventana, d)
+        } else {
+            (tiempos[1], tiempos[4], dispute)
+        };
         let p = Payment {
             operator_id: "em".into(),
             payer: payer.clone(),
@@ -224,21 +281,32 @@ proptest! {
             fee_recipient: acc("em-fees.arras-dev.testnet"),
             fee_bps_max,
             created_at: U64(tiempos[0]),
-            release_deadline: U64(tiempos[1]),
+            release_deadline: U64(release_deadline),
             reclaim_after: U64(tiempos[2]),
             terms_hash: hex64(terms),
             status,
             storage_charged: U128(storage),
             sponsored,
             dispute_deadline: U64(tiempos[3]),
-            arbiter_window_ns: U64(tiempos[4]),
+            arbiter_window_ns: U64(arbiter_window_ns),
             dispute,
         };
         let b = bytes(&p);
         let e: Option<EscrowPayment> = serde_json::from_slice(&b).unwrap();
         igual(&e.unwrap(), &p);
+        // `dispute.rs`: el arbitro solo cierra con `now < opened_at + arbiter_window_ns` (saturado) y la vencida le da
+        // lo vivo al receiver si la abrio el payer antes de `release_deadline`.
+        let vencida_al_receiver = p.dispute.as_ref().is_some_and(|d| {
+            let plazo = d.opened_at.0.saturating_add(p.arbiter_window_ns.0);
+            let arbitro_podia = d.resolved_at.is_some_and(|t| t.0 < plazo);
+            let cobra_el_receiver =
+                d.opened_by == Party::Payer && d.opened_at.0 < p.release_deadline.0;
+            d.resolved_at.is_some() && !arbitro_podia && cobra_el_receiver
+        });
         let esperado = if released == 0 {
             Err(VerifierError::E13PagoSinLiberar)
+        } else if vencida_al_receiver {
+            Err(VerifierError::E16DisputaVencida)
         } else if payer == receiver {
             Err(VerifierError::E14PayerEsReceiver)
         } else if client == payer {

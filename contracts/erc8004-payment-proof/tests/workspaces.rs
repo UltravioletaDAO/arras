@@ -7,8 +7,9 @@
 //! - WP-01: liberado total y parcial, refund con y sin liberacion previa, un pago autorizado, el client ajeno.
 //! - WP-02: disputa abierta despues de una liberacion parcial y resuelta por el arbitro; abierta sin liberacion y
 //!   devuelta entera al payer.
-//! - WP-03: disputas vencidas (el sandbox avanza el reloj): la del payer (lo vivo al receiver) y la del receiver (al
-//!   payer).
+//! - WP-03: disputas vencidas (el sandbox avanza el reloj): la del payer antes de `release_deadline` le da lo vivo al
+//!   receiver y no es prueba (`E16`), con y sin liberacion previa; la del receiver se lo devuelve al payer y vale por lo
+//!   liberado antes (o `E13`).
 //! - WP-04: proof inexistente, no canonica, gas de menos, y un escrow sin codigo (`E10`).
 //! - WP-05: el escrow de mentira: un `Payment` real copiado tal cual vale; con un campo de mas, con uno de menos (el de
 //!   v1), incoherente, payer == receiver o de mas de 8 KiB, no.
@@ -360,6 +361,14 @@ impl Env {
         Ok(())
     }
 
+    /// La disputa vencida a favor del receiver: `E16` para las dos partes y el tercero (se mira antes que la parte).
+    async fn vencida_al_receiver(&self, id: &str) -> anyhow::Result<()> {
+        for who in [self.payer.id(), self.worker.id(), self.tercero.id()] {
+            self.verify_falla(who, id, "ERC8004_ARV_E16").await?;
+        }
+        Ok(())
+    }
+
     async fn pasar_el_plazo(&self, hasta: u64) -> anyhow::Result<()> {
         let mut saltos = 0;
         while self.w.view_block().await?.timestamp() <= hasta {
@@ -477,34 +486,49 @@ async fn wp_02_disputa_abierta_y_resuelta_por_el_arbitro() -> anyhow::Result<()>
     Ok(())
 }
 
-/// WP-03: las disputas vencidas. La abre el payer antes de `release_deadline`: lo vivo va al receiver (vale). La abre
-/// el receiver: lo vivo vuelve al payer (no vale).
+/// WP-03: las disputas vencidas. La abre el payer antes de `release_deadline`: lo vivo va al receiver sin capturer ni
+/// arbitro, y no es prueba (`E16`), tampoco por lo que el capturer libero antes. La abre el receiver: lo vivo vuelve al
+/// payer, y vale lo liberado antes (o `E13`).
 #[tokio::test]
 async fn wp_03_disputas_vencidas() -> anyhow::Result<()> {
     let _permiso = SANDBOXES.acquire().await?;
     let e = setup(MIN_WINDOW_NS).await?;
     let a = e.authorize(USDC, 1).await?;
     let b = e.authorize(USDC, 2).await?;
-    e.arras_ok(
-        &e.payer,
-        "open_dispute",
-        json!({ "payment_id": a, "reason_hash": RAZON }),
-    )
-    .await?;
-    e.arras_ok(
-        &e.worker,
-        "open_dispute",
-        json!({ "payment_id": b, "reason_hash": RAZON }),
-    )
-    .await?;
+    let c = e.authorize(USDC, 3).await?;
+    let d = e.authorize(USDC, 4).await?;
+    for id in [&c, &d] {
+        e.arras_ok(
+            &e.capturer,
+            "release",
+            json!({ "payment_id": id, "amount": "300000" }),
+        )
+        .await?;
+    }
+    for (id, quien) in [
+        (&a, &e.payer),
+        (&b, &e.worker),
+        (&c, &e.payer),
+        (&d, &e.worker),
+    ] {
+        e.arras_ok(
+            quien,
+            "open_dispute",
+            json!({ "payment_id": id, "reason_hash": RAZON }),
+        )
+        .await?;
+    }
     e.sin_liberar(&a).await?;
     e.sin_liberar(&b).await?;
-    let opened: u64 = e.payment(&b).await?["dispute"]["opened_at"]
+    // Abiertas, lo liberado antes vale (lo libero el capturer), la abra quien la abra.
+    e.las_dos_partes(&c, 300_000).await?;
+    e.las_dos_partes(&d, 300_000).await?;
+    let opened: u64 = e.payment(&d).await?["dispute"]["opened_at"]
         .as_str()
         .unwrap()
         .parse()?;
     e.pasar_el_plazo(opened + MIN_WINDOW_NS).await?;
-    for id in [&a, &b] {
+    for id in [&a, &b, &c, &d] {
         e.arras_ok(
             &e.tercero,
             "resolve_expired_dispute",
@@ -512,18 +536,44 @@ async fn wp_03_disputas_vencidas() -> anyhow::Result<()> {
         )
         .await?;
     }
-    let pa = e.payment(&a).await?;
-    assert_eq!(
-        (&pa["status"], &pa["released"], &pa["dispute"]["opened_by"]),
-        (&json!("Resolved"), &json!("1000000"), &json!("Payer"))
-    );
-    e.las_dos_partes(&a, USDC).await?;
+    // El `Payment` que lee el verificador: la vencida (`resolved_at >= opened_at + arbiter_window_ns`) del payer antes
+    // de `release_deadline`.
+    for id in [&a, &c] {
+        let p = e.payment(id).await?;
+        assert_eq!(
+            (
+                &p["status"],
+                &p["released"],
+                &p["refunded"],
+                &p["dispute"]["opened_by"]
+            ),
+            (
+                &json!("Resolved"),
+                &json!("1000000"),
+                &json!("0"),
+                &json!("Payer")
+            )
+        );
+        let n = |v: &Value| v.as_str().unwrap().parse::<u64>().unwrap();
+        assert!(
+            n(&p["dispute"]["resolved_at"])
+                >= n(&p["dispute"]["opened_at"]) + n(&p["arbiter_window_ns"])
+        );
+        assert!(n(&p["dispute"]["opened_at"]) < n(&p["release_deadline"]));
+        e.vencida_al_receiver(id).await?;
+    }
     let pb = e.payment(&b).await?;
     assert_eq!(
         (&pb["status"], &pb["released"], &pb["refunded"]),
         (&json!("Resolved"), &json!("0"), &json!("1000000"))
     );
     e.sin_liberar(&b).await?;
+    let pd = e.payment(&d).await?;
+    assert_eq!(
+        (&pd["status"], &pd["released"], &pd["refunded"]),
+        (&json!("Resolved"), &json!("300000"), &json!("700000"))
+    );
+    e.las_dos_partes(&d, 300_000).await?;
     Ok(())
 }
 

@@ -35,6 +35,9 @@ arras-escrow-core = { path = "../escrow-core" }
 near-sdk = { version = "=5.29.1", features = ["unit-testing"] }
 # El `Payment` de verdad, solo en los tests: el espejo se prueba contra lo que serializa el escrow (no entra en la wasm).
 arras-escrow-v2 = { path = "../escrow-v2" }
+# `FungibleTokenReceiver`, para autorizar pagos en el escrow de verdad dentro del mock (`unit_tests/escrow.rs`); la misma
+# version que usa el escrow (ya esta en el arbol).
+near-contract-standards = "=5.29.1"
 proptest = "=1.12.0"
 # El sandbox (tests/workspaces.rs), con las mismas versiones que contracts/erc8004-reputation.
 near-workspaces = { version = "=0.23.0", features = ["unstable"] }

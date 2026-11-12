@@ -1,6 +1,7 @@
 //! El verificador: el `payment_id` canonico, la llamada cruzada, y `check_payment` con cada respuesta de `get_payment`
-//! (el espejo estricto del `Payment` con disputa, la coherencia y las cuatro guardas). `real` lo prueba contra el
-//! `Payment` de verdad de `contracts/escrow-v2`.
+//! (el espejo estricto del `Payment` con disputa, la coherencia y las cinco guardas). `real` lo prueba contra el
+//! `Payment` de verdad de `contracts/escrow-v2`, y `escrow` contra el escrow mismo en el mock (el borde de la disputa
+//! vencida).
 
 use crate::*;
 use near_sdk::mock::MockAction;
@@ -9,6 +10,7 @@ use near_sdk::test_utils::{VMContextBuilder, get_created_receipts};
 use near_sdk::{NearToken, testing_env};
 
 mod callback;
+mod escrow;
 mod real;
 
 const CONTRACT: &str = "payment-proof.arras-dev.testnet";
@@ -259,6 +261,25 @@ fn la_otra_parte_y_su_rol() {
         check("em-fees.arras-dev.testnet", &p),
         Err(VerifierError::E15NoEsParte)
     );
+    // Una subcuenta de una parte no es esa parte (la comparacion es de `AccountId` entero, no de sufijo ni de prefijo):
+    // la controla quien controla la cuenta padre, pero el pago lo hizo la otra.
+    for sub in [
+        format!("x.{PAYER}"),
+        format!("x.{WORKER}"),
+        format!("{PAYER}x"),
+        "testnet".to_string(),
+    ] {
+        assert_eq!(check(&sub, &p), Err(VerifierError::E15NoEsParte), "{sub}");
+    }
+    // Y al reves: las partes son subcuentas del que califica.
+    let hijas = pago(&format!("x.{PAYER}"), &format!("x.{WORKER}"), "Released", 1);
+    for padre in [PAYER, WORKER] {
+        assert_eq!(
+            check(padre, &hijas),
+            Err(VerifierError::E15NoEsParte),
+            "{padre}"
+        );
+    }
 }
 
 #[test]
@@ -312,15 +333,137 @@ fn disputas() {
             Err(VerifierError::E13PagoSinLiberar)
         );
     }
-    // Resuelta todo al receiver (p. ej. la vencida que abrio el payer antes de release_deadline).
+    // Resuelta todo al receiver por el arbitro, dentro de su plazo (la vencida es `E16`: la siguiente prueba).
     let al_receiver = pago(PAYER, WORKER, "Resolved", 1_000_000);
     assert_eq!(check(PAYER, &al_receiver).unwrap().weight, U128(1_000_000));
-    // Quien la abrio no cambia nada.
+    // Mientras esta abierta, quien la abrio no cambia nada (lo liberado lo libero un capturer antes de abrirla).
     for quien in ["Payer", "Receiver"] {
         let mut p = abierta.clone();
         p["dispute"]["opened_by"] = json!(quien);
         assert!(check(PAYER, &p).is_ok(), "{quien}");
     }
+    // Resuelta por el arbitro, tampoco.
+    for quien in ["Payer", "Receiver"] {
+        let mut p = al_receiver.clone();
+        p["dispute"]["opened_by"] = json!(quien);
+        assert_eq!(
+            check(WORKER, &p).unwrap().weight,
+            U128(1_000_000),
+            "{quien}"
+        );
+    }
+}
+
+const DAY: u64 = 86_400 * 1_000_000_000;
+/// `release_deadline` y `arbiter_window_ns` de [`pago`].
+const RD: u64 = 1_793_577_600_000_000_000;
+const VENTANA: u64 = 604_800_000_000_000;
+
+/// Un pago `Resolved` cuya disputa abrio `quien` en `abierta` y se cerro en `cerrada`, con `released` y `refunded`.
+/// `dispute_deadline` = `reclaim_after` (lo que pone el escrow si el `msg` no lo trae): el payer puede abrir despues de
+/// `release_deadline`.
+fn resuelta(quien: &str, abierta: u64, cerrada: u64, released: u128, refunded: u128) -> Value {
+    let mut p = pago(PAYER, WORKER, "Resolved", released);
+    p["refunded"] = json!(refunded.to_string());
+    p["dispute_deadline"] = p["reclaim_after"].clone();
+    p["dispute"]["opened_by"] = json!(quien);
+    p["dispute"]["opened_at"] = json!(abierta.to_string());
+    p["dispute"]["resolved_at"] = json!(cerrada.to_string());
+    p
+}
+
+fn e16(v: &Value) {
+    for client in [PAYER, WORKER, OTHER] {
+        assert_eq!(
+            check(client, v),
+            Err(VerifierError::E16DisputaVencida),
+            "{v}"
+        );
+    }
+}
+
+/// Lo que `resolve_expired_dispute` le dio al receiver no es prueba (`E16`), ni lo liberado antes en ese pago; lo que
+/// decidio el arbitro en su plazo si, y la vencida a favor del payer vale por lo liberado antes.
+#[test]
+fn la_disputa_vencida_a_favor_del_receiver_es_e16() {
+    let abierta = RD - DAY;
+    let vence = abierta + VENTANA;
+    // El payer la abrio antes de release_deadline y nadie arbitro: lo vivo fue al receiver. El borde exacto
+    // (`resolved_at == opened_at + arbiter_window_ns`) es la vencida: el arbitro ya no podia (`E65`).
+    for cerrada in [vence, vence + 1, u64::MAX] {
+        e16(&resuelta("Payer", abierta, cerrada, 1_000_000, 0));
+        // Con una liberacion parcial antes (300.000 del capturer y 700.000 del plazo): el `Payment` queda igual, y
+        // aunque quedara distinto no separa una parte de la otra.
+        e16(&resuelta("Payer", abierta, cerrada, 300_000, 0));
+    }
+    // Un nanosegundo antes del borde la cerro el arbitro (la vencida daba `E64`): vale por lo que llego al receiver.
+    for (released, refunded) in [(1_000_000, 0), (500_000, 500_000)] {
+        let p = resuelta("Payer", abierta, vence - 1, released, refunded);
+        for (client, counterparty) in [(PAYER, WORKER), (WORKER, PAYER)] {
+            assert_eq!(
+                check(client, &p).map(|f| (f.counterparty, f.weight)),
+                Ok((acc(counterparty), U128(released))),
+                "{released}"
+            );
+        }
+        assert_eq!(check(OTHER, &p), Err(VerifierError::E15NoEsParte));
+    }
+    // Vencida a favor del payer: el plazo no le dio nada al receiver; vale lo que un capturer libero antes (300.000) o
+    // es E13. La abrio el receiver, o el payer en o despues de release_deadline (el borde: `opened_at ==
+    // release_deadline` ya es del payer).
+    for (quien, abierta) in [
+        ("Receiver", RD - DAY),
+        ("Receiver", RD),
+        ("Payer", RD),
+        ("Payer", RD + 1),
+        ("Payer", RD + DAY / 2),
+    ] {
+        let vence = abierta + VENTANA;
+        let p = resuelta(quien, abierta, vence, 300_000, 700_000);
+        assert_eq!(
+            check(WORKER, &p).map(|f| f.weight),
+            Ok(U128(300_000)),
+            "{quien} {abierta}"
+        );
+        assert_eq!(
+            check(PAYER, &resuelta(quien, abierta, vence, 0, 1_000_000)),
+            Err(VerifierError::E13PagoSinLiberar),
+            "{quien} {abierta}"
+        );
+    }
+    // Un nanosegundo antes de release_deadline todavia es del receiver.
+    e16(&resuelta("Payer", RD - 1, RD - 1 + VENTANA, 1_000_000, 0));
+    // El plazo es el congelado en el pago: con otro `arbiter_window_ns`, el borde se mueve con el.
+    let mut corta = resuelta("Payer", abierta, abierta + 60_000_000_000, 1_000_000, 0);
+    corta["arbiter_window_ns"] = json!("60000000000");
+    e16(&corta);
+    corta["dispute"]["resolved_at"] = json!((abierta + 59_999_999_999).to_string());
+    assert!(check(PAYER, &corta).is_ok());
+    // La suma satura como en el escrow (`disputed_until`): con `opened_at + arbiter_window_ns` por encima de u64, el
+    // plazo no vence nunca antes de u64::MAX y la cerro el arbitro.
+    let mut tarde = resuelta("Payer", u64::MAX - 1, u64::MAX - 1, 1_000_000, 0);
+    tarde["release_deadline"] = json!(u64::MAX.to_string());
+    tarde["arbiter_window_ns"] = json!("2");
+    assert!(check(PAYER, &tarde).is_ok());
+    tarde["dispute"]["resolved_at"] = json!(u64::MAX.to_string());
+    e16(&tarde);
+    // Una disputa abierta del payer antes de release_deadline todavia no vencio nada: vale lo liberado antes.
+    let mut abierta_payer = pago(PAYER, WORKER, "Disputed", 300_000);
+    abierta_payer["dispute"]["opened_at"] = json!((RD - DAY).to_string());
+    assert_eq!(check(WORKER, &abierta_payer).unwrap().weight, U128(300_000));
+}
+
+#[test]
+fn el_codigo_de_e16() {
+    assert_eq!(
+        VerifierError::E16DisputaVencida.code(),
+        "E16_DISPUTA_VENCIDA"
+    );
+    assert!(
+        VerifierError::E16DisputaVencida
+            .panic_message()
+            .starts_with("ERC8004_ARV_E16: ")
+    );
 }
 
 #[test]
@@ -338,7 +481,7 @@ fn payer_igual_a_receiver_es_e14() {
     );
 }
 
-/// El orden de las guardas: E11 (incoherente) -> E13 -> E14 -> E15.
+/// El orden de las guardas: E11 (incoherente) -> E13 -> E16 -> E14 -> E15.
 #[test]
 fn el_orden_de_las_guardas() {
     let mut incoherente_sin_liberar = pago(PAYER, PAYER, "Disputed", 0);
@@ -355,6 +498,16 @@ fn el_orden_de_las_guardas() {
         check(OTHER, &pago(PAYER, PAYER, "Released", 1)),
         Err(VerifierError::E14PayerEsReceiver)
     );
+    // La vencida a favor del receiver: despues de E13 y antes de E14 y E15.
+    let abierta = RD - DAY;
+    assert_eq!(
+        check(OTHER, &resuelta("Payer", abierta, abierta + VENTANA, 0, 0)),
+        Err(VerifierError::E13PagoSinLiberar)
+    );
+    let mut auto = resuelta("Payer", abierta, abierta + VENTANA, 1_000_000, 0);
+    auto["receiver"] = json!(PAYER);
+    assert_eq!(check(OTHER, &auto), Err(VerifierError::E16DisputaVencida));
+    assert_eq!(check(PAYER, &auto), Err(VerifierError::E16DisputaVencida));
 }
 
 #[test]

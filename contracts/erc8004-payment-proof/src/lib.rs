@@ -7,34 +7,46 @@
 //! `verify_feedback_proof(client, proof)`: `proof` es el `payment_id` canonico (base58 de 32 bytes). Llama
 //! `escrow.get_payment(proof)` y en su callback exige el espejo estricto del `Payment` (los 19 campos exactos y los 4
 //! de su `Dispute`, numeros canonicos, uno de los 7 `status`, el `status` coherente con `dispute` y
-//! `released + refunded <= amount`), `released > 0` (cualquiera sea el estado), `payer != receiver`, y que `client` sea
-//! el payer o el receiver. Devuelve la otra parte: `{"counterparty", "role" (el de la contraparte), "context":
+//! `released + refunded <= amount`), `released > 0` (cualquiera sea el estado), que no lo haya dado una disputa vencida a
+//! favor del receiver, `payer != receiver`, y que `client` sea el payer o el receiver. Devuelve la otra parte: `{"counterparty", "role" (el de la contraparte), "context":
 //! operator_id, "weight": released}`. Si algo no cumple, **entra en panico**: el Reputation Registry ve la promesa
 //! fallida (`E45`) y devuelve el deposito.
 //!
-//! **Disputas: valen, con `released > 0`.** Decidido con `contracts/escrow-v2/src/{lifecycle,dispute}.rs` en la mano:
-//! `released` solo sube (`release` suma lo liberado; resolver una disputa suma `to_receiver`; `refund`, `reclaim` y
-//! `open_dispute` no lo tocan) y cada suba acredita el `claimable` del receiver y la tarifa del fee recipient sin vuelta
-//! atras: ninguna operacion del escrow lo devuelve. Asi que `released > 0` es plata que llego al receiver en cualquier
-//! estado:
+//! **Disputas: valen por lo que liberaron el capturer o el arbitro del operador; la disputa vencida a favor del
+//! receiver no (`E16`).** Decidido con `contracts/escrow-v2/src/{lifecycle,dispute}.rs` en la mano. `released` solo
+//! sube, y por tres caminos: `release` (solo un capturer actual del operador, antes de `release_deadline`),
+//! `resolve_dispute` (solo su arbitro actual, dentro de su plazo) y `resolve_expired_dispute` (cualquiera, vencido el
+//! plazo del arbitro: lo vivo va al receiver si la disputa la abrio el payer antes de `release_deadline`, y si no al
+//! payer). `refund`, `reclaim` y `open_dispute` no lo tocan, y cada suba acredita el `claimable` del receiver sin vuelta
+//! atras. Un pago tiene a lo sumo una disputa (`open_dispute` exige un pago vivo, `Authorized` o `PartiallyReleased`, y
+//! `Resolved` es terminal). Asi:
 //!
-//! - `Disputed` con `released > 0`: lo liberado antes de abrir la disputa (un `PartiallyReleased`) ya es del receiver;
-//!   la disputa solo congela lo vivo. Vale con el `released` de ese momento (puede crecer al resolverse; el registro
-//!   acepta una calificacion por `(verificador, proof, cliente)`, asi que el cliente elige cuando calificar).
-//! - `Resolved`: `released` es lo liberado antes mas lo que la resolucion le dio al receiver, la decida el arbitro del
-//!   operador o la regla del plazo vencido (el payer abrio antes de `release_deadline` y el arbitro no contesto). Vale
-//!   si es > 0; todo devuelto al payer sin liberacion previa es `released == 0` (`E13`), como un refund.
-//! - No se excluyen: cualquiera de las dos partes puede abrir una disputa mientras el pago esta vivo, y si `Disputed` o
-//!   `Resolved` no valieran, un payer abriria una despues de una liberacion parcial para que el receiver no lo califique
-//!   nunca (y al reves). La calificacion de un trato disputado es de las que mas informan.
+//! - `Disputed` con `released > 0`: todo lo liberado lo libero un capturer antes de abrirla (la disputa solo congela lo
+//!   vivo). Vale con el `released` de ese momento (puede crecer al resolverse; el registro acepta una calificacion por
+//!   `(verificador, proof, cliente)`, asi que el cliente elige cuando calificar).
+//! - `Resolved` por el arbitro: lo liberado antes mas el `to_receiver` que el decidio. Vale si es > 0; todo devuelto al
+//!   payer sin liberacion previa es `released == 0` (`E13`), como un refund.
+//! - `Resolved` por vencimiento a favor del receiver: **no vale** (`E16`), aunque antes un capturer haya liberado una
+//!   parte, porque el `Payment` no separa lo liberado antes de lo que dio el plazo. Es el unico camino por el que
+//!   `released` sube sin nadie del operador: un payer que se paga a si mismo (dos cuentas) abre la disputa antes de
+//!   `release_deadline`, espera el plazo del arbitro y cualquiera la cierra. Con un operador sin `ticket_pubkey`, eso
+//!   seria una calificacion "con prueba de pago" con su `context` sin que el operador interviniera.
+//! - `Resolved` por vencimiento a favor del payer (la abrio el receiver, o el payer en o despues de
+//!   `release_deadline`): el plazo no le dio nada al receiver, asi que vale por lo que un capturer libero antes, o es
+//!   `E13`.
 //!
-//! **`released > 0` no implica que actuo el operador.** La disputa vencida a favor del receiver sube `released` sin el
-//! capturer ni el arbitro: un payer que se paga a si mismo (dos cuentas) abre la disputa antes de `release_deadline`,
-//! espera el plazo del arbitro y cualquiera la cierra. Le cuesta lo mismo que una liberacion (la tarifa del operador),
-//! pero no necesita al operador. Con `ticket_pubkey` en el operador (como `em` en mainnet) todo pago necesita su firma
-//! y el costo es el de v1; sin ticket, `context` solo dice en que operador se autorizo el pago. El verificador podria
-//! reconocer esa via (`resolved_at >= opened_at + arbiter_window_ns`), pero no separar lo liberado antes de lo que dio
-//! el plazo, asi que no la rechaza: rechazarla le quitaria la calificacion al worker al que el payer le trabo el pago.
+//! El escrow lo deja leer en el `Payment` ([`is_expired_to_receiver`]): las dos llamadas que cierran una disputa ponen
+//! `resolved_at = now`, el arbitro solo con `now < opened_at + arbiter_window_ns` y la vencida solo con `now >=`.
+//!
+//! **El costo, franco:** un worker al que el payer le disputo el pago antes de `release_deadline` y cuyo arbitro no
+//! contesto cobra lo vivo, pero no puede calificar con ESE pago (ni el payer a el), aunque una parte la haya liberado
+//! antes un capturer. Es el precio de que "verificado" signifique que actuaron el operador o su arbitro. Con un arbitro
+//! que contesta dentro de su plazo no hay costo.
+//!
+//! Lo demas no se excluye: cualquiera de las dos partes puede abrir una disputa mientras el pago esta vivo, y si
+//! `Disputed` o `Resolved` no valieran, un payer abriria una despues de una liberacion parcial para que el receiver no
+//! lo califique nunca (y al reves). Con `E16` ese bloqueo queda en un solo caso, el del costo: el payer la abre antes de
+//! `release_deadline` y el arbitro no contesta. La calificacion de un trato disputado es de las que mas informan.
 //!
 //! Cualquiera puede llamarlo (es una lectura con un callback); el Reputation Registry es quien ata `client` al que
 //! califica.
@@ -67,8 +79,9 @@ pub const MAX_PAYMENT_RESULT_LEN: usize = 8 * 1024;
 /// que distingue a los dos verificadores es `escrow`.
 pub const CONTRACT_KIND: &str = "erc8004-arras-verifier";
 
-/// Los codigos del verificador de v1, con el mismo prefijo `ERC8004_ARV_` (los SDK los leen de la falla). No hace falta
-/// ninguno nuevo: lo que no es exactamente un `Payment` de este escrow, o no es coherente, es `E11`.
+/// Los codigos del verificador de v1, con el mismo prefijo `ERC8004_ARV_` (los SDK los leen de la falla), y uno nuevo,
+/// `E16` (la disputa vencida a favor del receiver), que v1 no tiene porque su escrow no tiene disputas. Lo que no es
+/// exactamente un `Payment` de este escrow, o no es coherente, es `E11`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifierError {
     E01EscrowInvalido,
@@ -80,6 +93,7 @@ pub enum VerifierError {
     E13PagoSinLiberar,
     E14PayerEsReceiver,
     E15NoEsParte,
+    E16DisputaVencida,
 }
 
 impl VerifierError {
@@ -94,6 +108,7 @@ impl VerifierError {
             Self::E13PagoSinLiberar => "E13_PAGO_SIN_LIBERAR",
             Self::E14PayerEsReceiver => "E14_PAYER_ES_RECEIVER",
             Self::E15NoEsParte => "E15_NO_ES_PARTE",
+            Self::E16DisputaVencida => "E16_DISPUTA_VENCIDA",
         }
     }
 
@@ -108,6 +123,9 @@ impl VerifierError {
             Self::E13PagoSinLiberar => "el pago no libero plata (released == 0)",
             Self::E14PayerEsReceiver => "payer == receiver",
             Self::E15NoEsParte => "client no es el payer ni el receiver",
+            Self::E16DisputaVencida => {
+                "el receiver cobro por una disputa vencida, sin capturer ni arbitro: no es prueba"
+            }
         }
     }
 
@@ -299,7 +317,23 @@ pub fn is_coherent(p: &EscrowPayment) -> bool {
             .is_some_and(|s| s <= p.amount)
 }
 
-/// Lo que el callback verifico, o el error.
+/// La disputa se cerro por `resolve_expired_dispute` y le dio lo vivo al receiver: la abrio el payer antes de
+/// `release_deadline` (`dispute.rs`: con `opened_at >= release_deadline` lo vivo vuelve al payer) y `resolved_at` no es
+/// anterior a `opened_at + arbiter_window_ns`. El escrow pone `resolved_at = now` al cerrarla; `resolve_dispute` (el
+/// arbitro) solo cierra con `now < opened_at + arbiter_window_ns` y `resolve_expired_dispute` solo con `now >=`, con la
+/// misma suma saturada (`disputed_until`) y el `arbiter_window_ns` congelado en el pago: la igualdad es la vencida. Una
+/// disputa abierta (`resolved_at: null`) no entra.
+pub fn is_expired_to_receiver(p: &EscrowPayment) -> bool {
+    p.dispute.as_ref().is_some_and(|d| {
+        d.opened_by == EscrowParty::Payer
+            && d.opened_at < p.release_deadline
+            && d.resolved_at
+                .is_some_and(|t| t >= d.opened_at.saturating_add(p.arbiter_window_ns))
+    })
+}
+
+/// Lo que el callback verifico, o el error. Las guardas en orden: `E11` (no es el espejo, o incoherente) -> `E13` ->
+/// `E16` -> `E14` -> `E15`.
 pub fn check_payment(
     client: &AccountId,
     result: Result<Vec<u8>, PromiseError>,
@@ -317,6 +351,9 @@ pub fn check_payment(
     }
     if pay.released == 0 {
         return Err(VerifierError::E13PagoSinLiberar);
+    }
+    if is_expired_to_receiver(&pay) {
+        return Err(VerifierError::E16DisputaVencida);
     }
     if pay.payer == pay.receiver {
         return Err(VerifierError::E14PayerEsReceiver);

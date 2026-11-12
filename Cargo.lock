@@ -1134,6 +1134,7 @@ dependencies = [
  "arras-escrow-core",
  "arras-escrow-v2",
  "erc8004-common",
+ "near-contract-standards",
  "near-sdk",
  "near-workspaces",
  "proptest",
