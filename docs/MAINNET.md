@@ -645,9 +645,10 @@ it. Execution Market and the facilitator did not change (8.9).
    fit, the capturer is changed with `update_operator` (8.7).
 3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
    `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
-   or the owner's `update_operator` without the ticket (8.1). While `payment-proof.arras-escrow.near` (section 9) is
-   how these payments are rated, removing the ticket also lets any account build a proof with `context` `em` without
-   Execution Market, through an expired dispute (9.2): keep the ticket, or decide that knowingly.
+   or the owner's `update_operator` without the ticket (8.1). Removing the ticket does not let anyone rate these
+   payments without Execution Market: `payment-proof.arras-escrow.near` (section 9) does not count the one path that
+   releases money with neither its capturer nor its arbiter, a dispute that expired in the receiver's favour (9.2,
+   `E16`).
 
 ## 9. The payment-proof verifier (ERC-8004): the plan
 
@@ -656,8 +657,9 @@ that lets a task paid through the Arras escrow contract at `v2.arras-escrow.near
 as the proof. The Reputation Registry takes the verifier as a parameter of `give_feedback_with_proof`, so
 nothing changes in `reputation-registry.erc-8004.near`, and `erc8004-verifier.arras-escrow.near` keeps verifying the
 payments of `v1.arras-escrow.near`. The interface is the same: `verify_feedback_proof({"client", "proof": <payment_id>})`
-returns `{"counterparty", "role", "context", "weight"}` or fails with the same `ERC8004_ARV_*` codes, and `get_config`
-has the same fields (`"contract": "erc8004-arras-verifier"` is the name of that interface; `"escrow"` tells the two
+returns `{"counterparty", "role", "context", "weight"}` or fails with the same `ERC8004_ARV_*` codes plus one,
+`ERC8004_ARV_E16` (9.2), which the other verifier does not need because its escrow has no disputes; `get_config` has
+the same fields (`"contract": "erc8004-arras-verifier"` is the name of that interface; `"escrow"` tells the two
 verifiers apart).
 
 ### 9.1 What goes on chain
@@ -665,7 +667,7 @@ verifiers apart).
 | Fact | Value |
 |---|---|
 | Crate | `contracts/erc8004-payment-proof` (immutable: private `new` in the deploy transaction, no `migrate`, no owner, no state but the escrow) |
-| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). The code of the PR, built twice from two clean clones of each commit on 2026-11-11: `6e3d030`, sha256 `4e2e20d7310f273f88c69fd3730a3995e72cb825ecd9b0ab6ad0d2d1cf82ed07`; `495c3af` (the last commit that changes the crate's source, only its doc comments), sha256 `f9a6fec0d16367ca16110fcd37bd084eeb95c78a2d190655984bf688a9082513`; 125,139 bytes each, both clones identical |
+| Wasm | reproducible build of the merge commit of its PR (NEP-330 embeds the commit, so the merge gives its own sha256). The code of the PR, built twice from two clean clones of `3b4191e` (the last commit that changes the crate) on 2026-11-12: sha256 `e746a335a157452e3d407b7fee2cc7f49f4506b1a2941b77fe1cbb42e7c0aaf0`, 125,345 bytes, both clones identical |
 | Build | `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...`, the same image as every other crate here |
 | Account | `payment-proof.arras-escrow.near`, a new child of `arras-escrow.near` (parent key in SSM `/arras/mainnet/padre`). c0der read on 2026-11-11 (block 224120662) that it does not exist yet |
 | `new` | `{"escrow": "v2.arras-escrow.near"}` |
@@ -678,27 +680,44 @@ The verifier reads `get_payment(proof)` and fails closed unless the answer is ex
 empty, no repeated key), canonical integers, 64-character lowercase hex hashes, one of the 7 statuses, the status
 consistent with `dispute` (an open dispute only in `Disputed`, a resolved one only in `Resolved`, none otherwise) and
 `released + refunded <= amount`. Then, as for the other verifier: `released > 0` in any status, `payer != receiver`,
-and the rater is the payer or the receiver. `weight` is `released`, before the fee (as in the other verifier); `context`
-is the `operator_id`.
+and the rater is the payer or the receiver; and, new here, the money was not released by a dispute that expired in the
+receiver's favour (`E16`). The order is `E11` (not exactly a `Payment`, or inconsistent), `E13`, `E16`, `E14`,
+`E15`. `weight` is `released`, before the fee (as in the other verifier); `context` is the `operator_id`.
 
-**Disputes count, for what was released.** `released` only grows (a release adds what it releases, the resolution of a
-dispute adds `to_receiver`; refund, reclaim and opening a dispute do not touch it) and each increase is credited to the
-receiver (and the fee to the fee recipient) for good. So a `Disputed` payment counts for what was released before the
-dispute was opened, and a `Resolved` one for what reached the receiver in total, whether the arbiter decided it or the
-expired-dispute rule did. A dispute that returned everything to the payer, with nothing released before, is
-`released == 0` and fails (`E13`), like a refund. Disputed payments are not excluded: either party can open a dispute
-while the payment is live, and excluding them would let one party stop the other from ever rating it.
+**Disputes count for what the operator released; an expired dispute in the receiver's favour does not (`E16`).**
+`released` only grows, through three calls: `release` (only a current capturer of the operator, before
+`release_deadline`), `resolve_dispute` (only its current arbiter, within the arbiter's window) and
+`resolve_expired_dispute` (anyone, once the window is over: what is still in escrow goes to the receiver if the payer
+opened the dispute before `release_deadline`, and back to the payer otherwise). Refund, reclaim and opening a dispute
+do not touch it, each increase is credited to the receiver (and the fee to the fee recipient) for good, and a payment
+has at most one dispute (it can only be opened on a live payment, and `Resolved` is final). So:
 
-**`released > 0` does not mean the operator acted.** An expired dispute in favour of the receiver raises `released`
-with neither the capturer nor the arbiter: someone paying their own second account opens a dispute before
-`release_deadline`, waits out the arbiter's window, and anyone closes it. It costs what a release costs (the
-operator's fee), but it needs no one at the operator. With a `ticket_pubkey` on the operator, as `em` has on mainnet
-(8.1), every payment needs the operator's signature and a proof costs what it costs with `v1.arras-escrow.near`;
-without a ticket, `context` only says under which operator the payment was authorized. The verifier could recognize
-that path (`resolved_at >= opened_at + arbiter_window_ns`) but not separate what was released before from what the
-expiry gave, so it does not refuse it: refusing it would take the rating away from the worker whose payment the payer
-blocked. Two operating rules follow: `em` keeps its ticket while this verifier rates its payments (8.9, point 3), and
-its arbiter answers every dispute within its window.
+- a `Disputed` payment counts for what a capturer released before the dispute was opened;
+- a `Resolved` one that the arbiter settled counts for what reached the receiver in total;
+- a `Resolved` one whose dispute expired in the receiver's favour fails with `E16`, even for what a capturer had
+  released before, because the `Payment` does not tell the two apart. It is the only path that releases money with no
+  one at the operator acting: someone paying their own second account opens a dispute before `release_deadline`,
+  waits out the window, and anyone closes it;
+- a `Resolved` one whose dispute expired in the payer's favour (the receiver opened it, or the payer did at or after
+  `release_deadline`) counts for what a capturer released before, or fails with `E13`.
+
+A dispute that returned everything to the payer, with nothing released before, is `released == 0` and fails (`E13`),
+like a refund. The verifier reads the expiry off the `Payment`: both calls that close a dispute set `resolved_at` to
+the block time, the arbiter only while it is below `opened_at + arbiter_window_ns` (the window frozen in the payment,
+with the escrow's saturating sum) and the expiry only from there on. So `resolved_at >= opened_at + arbiter_window_ns`,
+with `opened_by` `Payer` and `opened_at < release_deadline`, is exactly the expiry that paid the receiver, the equality
+included. The unit tests run the escrow's own code on both sides of that edge, one nanosecond apart, and WP-03 runs the
+built escrow in the sandbox.
+
+**The cost, plainly.** A worker whose payer disputed the payment before `release_deadline`, and whose arbiter did not
+answer within its window, gets paid but cannot rate with that payment, and neither can the payer, even if a capturer
+had released part of it before. That is the price of "verified" meaning that the operator or its arbiter acted; with
+an arbiter that answers within its window, there is no cost. Disputed payments are not excluded otherwise: either
+party can open a dispute while the payment is live, and excluding them would let one party stop the other from ever
+rating it.
+
+So a proof with `context` `em` needs Execution Market's capturer or arbiter to have released the money, with or
+without the operator's `ticket_pubkey` (8.1): the ticket is not a precondition of this verifier.
 
 How long a payment can serve as proof: until anyone compacts it, 7 days after `reclaim_after` (or after the dispute's
 resolution, if later). A rating already given stays: the Reputation Registry keeps the proof it verified.
@@ -716,6 +735,11 @@ near account view-account-summary v2.arras-escrow.near network-config mainnet no
 #       (the pin of 8.1; base58 2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e) and no access keys; anything else: stop
 near account view-account-summary payment-proof.arras-escrow.near network-config mainnet now
 #    -> the account does not exist (if it does, stop: the name is taken)
+near contract call-function as-read-only v2.arras-escrow.near get_operator json-args '{"operator_id":"em"}' \
+  network-config mainnet now
+#    -> write down in the deploy log its "ticket_pubkey" (ed25519:9zh27mQwBQbKGYixfqUVEU4xNtz93Sad8crhhFH4B9YF in 8.8,
+#       or null if the owner removed it), "arbiter" and "arbiter_window_ns". Not a precondition: with or without the
+#       ticket, the verifier does not count a dispute that expired in the receiver's favour (9.2).
 
 # 1. Reproducible wasm (NEP-330), TWICE from TWO clean clones of the merge commit, WITHOUT CARGO_TARGET_DIR
 #    (cargo-near 0.22.0 deletes the artifact when it is set). Docker, with the image of the crate's Cargo.toml.
@@ -731,7 +755,7 @@ done
 shasum -a 256 "$HOME"/arras-build/payment-proof-"$REV"-{1,2}/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm
 W="$HOME/arras-build/payment-proof-$REV-1/target/near/erc8004_payment_proof/erc8004_payment_proof.wasm"
 wc -c < "$W"
-#    -> the same sha256 twice (otherwise stop); it is the code hash of step 4. The size should be close to 125,139
+#    -> the same sha256 twice (otherwise stop); it is the code hash of step 4. The size should be close to 125,345
 #       bytes; up to 134,249 bytes fit in the funding of 9.4.
 
 # 2. The parent pays the account (9.4) plus ~0.01 NEAR of gas.
@@ -781,6 +805,8 @@ near contract call-function as-transaction payment-proof.arras-escrow.near verif
   prepaid-gas '50.0 Tgas' attached-deposit '0 NEAR' sign-as payment-proof.arras-escrow.near \
   network-config mainnet sign-with-legacy-keychain send
 #    -> fails with ERC8004_ARV_E13: the Resolved payment whose dispute returned everything to the payer
+#    No payment on mainnet exercises E16 (none had a dispute expire in the receiver's favour): the unit tests against
+#    the escrow's code and WP-03 in the sandbox do.
 #    If either answer differs, the key stays and nothing is deleted. A first payment of the real cycle (an agent
 #    rated with `give_feedback_with_proof` and this verifier) is the golden flow of the consumers (9.5); a rating is
 #    permanent, so it is not part of this smoke.
@@ -805,13 +831,13 @@ funding account (README, "Arras v2 on testnet").
 
 Measured in the sandbox (WP-07, the wasm of `compile_project`): the account without keys holds the wasm plus 164
 bytes of account and state, with the sandbox's escrow `arras.test.near` (15 characters); with `v2.arras-escrow.near`
-(20) it is 169. With the reproducible wasm of `6e3d030` (125,139 bytes) that is 125,308 bytes, 1.25308 NEAR, and the
+(20) it is 169. With the reproducible wasm of `3b4191e` (125,345 bytes) that is 125,514 bytes, 1.25514 NEAR, and the
 funding is that plus 0.1 NEAR, rounded up to the tenth, as for the other verifier: **1.4 NEAR**, from the parent.
 
 The 0.1 covers the key while it is on (82 bytes), the gas burnt by the deploy (~0.003 NEAR), by the two smoke calls
 (~0.0005 each: 5.5 TGas measured per `verify_feedback_proof`) and by `delete-keys`, and the up-front reserve of each
 50 TGas smoke call (~0.052 NEAR, 8.3; it comes back), which has to fit in what is left free: about 0.14 NEAR with the
-wasm of `6e3d030`. That bounds the wasm at (1.4 - 0.003 - 0.052) x 100,000 - 169 - 82 = **134,249 bytes**; above
+wasm of `3b4191e`. That bounds the wasm at (1.4 - 0.003 - 0.052) x 100,000 - 169 - 82 = **134,249 bytes**; above
 that, the funding goes up by a tenth. Creating the account costs the parent ~0.0071 more (section 3). What stays: the
 storage, for good (the account has no keys). The verifier needs nothing else: it holds no state per call and takes
 no deposit.
@@ -825,10 +851,16 @@ no deposit.
   replace their single verifier and escrow per network with that map first; Execution Market moves its escrow to
   `v2.arras-escrow.near` after them, and keeps rating the `v1.arras-escrow.near` payments still within their window
   with the other verifier. The exact lines of each consumer are in this PR's description.
+- **One new failure code, `ERC8004_ARV_E16`** (9.2): a dispute that expired in the receiver's favour. Through
+  `give_feedback_with_proof` it is one more failed proof (the registry logs its `E45` rejection and returns the
+  deposit); a direct `verify_feedback_proof` transaction fails with it. The Python SDK lists the codes it knows
+  (`ARV_E01..E15`) and treats any other as an unrecognized failure, so it adds `E16`; the TypeScript SDK accepts any
+  two-digit code. The lines are in this PR's description.
 - **Trust a verifier by its account, never by its `get_config`.** `contract` is `erc8004-arras-verifier` in both (the
-  name of the interface: the same fields and the same `ERC8004_ARV_*` codes), so the checks the SDKs make on that
-  field accept the new one unchanged; but anyone can deploy a contract that answers the same `get_config`. What makes
-  a verifier trustworthy is the account in the consumer's map, keyless, with the code hash of 9.3.
+  name of the interface: the same fields and the same `ERC8004_ARV_*` codes, plus `E16` here), so the checks the SDKs
+  make on that field accept the new one unchanged; but anyone can deploy a contract that answers the same
+  `get_config`. What makes a verifier trustworthy is the account in the consumer's map, keyless, with the code hash of
+  9.3.
 - **Reading reputation.** `get_verified_summary` and `list_verified_feedback` take one verifier: a view of an agent
   adds the two (with the same client filter and `context`) or shows them apart.
 - **Who rates a budget payment.** With `authorize_from_budget` the payer is the budget's owner, not the agent that signs
