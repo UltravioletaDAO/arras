@@ -712,9 +712,10 @@ built escrow in the sandbox.
 **The cost, plainly.** A worker whose payer disputed the payment before `release_deadline`, and whose arbiter did not
 answer within its window, gets paid but cannot rate with that payment, and neither can the payer, even if a capturer
 had released part of it before. That is the price of "verified" meaning that the operator or its arbiter acted; with
-an arbiter that answers within its window, there is no cost. Disputed payments are not excluded otherwise: either
-party can open a dispute while the payment is live, and excluding them would let one party stop the other from ever
-rating it.
+an arbiter that answers within its window, there is no cost. While the arbiter does not answer, a payer can use it to
+keep a worker from rating them, at the price of the whole payment going to that worker. Disputed payments are not
+excluded otherwise: either party can open a dispute while the payment is live, and excluding them would let one party
+stop the other from ever rating it.
 
 So a proof with `context` `em` needs Execution Market's capturer or arbiter to have released the money, with or
 without the operator's `ticket_pubkey` (8.1): the ticket is not a precondition of this verifier.
