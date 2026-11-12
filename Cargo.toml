@@ -7,6 +7,8 @@ resolver = "3"
 # contracts/erc8004-*: el port fiel de ERC-8004 a NEAR (docs/plans/erc8004-near-port.md), en crates nuevos: common (sin
 # estado), identity, reputation, arras-verifier y validation (BORRADOR, no se despliega todavia).
 # contracts/test-nft-receiver: receptor de NFT de mentira, solo para el sandbox del Identity Registry.
+# contracts/erc8004-payment-proof: el verificador de pruebas de feedback para los pagos del escrow con disputa
+# (contracts/escrow-v2), en un crate nuevo: el de v1 (erc8004-arras-verifier) queda como esta.
 members = [
     "contracts/escrow-core",
     "contracts/escrow-v1",
@@ -20,6 +22,7 @@ members = [
     "contracts/erc8004-arras-verifier",
     "contracts/erc8004-validation",
     "contracts/test-nft-receiver",
+    "contracts/erc8004-payment-proof",
 ]
 
 [workspace.lints.rust.unexpected_cfgs]
