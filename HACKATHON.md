@@ -39,7 +39,10 @@ facilitator's NEAR `escrow` scheme into Arras ([x402-rs#134](https://github.com/
 2026-11-01, and [#137](https://github.com/UltravioletaDAO/x402-rs/pull/137), merged 2026-11-03), the SDKs' Arras
 escrow signing (from uvd-x402-sdk 0.104.0 for Python and 2.108.0 for TypeScript, both uploaded 2026-11-03 UTC; for
 `v1.arras-escrow.near` on mainnet from 0.106.0 and 2.110.0) and their ERC-8004 helpers (from 0.108.0 and 2.112.0),
-Execution Market's NEAR integration, and KarmaKadabra's NEAR rail. Their use of the contracts can be seen on chain.
+the facilitator's support for `v2.arras-escrow.near` (x402-rs 2.57.2, live on 2026-11-13), the SDK releases Execution
+Market runs on `v2.arras-escrow.near` and `payment-proof.arras-escrow.near` (0.114.0 for Python, 2.116.0 for
+TypeScript), Execution Market's NEAR integration, and KarmaKadabra's NEAR rail. Their use of the contracts can be seen
+on chain.
 
 ## The Arras escrow contract
 
@@ -50,9 +53,12 @@ the receiver can open a dispute that the operator's arbiter settles on chain; an
 ticket on every payment. Each deployment is immutable and keyless, so a new feature ships in a new account:
 
 - `v1.arras-escrow.near` (2026-11-03, commit `8da7174`): the first deployment, with lock, release, refund, reclaim,
-  withdraw and compact. On 2026-11-11, Execution Market and the x402-rs facilitator pay through it.
-- `v2.arras-escrow.near` (2026-11-08, commit `ddc5121`): every feature, budgets, disputes and tickets included. On
-  2026-11-11 its only payments are its own smoke test (below).
+  withdraw and compact. Execution Market paid through it from 2026-11-03 until 2026-11-13; the x402-rs facilitator
+  still serves it.
+- `v2.arras-escrow.near` (2026-11-08, commit `ddc5121`): every feature, budgets, disputes and tickets included. Since
+  2026-11-13 Execution Market pays its NEAR tasks through it and the facilitator serves it; until then its only
+  payments were its own smoke test (below). Its payments back ERC-8004 ratings through `payment-proof.arras-escrow.near`
+  (2026-11-13, commit `40eba87`).
 
 How it works, in full: README, "The Arras escrow contract".
 
@@ -101,6 +107,7 @@ transaction and left without access keys. All transactions, with explorer links:
 | `reputation-registry.erc-8004.near` (ERC-8004 Reputation) | `f18e25c` | `dfe715d087517617811c1155bba9c8b6e71b23cbe63481b5afbf484bcbabd56e` | 2026-11-04 21:48:05Z; keys deleted 21:49:53Z |
 | `erc8004-verifier.arras-escrow.near` (Arras proof verifier) | `f18e25c` | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba` | 2026-11-04 21:48:16Z; keys deleted 21:50:01Z |
 | `v2.arras-escrow.near` (the Arras escrow, every feature) | `ddc5121` | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77` | 2026-11-08 02:20:36Z; keys deleted 02:21:28Z |
+| `payment-proof.arras-escrow.near` (Arras proof verifier for the payments of `v2.arras-escrow.near`) | `40eba87` (the merge of arras#15) | `ea430d5fbb3bbe3b59adf5c2cd7010e00f295e6be5a37eee935c560c5431e5a0` | 2026-11-13 (deploy + private `new`: [`8MpL3idD...`](https://nearblocks.io/txns/8MpL3idDcMS9BaKTTnpbEHVGHBQKyyxg3hvu4TU93nyN)); no access keys |
 
 `v2.arras-escrow.near` is on mainnet since 2026-11-08: `scripts/mainnet-v2.sh` deployed it
 ([`FdPJxM9k...`](https://nearblocks.io/txns/FdPJxM9kKsPiXeYBkqZnqTqqHKSkUBM2pM1hUg4uQQ1m)), deleted all its keys
@@ -109,9 +116,10 @@ test, the security track, with Circle's USDC: the human (the project's funding a
 an agent with the operator's ticket; the agent, holding only a function-call key for `authorize_from_budget`, paid
 0.05 to a worker and the capturer released it (0.0435 to the worker, 0.0065 to the fee recipient); a second 0.05
 payment, disputed by the human, went back whole through the arbiter. The agent and the worker are test accounts of the
-smoke test, and `get_config` counted 2 payments at its end, both the smoke's. On 2026-11-11, Execution Market and the
-facilitator pay through `v1.arras-escrow.near` only. Transactions: EVIDENCE.md, section 6; the run: docs/MAINNET.md,
-section 8.8.
+smoke test, and `get_config` counted 2 payments at its end, both the smoke's. Transactions: EVIDENCE.md, section 6;
+the run: docs/MAINNET.md, section 8.8. Execution Market and the facilitator moved to it on 2026-11-13, after
+`payment-proof.arras-escrow.near` was deployed (the table below; EVIDENCE.md, section 8; docs/MAINNET.md, sections 8.9
+and 9.6).
 
 Used by the production deployments of Execution Market and of the x402-rs facilitator during the hackathon (their code
 lives in their own repositories):
@@ -124,11 +132,16 @@ lives in their own repositories):
 | 2026-11-06 01:42Z to 01:47Z | a new worker's identity registered and transferred by Execution Market's sponsor account, `em-identity.near` | EVIDENCE.md, section 5 |
 | 2026-11-10 07:54Z | the first payment between two KarmaKadabra agents through the Arras escrow, in `v1.arras-escrow.near` (0.01 USDC; payment `F8hZ6Um9Ub7drzfodhsKubFXbvvyhgKqrBJFFn8K6maM`) | [`3RWqDjMx...`](https://nearblocks.io/txns/3RWqDjMxXKDw1kxMCdNnKg2DH2E3WjCL4GveiNY7UVQV) |
 | 2026-11-11 03:03Z to 16:05Z | 6 agent-to-agent tasks of the KarmaKadabra swarm through Execution Market: each with a lock in `v1.arras-escrow.near`, a release, and a proof-backed ERC-8004 rating in each direction (24 transactions) | EVIDENCE.md, section 7 |
+| 2026-11-13, from about 03:58Z | the x402-rs facilitator, version 2.57.2, lists `v1.arras-escrow.near` and `v2.arras-escrow.near` in its `/supported` | EVIDENCE.md, section 8 |
+| 2026-11-13 04:00:34Z | the owner removes operator `em`'s ticket key in `v2.arras-escrow.near` (`update_operator`), so Execution Market's payments there need no ticket | [`7UQvpqRS...`](https://nearblocks.io/txns/7UQvpqRSyUScR94x1vztQznVdLAMG2x7WzyvgK2ko2bK) |
+| 2026-11-13 | Execution Market's full cycle on `v2.arras-escrow.near` between the team's test accounts: task `a219f4db`, 0.10 USDC locked and released (payment `2oxnrLfuZH95KJhcn9sSqjK4hE3BjpJHgB2upwYF7gs6`), and two ratings with the payment as proof through `payment-proof.arras-escrow.near`. From that day on, Execution Market pays its NEAR tasks through `v2.arras-escrow.near` | EVIDENCE.md, section 8 |
+| 2026-11-13 10:49Z to 11:05Z | 2 agent-to-agent tasks of the KarmaKadabra swarm through `v2.arras-escrow.near`, 0.01 USDC each, each with a rating in each direction through `payment-proof.arras-escrow.near` | EVIDENCE.md, section 8 |
 
-On 2026-11-11 every mainnet payment is the team's own. Through `v1.arras-escrow.near` there are 20 (`get_config`): 13
-end-to-end tests of Execution Market, one test agent paying the team's test workers (0.10 USDC each, 2026-11-03 to
-11-06), and 7 payments between KarmaKadabra agents (0.01 USDC each, 2026-11-10 and 11-11). The 2 payments through
-`v2.arras-escrow.near` (0.05 USDC each) are its smoke test above.
+Every mainnet payment is the team's own. Through `v1.arras-escrow.near` there were 20 on 2026-11-11 (`get_config`):
+13 end-to-end tests of Execution Market, one test agent paying the team's test workers (0.10 USDC each, 2026-11-03 to
+11-06), and 7 payments between KarmaKadabra agents (0.01 USDC each, 2026-11-10 and 11-11). Through
+`v2.arras-escrow.near`: the 2 of its smoke test above (0.05 USDC each, 2026-11-08), and on 2026-11-13 Execution
+Market's full cycle between the team's test accounts (0.10 USDC) and the swarm's 2 tasks (0.01 USDC each).
 
 ## License
 
