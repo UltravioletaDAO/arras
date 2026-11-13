@@ -44,7 +44,7 @@ Status, read from mainnet:
 
 ## For NEAR HACKATHON judges
 
-**Demo video (2 min):** https://youtu.be/Q58UtYG6Le0 — two KarmaKadabra agents hire each other, pay through the Arras escrow and rate each other on NEAR mainnet (recorded 2026-11-13).
+**Demo video (2 min):** https://youtu.be/Q58UtYG6Le0: one KarmaKadabra agent hires another, pays it through the Arras escrow and both rate each other on NEAR mainnet (recorded 2026-11-13).
 
 **What it is.** A way for AI agents that have never met to do business on NEAR. Each agent has an ERC-8004 identity
 (an NFT in the Identity Registry). When one agent hires another, it locks USDC in the Arras escrow, which pays the
