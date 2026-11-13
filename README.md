@@ -30,10 +30,12 @@ Status, read from mainnet:
   `payment-proof.arras-escrow.near`, deployed that day, checks them as proofs of ratings. Those of that day documented
   here are the team's: Execution Market's full cycle between the team's test accounts (task `a219f4db`, 0.10 USDC, two
   ratings with the payment as proof) and 2 tasks between agents of KarmaKadabra, Ultravioleta DAO's own agent swarm
-  (0.01 USDC each, each with a rating in each direction). On 2026-11-11, `v2.arras-escrow.near`'s only payments were
-  the 2 of its own smoke test (2026-11-08).
-- `v1.arras-escrow.near` held 20 payments on 2026-11-11 (`get_config`). 13 are the team's end-to-end tests of
-  Execution Market (2026-11-03 to 11-06). The other 7 are payments between agents of the swarm (2026-11-10 and 11-11).
+  (0.01 USDC each, each with a rating in each direction). On 2026-11-13 `v2.arras-escrow.near` held 6 payments
+  (`get_config`), among them these 3 and the 2 of its own smoke test (2026-11-08), which were its only payments on
+  2026-11-11.
+- `v1.arras-escrow.near` held 20 payments on 2026-11-13 (`get_config`), the same total as on 2026-11-11, when 13 were
+  the team's end-to-end tests of Execution Market (2026-11-03 to 11-06) and the other 7 payments between agents of the
+  swarm (2026-11-10 and 11-11).
 - On 2026-11-11 the Identity Registry had 10 agents and the Reputation Registry 16 ratings, every one of them with an
   Arras payment as proof. The ratings of 2026-11-13 above came after them.
 - Every payer and worker so far is one of the team's own accounts or agents: there are no outside customers yet.
@@ -54,11 +56,12 @@ agents hire humans and other agents for tasks, runs this in production for NEAR 
   through `v1.arras-escrow.near` (24 transactions), and on 2026-11-13 2 more through `v2.arras-escrow.near`, rated with
   `payment-proof.arras-escrow.near` as the verifier:
   [Agents hiring agents](#agents-hiring-agents-the-karmakadabra-swarm-on-near-mainnet).
-- **Who paid:** every payment is the team's own. Through `v1.arras-escrow.near`, 20 on 2026-11-11: 13 end-to-end
-  tests with a test agent and test workers (0.10 USDC each), and 7 swarm agents paying swarm agents (0.01 USDC each).
-  Through `v2.arras-escrow.near`: the 2 of the team's smoke test of that deployment (2026-11-08, 0.05 USDC each), and on
-  2026-11-13 Execution Market's full cycle between the team's test accounts (0.10 USDC) and the swarm's 2 tasks (0.01
-  USDC each).
+- **Who paid:** every payment is the team's own (as of 2026-11-13). Through `v1.arras-escrow.near`, 20 on 2026-11-13
+  (`get_config`), the same total as on 2026-11-11, when they were 13 end-to-end tests with a test agent and test
+  workers (0.10 USDC each) and 7 swarm agents paying swarm agents (0.01 USDC each). Through `v2.arras-escrow.near`, 6 on
+  2026-11-13 (`get_config`), among them the 2 of the team's smoke test of that deployment (2026-11-08, 0.05 USDC each),
+  and of 2026-11-13 Execution Market's full cycle between the team's test accounts (0.10 USDC) and the swarm's 2 tasks
+  (0.01 USDC each).
 
 **The problem.** Over x402 on NEAR, an agent could only pay up front (`exact`): nothing held the money until the work
 was checked, and nothing tied a rating to a real deal, so reputation was free to fake. With Arras the payer's own
@@ -563,8 +566,8 @@ and then refunded) between the rater and that account, and only while `get_payme
 payment can back no new rating, and the ratings already given keep their proof. Since 2026-11-13,
 `payment-proof.arras-escrow.near` answers the same way for the payments of `v2.arras-escrow.near`, where a payment can
 be disputed: it also refuses one whose dispute expired in the receiver's favour (`ERC8004_ARV_E16`). A rating names the
-verifier of the escrow that holds its payment; the other verifier answers that there is no such payment, and the
-registry refuses the rating and returns the deposit. The registry keeps no list of verifiers: a reader filters ratings
+verifier of the escrow that holds its payment; the other verifier looks the id up in its own escrow and finds no such
+payment, and the registry refuses the rating and returns the deposit. The registry keeps no list of verifiers: a reader filters ratings
 by the verifier it trusts, just as ERC-8004 readers filter by client.
 
 The extension sits behind the cargo feature `feedback-proofs`

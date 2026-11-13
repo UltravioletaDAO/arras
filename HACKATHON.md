@@ -137,11 +137,12 @@ lives in their own repositories):
 | 2026-11-13 | Execution Market's full cycle on `v2.arras-escrow.near` between the team's test accounts: task `a219f4db`, 0.10 USDC locked and released (payment `2oxnrLfuZH95KJhcn9sSqjK4hE3BjpJHgB2upwYF7gs6`), and two ratings with the payment as proof through `payment-proof.arras-escrow.near`. From that day on, Execution Market pays its NEAR tasks through `v2.arras-escrow.near` | EVIDENCE.md, section 8 |
 | 2026-11-13 10:49Z to 11:05Z | 2 agent-to-agent tasks of the KarmaKadabra swarm through `v2.arras-escrow.near`, 0.01 USDC each, each with a rating in each direction through `payment-proof.arras-escrow.near` | EVIDENCE.md, section 8 |
 
-Every mainnet payment is the team's own. Through `v1.arras-escrow.near` there were 20 on 2026-11-11 (`get_config`):
-13 end-to-end tests of Execution Market, one test agent paying the team's test workers (0.10 USDC each, 2026-11-03 to
-11-06), and 7 payments between KarmaKadabra agents (0.01 USDC each, 2026-11-10 and 11-11). Through
-`v2.arras-escrow.near`: the 2 of its smoke test above (0.05 USDC each, 2026-11-08), and on 2026-11-13 Execution
-Market's full cycle between the team's test accounts (0.10 USDC) and the swarm's 2 tasks (0.01 USDC each).
+Every mainnet payment is the team's own (as of 2026-11-13). Through `v1.arras-escrow.near` there were 20 on 2026-11-13
+(`get_config`), the same total as on 2026-11-11, when they were 13 end-to-end tests of Execution Market, one test agent
+paying the team's test workers (0.10 USDC each, 2026-11-03 to 11-06), and 7 payments between KarmaKadabra agents (0.01
+USDC each, 2026-11-10 and 11-11). Through `v2.arras-escrow.near` there were 6 on 2026-11-13 (`get_config`), among them
+the 2 of its smoke test above (0.05 USDC each, 2026-11-08), and of 2026-11-13 Execution Market's full cycle between the
+team's test accounts (0.10 USDC) and the swarm's 2 tasks (0.01 USDC each).
 
 ## License
 
