@@ -1,14 +1,14 @@
 # Arras on NEAR mainnet: the runbooks of v1 (H-3) and v2 (H-11)
 
-This file holds the runbooks of the two escrow contracts and, in section 9, the deploy plan of the payment-proof
-verifier that lets a payment of the Arras escrow contract at `v2.arras-escrow.near` serve as the proof of an ERC-8004
-rating:
+This file holds the runbooks of the two escrow contracts and, in section 9, the deploy plan and the mainnet run of the
+payment-proof verifier that lets a payment of the Arras escrow contract at `v2.arras-escrow.near` serve as the proof of
+an ERC-8004 rating:
 
 | Sections | Runbook | Script | On mainnet |
 |---|---|---|---|
 | [1](#1-what-goes-on-chain) to [7](#7-the-mainnet-run-2026-11-03) | Arras v1 (H-3) | `scripts/mainnet.sh` | `v1.arras-escrow.near`, deployed 2026-11-03 (section 7) |
 | [8](#8-arras-v2-on-mainnet-the-runbook-h-11) (8.1 to 8.9) | Arras v2 (H-11) | `scripts/mainnet-v2.sh` | `v2.arras-escrow.near`, rehearsed on testnet and deployed 2026-11-08 (8.8) |
-| [9](#9-the-payment-proof-verifier-erc-8004-the-plan) (9.1 to 9.5) | the payment-proof verifier | the commands of 9.3 | `payment-proof.arras-escrow.near`, **not deployed** (c0der applies it) |
+| [9](#9-the-payment-proof-verifier-erc-8004-the-plan) (9.1 to 9.6) | the payment-proof verifier | the commands of 9.3 | `payment-proof.arras-escrow.near`, deployed 2026-11-13 (9.6) |
 
 v1's status: **deployed on 2026-11-03** (02:30:11Z to 02:32:30Z by the script's clock; block times 02:30:39Z to
 02:32:19Z), with the one command of section 4, after the testnet rehearsals of section 6. `v1.arras-escrow.near` has
@@ -630,9 +630,13 @@ it. Execution Market and the facilitator did not change (8.9).
 
 ### 8.9 Order with the facilitator and Execution Market
 
+Status: **all three steps done**, the last two on 2026-11-13, after `payment-proof.arras-escrow.near` was deployed
+(9.6). Since then Execution Market pays its NEAR tasks through `v2.arras-escrow.near`
+([EVIDENCE.md](EVIDENCE.md), section 8).
+
 1. **H-11 (this):** v2 deployed, keyless, verified, and the smoke run directly with near-cli. The facilitator is not
-   needed for any of it. Done on 2026-11-08 (8.8); the facilitator's `NEAR_ESCROW_CONTRACTS_MAINNET` still lists v1
-   only, and Execution Market still uses v1.
+   needed for any of it. Done on 2026-11-08 (8.8); at that point the facilitator's `NEAR_ESCROW_CONTRACTS_MAINNET`
+   still listed v1 only, and Execution Market still used v1.
 2. **x402-rs (one batch, when Execution Market is about to use v2):** `NEAR_ESCROW_CONTRACTS_MAINNET=v1.arras-escrow.near,v2.arras-escrow.near`.
    Its lifecycle gate reads `get_operator("em").capturers` on v2: `["em-capturer-v2.arras-escrow.near"]`.
    That capturer starts with 0.15 NEAR of balance and of allowance (v1's started with 0.5): its FunctionCall key
@@ -643,16 +647,27 @@ it. Execution Market and the facilitator did not change (8.9).
    capturer and pays their gas: its row in the accounts table, and section 5). Before pointing Execution Market at v2,
    measure the gas that the facilitator attaches to `release` and `withdraw_for` against this key; if the key does not
    fit, the capturer is changed with `update_operator` (8.7).
+   **Done on 2026-11-13:** x402-rs 2.57.2, live from about 03:58Z; its `/supported` lists `nearEscrow.contracts`
+   `["v1.arras-escrow.near","v2.arras-escrow.near"]`. The capturer of `em` in v2 is still
+   `em-capturer-v2.arras-escrow.near`, with its FunctionCall key for `release`, `refund` and `withdraw_for` on v2.
 3. **Execution Market:** `escrow_contract` `v2.arras-escrow.near`, `operator_id` `em`, the capturer key from
    `/arras/mainnet/em-capturer-v2`, and either tickets signed with `/arras/mainnet/em-ticket-v2` (SDK, vectors T-1/T-2)
    or the owner's `update_operator` without the ticket (8.1). Removing the ticket does not let anyone rate these
    payments without Execution Market: `payment-proof.arras-escrow.near` (section 9) does not count the one path that
    releases money with neither its capturer nor its arbiter, a dispute that expired in the receiver's favour (9.2,
    `E16`).
+   **Done on 2026-11-13, without tickets:** the owner's `update_operator` of 8.1 removed `em`'s ticket key
+   ([`7UQvpqRS...`](https://nearblocks.io/txns/7UQvpqRSyUScR94x1vztQznVdLAMG2x7WzyvgK2ko2bK), 04:00:34Z, signed by
+   `owner.arras-escrow.near`; `get_operator("em")` answers `"ticket_pubkey": null`), and Execution Market pays its
+   NEAR tasks through `v2.arras-escrow.near` and rates them with `payment-proof.arras-escrow.near`, with uvd-x402-sdk
+   0.114.0 (Python) and 2.116.0 (TypeScript). Its full cycle there, between the team's test accounts: task
+   `a219f4db`, Arras payment `2oxnrLfuZH95KJhcn9sSqjK4hE3BjpJHgB2upwYF7gs6`, 0.10 USDC
+   ([EVIDENCE.md](EVIDENCE.md), section 8).
 
 ## 9. The payment-proof verifier (ERC-8004): the plan
 
-Status: **not deployed**. c0der applies it after the merge; nothing here was run on chain. It is the proof verifier
+Status: **deployed on 2026-11-13** from the merge commit `40eba87`, with the sequence of 9.3 (9.6); 9.1 to 9.5 are
+the plan as it was written before the run. It is the proof verifier
 that lets a task paid through the Arras escrow contract at `v2.arras-escrow.near` be rated on chain with the payment
 as the proof. The Reputation Registry takes the verifier as a parameter of `give_feedback_with_proof`, so
 nothing changes in `reputation-registry.erc-8004.near`, and `erc8004-verifier.arras-escrow.near` keeps verifying the
@@ -725,7 +740,8 @@ resolution, if later). A rating already given stays: the Reputation Registry kee
 
 ### 9.3 The sequence (c0der)
 
-The reads go through the private RPC, and near-cli's mainnet connection has to point at it too (as in 8.4).
+The reads go through the private RPC, and near-cli's mainnet connection has to point at it too (as in 8.4). Followed
+on 2026-11-13 with `REV` = `40eba87e9d4fb76e75e4292c9ea68feb07a58272` (9.6).
 
 ```bash
 # 0. The escrow it trusts, once more (mandatory): no keys and the pinned code.
@@ -869,3 +885,20 @@ no deposit.
   `authorize_from_budget` anyway). When the receiver rates the payer's side, the counterparty is that owner, so the
   agent being rated has to be owned by that account or have it as its `agentWallet` (otherwise the registry answers
   `E47`).
+
+### 9.6 The mainnet run (2026-11-13)
+
+The sequence of 9.3, followed on 2026-11-13 with `REV` = `40eba87e9d4fb76e75e4292c9ea68feb07a58272`, the merge of
+arras#15 (the PR of `contracts/erc8004-payment-proof`). Read through an RPC node by the deployer:
+
+| Fact | Value |
+|---|---|
+| Wasm (step 1) | reproducible build of `40eba87`: sha256 `ea430d5fbb3bbe3b59adf5c2cd7010e00f295e6be5a37eee935c560c5431e5a0`, 125,345 bytes, the size of 9.1 (the sha256 differs from that of `3b4191e` because NEP-330 embeds the commit) |
+| Account `payment-proof.arras-escrow.near` (step 3) | [`Goz3q7wcLtVBUnXKScKAy7JUM4D8DJLavM4PTXrTC6FU`](https://nearblocks.io/txns/Goz3q7wcLtVBUnXKScKAy7JUM4D8DJLavM4PTXrTC6FU) |
+| Deploy + private `new({"escrow":"v2.arras-escrow.near"})` in one transaction (step 4) | [`8MpL3idDcMS9BaKTTnpbEHVGHBQKyyxg3hvu4TU93nyN`](https://nearblocks.io/txns/8MpL3idDcMS9BaKTTnpbEHVGHBQKyyxg3hvu4TU93nyN) |
+| Access keys at the end (step 6) | none |
+
+Then, in the order of 8.9, the facilitator listed `v2.arras-escrow.near`, the owner removed `em`'s ticket key in v2,
+and Execution Market started paying through v2 and rating with this verifier (8.9, steps 2 and 3;
+[EVIDENCE.md](EVIDENCE.md), section 8). The read-only checks of the verifier are in the README ("Check it yourself")
+and in EVIDENCE.md, section 8.

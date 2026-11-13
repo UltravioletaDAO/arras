@@ -7,14 +7,16 @@ payment.** Three layers, all on NEAR mainnet:
    releases it to the worker when the job is approved, or it goes back to the payer by refund or, after a deadline, by
    reclaim. A human can fund a capped budget that an AI agent spends with a key that can do nothing else, and either
    party can open a dispute that the operator's arbiter settles on chain. Only the contract holds the money, and the
-   contract has no access keys ([The Arras escrow contract](#the-arras-escrow-contract)). On 2026-11-11, Execution
-   Market and the x402 facilitator pay through `v1.arras-escrow.near`, the contract's first deployment (lock, release,
-   refund, reclaim). `v2.arras-escrow.near` has every feature, budgets and disputes included; on 2026-11-11 its only 2
-   payments are its own mainnet smoke test.
+   contract has no access keys ([The Arras escrow contract](#the-arras-escrow-contract)). Since 2026-11-13, Execution
+   Market pays its NEAR tasks through `v2.arras-escrow.near`, the deployment with every feature (budgets and disputes
+   included), and the x402 facilitator serves it next to `v1.arras-escrow.near`, the contract's first deployment
+   (lock, release, refund, reclaim), which carried Execution Market's payments from 2026-11-03 until then.
 2. **Reputation (ERC-8004 on NEAR).** A Rust reimplementation, for NEAR, of the Identity and Reputation registries of
    [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) ("Trustless Agents"): `identity-registry.erc-8004.near` and
    `reputation-registry.erc-8004.near`, since 2026-11-04. It adds one optional extension: a rating can carry, as
-   proof, an Arras payment that released money, and the proof is checked on chain. This is an Ultravioleta DAO
+   proof, an Arras payment that released money, and the proof is checked on chain by a verifier contract, one per
+   escrow: `erc8004-verifier.arras-escrow.near` for `v1.arras-escrow.near` and, since 2026-11-13,
+   `payment-proof.arras-escrow.near` for `v2.arras-escrow.near`. This is an Ultravioleta DAO
    initiative, not an official deployment of the ERC-8004 team
    ([ERC-8004 on NEAR](#erc-8004-on-near-identity-and-reputation-live-validation-a-draft)).
 3. **Payments (x402 on NEAR).** The payer signs a NEP-366 delegate action. Ultravioleta DAO's x402 facilitator relays it
@@ -22,13 +24,20 @@ payment.** Three layers, all on NEAR mainnet:
    sponsors it). The facilitator serves NEAR `exact` and, toward Arras, `escrow`
    ([Payments: x402 on NEAR](#payments-x402-on-near)).
 
-Status on 2026-11-11, read from mainnet:
+Status, read from mainnet:
 
-- `v1.arras-escrow.near` holds 20 payments (`get_config`). 13 are the team's end-to-end tests of Execution Market
-  (2026-11-03 to 11-06). The other 7 are payments between agents of KarmaKadabra, Ultravioleta DAO's own agent swarm
-  (2026-11-10 and 11-11).
-- The Identity Registry has 10 agents. The Reputation Registry has 16 ratings, and every one of them carries an Arras
-  payment as proof.
+- Since 2026-11-13, `v2.arras-escrow.near` carries Execution Market's NEAR payments, and
+  `payment-proof.arras-escrow.near`, deployed that day, checks them as proofs of ratings. Those of that day documented
+  here are the team's: Execution Market's full cycle between the team's test accounts (task `a219f4db`, 0.10 USDC, two
+  ratings with the payment as proof) and 2 tasks between agents of KarmaKadabra, Ultravioleta DAO's own agent swarm
+  (0.01 USDC each, each with a rating in each direction). On 2026-11-13 `v2.arras-escrow.near` held 6 payments
+  (`get_config`), among them these 3 and the 2 of its own smoke test (2026-11-08), which were its only payments on
+  2026-11-11.
+- `v1.arras-escrow.near` held 20 payments on 2026-11-13 (`get_config`), the same total as on 2026-11-11, when 13 were
+  the team's end-to-end tests of Execution Market (2026-11-03 to 11-06) and the other 7 payments between agents of the
+  swarm (2026-11-10 and 11-11).
+- On 2026-11-11 the Identity Registry had 10 agents and the Reputation Registry 16 ratings, every one of them with an
+  Arras payment as proof. The ratings of 2026-11-13 above came after them.
 - Every payer and worker so far is one of the team's own accounts or agents: there are no outside customers yet.
 - **Unaudited:** there has been no external audit. What exists instead is under
   [Audit status](#audit-status-no-external-audit) and [Security model](#security-model).
@@ -42,28 +51,34 @@ Reputation Registry, and the rating carries the Arras payment as an on-chain pro
 needs no NEAR for gas: an x402 facilitator relays its signed meta-transaction. Execution Market, a marketplace where
 agents hire humans and other agents for tasks, runs this in production for NEAR tasks.
 
-- **On mainnet (2026-11-10/11):** KarmaKadabra, Ultravioleta DAO's own swarm of agents, hires its own agents through Execution Market
-  on NEAR. On 2026-11-11 it completed 6 agent-to-agent tasks with a rating in each direction:
-  [Agents hiring agents](#agents-hiring-agents-the-karmakadabra-swarm-on-near-mainnet), 24 transactions.
-- **Who paid (2026-11-11):** every payment is the team's own. Through `v1.arras-escrow.near`, 20: 13 end-to-end tests
-  with a test agent and test workers (0.10 USDC each), and 7 swarm agents paying swarm agents (0.01 USDC each).
-  Through `v2.arras-escrow.near`, 2 (0.05 USDC each): the team's smoke test of that deployment.
+- **On mainnet (2026-11-10 to 11-13):** KarmaKadabra, Ultravioleta DAO's own swarm of agents, hires its own agents
+  through Execution Market on NEAR. On 2026-11-11 it completed 6 agent-to-agent tasks with a rating in each direction
+  through `v1.arras-escrow.near` (24 transactions), and on 2026-11-13 2 more through `v2.arras-escrow.near`, rated with
+  `payment-proof.arras-escrow.near` as the verifier:
+  [Agents hiring agents](#agents-hiring-agents-the-karmakadabra-swarm-on-near-mainnet).
+- **Who paid:** every payment is the team's own (as of 2026-11-13). Through `v1.arras-escrow.near`, 20 on 2026-11-13
+  (`get_config`), the same total as on 2026-11-11, when they were 13 end-to-end tests with a test agent and test
+  workers (0.10 USDC each) and 7 swarm agents paying swarm agents (0.01 USDC each). Through `v2.arras-escrow.near`, 6 on
+  2026-11-13 (`get_config`), among them the 2 of the team's smoke test of that deployment (2026-11-08, 0.05 USDC each),
+  and of 2026-11-13 Execution Market's full cycle between the team's test accounts (0.10 USDC) and the swarm's 2 tasks
+  (0.01 USDC each).
 
 **The problem.** Over x402 on NEAR, an agent could only pay up front (`exact`): nothing held the money until the work
 was checked, and nothing tied a rating to a real deal, so reputation was free to fake. With Arras the payer's own
 signature locks the USDC in a contract that pays it out only to the worker, minus the operator's fee (capped by the
 payer's signed message and paid to the fee recipient fixed when the payment was authorized), or back to the payer,
 with no fee on what goes back. A rating whose proof
-names the Arras verifier is accepted only if an Arras payment between the two accounts released money. Plain ERC-8004
+names an Arras verifier is accepted only if an Arras payment between the two accounts released money. Plain ERC-8004
 feedback without a proof stays possible, as in the standard, and readers filter by verifier.
 
 **How NEAR is used.**
 
 - **NEP-141 `ft_transfer_call`** on Circle's native USDC: one signed call moves the money and opens the escrow. The x402
   facilitator relays it as a **NEP-366 meta-transaction**, so the payer needs no NEAR for gas.
-- **Function-call access keys**: Execution Market's capturer on `v1.arras-escrow.near`,
-  `em-capturer.arras-escrow.near`, has a single key that can only call `release`, `refund` and `withdraw_for` on that
-  contract, with a 0.5 NEAR allowance. Even if it leaks, the money can only go where each payment already says: to the
+- **Function-call access keys**: Execution Market's capturers, `em-capturer.arras-escrow.near` on
+  `v1.arras-escrow.near` and `em-capturer-v2.arras-escrow.near` on `v2.arras-escrow.near`, sign with a function-call
+  key that can only call `release`, `refund` and `withdraw_for` on that contract (v1's with a 0.5 NEAR allowance);
+  their full-access keys were deleted. Even if one leaks, the money can only go where each payment already says: to the
   worker, with the fee to the fee recipient frozen in the payment, or back to the payer. With an agent budget, an AI
   agent holding only a function-call key can spend only from a budget that a human funded and capped; in the mainnet
   smoke test of `v2.arras-escrow.near` the agent is the test account `agent-v2.arras-escrow.near` and the human is the
@@ -71,8 +86,8 @@ feedback without a proof stays possible, as in the standard, and readers filter 
 - **Keyless, immutable contracts**: each contract was deployed together with a private `new` in a single transaction,
   then every access key on its account was deleted. There is no `migrate`, so nobody can change the code.
 - **Cross-contract calls whose callbacks fail closed**: `give_feedback_with_proof` asks the Identity Registry
-  (`check_agent`) and the Arras verifier, which reads the payment from the escrow (`get_payment`). If any answer is
-  wrong, the rating is refused and the whole deposit goes back.
+  (`check_agent`) and the Arras verifier of the payment's escrow, which reads the payment from it (`get_payment`). If
+  any answer is wrong, the rating is refused and the whole deposit goes back.
 - **NEP-171 NFTs** as agent identities (ERC-8004 `agentId` = `token_id`), **named accounts and sub-accounts**
   (`erc-8004.near`, `arras-escrow.near`), **NEP-145** storage (Execution Market's sponsorship pool pays the
   storage of a payer without its own deposit, up to 0.02 NEAR each), **NEP-297** events and **NEP-330** source metadata that points at the exact commit.
@@ -82,12 +97,13 @@ explorer links.
 
 | Account | What it is | Deployed (UTC) | Code (sha256 of the reproducible wasm, commit) |
 |---|---|---|---|
-| [`v1.arras-escrow.near`](https://nearblocks.io/address/v1.arras-escrow.near) | the Arras escrow, first deployment: lock, release, refund, reclaim; 10 USDC per payment, 1,000 USDC total, operator `em` (Execution Market, 13 % fee). Execution Market and the facilitator pay through it on 2026-11-11 | 2026-11-03 02:31 | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada`, `8da7174` |
+| [`v1.arras-escrow.near`](https://nearblocks.io/address/v1.arras-escrow.near) | the Arras escrow, first deployment: lock, release, refund, reclaim; 10 USDC per payment, 1,000 USDC total, operator `em` (Execution Market, 13 % fee). Execution Market paid through it from 2026-11-03 until it moved to `v2.arras-escrow.near` on 2026-11-13; the facilitator still serves it | 2026-11-03 02:31 | `7058319dff5f8d1e9da91a344ab3c699b709783e4153f3a7da6c2556cde0eada`, `8da7174` |
 | [`identity-registry.erc-8004.near`](https://nearblocks.io/address/identity-registry.erc-8004.near) | ERC-8004 Identity Registry (each agent is an NFT) | 2026-11-04 21:47 | `fe284122f04f319117b47234c1daafa11830862312ad138f3463683fb498d3d5`, `f18e25c` |
 | [`reputation-registry.erc-8004.near`](https://nearblocks.io/address/reputation-registry.erc-8004.near) | ERC-8004 Reputation Registry, with `give_feedback_with_proof` | 2026-11-04 21:48 | `dfe715d087517617811c1155bba9c8b6e71b23cbe63481b5afbf484bcbabd56e`, `f18e25c` |
-| [`erc8004-verifier.arras-escrow.near`](https://nearblocks.io/address/erc8004-verifier.arras-escrow.near) | the proof verifier: a proof is a payment in `v1.arras-escrow.near` between the rater and the agent that released money (`released > 0`, in any state) | 2026-11-04 21:48 | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba`, `f18e25c` |
+| [`erc8004-verifier.arras-escrow.near`](https://nearblocks.io/address/erc8004-verifier.arras-escrow.near) | the proof verifier for `v1.arras-escrow.near`: a proof is a payment in it between the rater and the agent that released money (`released > 0`, in any state) | 2026-11-04 21:48 | `f1b5e29942ca32aea8416a51f3276bd728f5ab804c8853414c5f5128f276e7ba`, `f18e25c` |
 | [`registry.arras-escrow.near`](https://nearblocks.io/address/registry.arras-escrow.near) | `registry-v1`, the first agent registry; Execution Market's NEAR registry until it switched on 2026-11-06 (its last rating there: 2026-11-04) | 2026-11-04 03:47 | `b7b4593025769e5a12e70ebad7a78faecf523eb834b2f01338727e2833933197`, `8cec4e6` |
-| [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | the Arras escrow with every feature: the above plus agent budgets, disputes with an arbiter and operator tickets; 10 USDC per payment, 1,000 USDC total, operator `em` with its own capturer and arbiter | 2026-11-08 02:20 | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`, `ddc5121` |
+| [`v2.arras-escrow.near`](https://nearblocks.io/address/v2.arras-escrow.near) | the Arras escrow with every feature: the above plus agent budgets, disputes with an arbiter and operator tickets; 10 USDC per payment, 1,000 USDC total, operator `em` with its own capturer and arbiter. Execution Market pays its NEAR tasks through it since 2026-11-13, without operator tickets | 2026-11-08 02:20 | `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`, `ddc5121` |
+| [`payment-proof.arras-escrow.near`](https://nearblocks.io/address/payment-proof.arras-escrow.near) | the proof verifier for `v2.arras-escrow.near`: a proof is a payment in it between the rater and the agent that released money (`released > 0`, disputed ones too), except one whose dispute expired in the receiver's favour with no arbiter decision (`ERC8004_ARV_E16`) | 2026-11-13 | `ea430d5fbb3bbe3b59adf5c2cd7010e00f295e6be5a37eee935c560c5431e5a0`, `40eba87` |
 
 `v2.arras-escrow.near` is live since 2026-11-08: `scripts/mainnet-v2.sh` deployed the reproducible wasm of `ddc5121`
 (sha256 `1541525c4bf3494ae5025b00df6955698975a6f8c376002f0296ff93b4e4fa77`) into it with a private `new`
@@ -96,9 +112,22 @@ explorer links.
 the security track, with the project's funding account as the human and test accounts as the agent and the worker
 ([docs/EVIDENCE.md](docs/EVIDENCE.md), section 6; the checks are below). It was rehearsed twice on testnet first
 (`v2.arras-v2e-1107.testnet`, then `v2.arras-v2f-1107.testnet`, which found the up-front reserve behind the script's
-last fix and finished with the final script; "Arras v2 on testnet" below). On 2026-11-11, Execution Market and the
-x402-rs facilitator pay through `v1.arras-escrow.near` only; pointing them at `v2.arras-escrow.near` is
-[docs/MAINNET.md](docs/MAINNET.md), section 8.9.
+last fix and finished with the final script; "Arras v2 on testnet" below).
+
+Since 2026-11-13, Execution Market and the x402-rs facilitator use `v2.arras-escrow.near`, in the order of
+[docs/MAINNET.md](docs/MAINNET.md), section 8.9. Its proof verifier came first: `payment-proof.arras-escrow.near`
+holds the reproducible wasm of `40eba87`, the merge of arras#15 (sha256
+`ea430d5fbb3bbe3b59adf5c2cd7010e00f295e6be5a37eee935c560c5431e5a0`, 125,345 bytes). Its account was created in
+[`Goz3q7wc...`](https://nearblocks.io/txns/Goz3q7wcLtVBUnXKScKAy7JUM4D8DJLavM4PTXrTC6FU), the wasm was deployed with a
+private `new` (`{"escrow":"v2.arras-escrow.near"}`) in one transaction
+([`8MpL3idD...`](https://nearblocks.io/txns/8MpL3idDcMS9BaKTTnpbEHVGHBQKyyxg3hvu4TU93nyN)), and the account has no
+access keys ([docs/MAINNET.md](docs/MAINNET.md), section 9). Then the facilitator, x402-rs 2.57.2, listed both escrows
+in its `/supported` (from about 03:58Z); the owner removed operator `em`'s ticket key in `v2.arras-escrow.near` with
+`update_operator` ([`7UQvpqRS...`](https://nearblocks.io/txns/7UQvpqRSyUScR94x1vztQznVdLAMG2x7WzyvgK2ko2bK),
+04:00:34Z), so Execution Market's payments there need no ticket; and Execution Market started paying its NEAR tasks
+through `v2.arras-escrow.near` and rating them with `payment-proof.arras-escrow.near`, with uvd-x402-sdk 0.114.0 for
+Python and 2.116.0 for TypeScript. `erc8004-verifier.arras-escrow.near` keeps verifying the payments of
+`v1.arras-escrow.near`.
 
 The run that shows it all together is Execution Market's golden flow on 2026-11-06 at 01:17Z
 ([docs/EVIDENCE.md](docs/EVIDENCE.md), section 5). A test agent that has only a NEAR wallet registered its identity
@@ -109,17 +138,26 @@ with its function-call key, relayed the same way), and two `withdraw_for` paid 0
 the fee recipient. Then each side rated the other with that payment as proof ([`EjLpmfry...`](https://nearblocks.io/txns/EjLpmfryfXJAkLhrgkntS9PjDhCMqtQyQm54a1ajn7xs),
 [`JApp8fXk...`](https://nearblocks.io/txns/JApp8fXkr2nhtm7qtLqFyVfEB4YpWiBj1WVVL7dasKHW)).
 
+The same cycle ran on `v2.arras-escrow.near` on 2026-11-13, between the team's test accounts: Execution Market task
+`a219f4db`, hired, 0.10 USDC locked in v2 (Arras payment `2oxnrLfuZH95KJhcn9sSqjK4hE3BjpJHgB2upwYF7gs6`), released,
+and two ratings with that payment as proof through `payment-proof.arras-escrow.near`
+([docs/EVIDENCE.md](docs/EVIDENCE.md), section 8; its `get_payment` is in the table below).
+
 **Check it yourself: read-only, no keys.** These commands use [near-cli-rs](https://github.com/near/near-cli-rs)
 0.30.1 and the mainnet RPC from your own near-cli configuration. They were run against mainnet on 2026-11-06, and the
 results below are what they returned. The five `v2.arras-escrow.near` rows (from its `view-account-summary` to the
-disputed payment) are from 2026-11-08, after its smoke test: the last four as near-cli returned them; the first gives
+disputed payment) are from 2026-11-08, after its smoke test: the last four as near-cli returned them (the
+`get_operator` row also gives what it answered on 2026-11-13); the first gives
 what that command shows, with the facts that `scripts/mainnet-v2.sh --mainnet-ok verificar` read through the RPC. The
 four swarm rows were read on 2026-11-11 through FastNear's free endpoint, with the same view methods called over
-JSON-RPC (near-cli prints the same JSON), and the facilitator row with the `curl` shown. The number of agents only
-grows. The number of payments in `get_config` can drop: from 7 days after a finished payment's `reclaim_after` (or
-after a later dispute resolution), anyone can delete it with `compact`, and from then on `get_payment` returns `null`
-for it (its transactions stay on NearBlocks). For the payments in this table that is from 2026-11-17 (the two of
-`v2.arras-escrow.near`'s smoke test), from 2026-11-27 (the golden flow's) and from 2026-12-09 (the swarm's). The
+JSON-RPC (near-cli prints the same JSON), and the facilitator row with the `curl` shown. The rows of 2026-11-13 (the
+verifier `payment-proof.arras-escrow.near`, operator `em` and its capturer in `v2.arras-escrow.near`, the payments of
+that day in v2 and one of their ratings) give the facts the deployer read through an RPC node on 2026-11-13, not
+near-cli's printout. The number of agents only grows. The number of payments in `get_config` can drop: from 7 days
+after a finished payment's `reclaim_after` (or after a later dispute resolution), anyone can delete it with `compact`,
+and from then on `get_payment` returns `null` for it (its transactions stay on NearBlocks). For the payments in this
+table that is from 2026-11-17 (the two of `v2.arras-escrow.near`'s smoke test), from 2026-11-27 (the golden flow's),
+from 2026-12-09 (the swarm's on v1) and, for those of 2026-11-13, from 7 days after each one's `reclaim_after`. The
 ratings stay: `read_feedback` and `read_feedback_proof` keep answering, with the payment id as the proof. A verified
 summary can drop if a rater revokes a rating.
 
@@ -138,9 +176,9 @@ or with the old URL, changes it again.
 
 | Do | See |
 |---|---|
-| `near account view-account-summary v1.arras-escrow.near network-config mainnet now` (also for the three ERC-8004 contracts and `registry-v1` of the table; `v2.arras-escrow.near` below) | `Local Contract (SHA-256 checksum hex)` = the sha256 of the table; `Access keys: Account is locked (no access keys)`. The "Delegated stake" line prints a handler error from `poolv1.near`, unrelated to the contract |
+| `near account view-account-summary v1.arras-escrow.near network-config mainnet now` (also for the three ERC-8004 contracts and `registry-v1` of the table; `v2.arras-escrow.near` and `payment-proof.arras-escrow.near` below) | `Local Contract (SHA-256 checksum hex)` = the sha256 of the table; `Access keys: Account is locked (no access keys)`. The "Delegated stake" line prints a handler error from `poolv1.near`, unrelated to the contract |
 | `near account list-keys v1.arras-escrow.near network-config mainnet now` (same for the ERC-8004 contracts and `registry-v1`) | an empty table, the same fact as the `Access keys` line of `view-account-summary` above: nobody can redeploy, upgrade or sign for the contract |
-| `near contract call-function as-read-only v1.arras-escrow.near contract_source_metadata json-args '{}' network-config mainnet now` | NEP-330: `source_code_snapshot` `git+https://github.com/UltravioletaDAO/arras?rev=8da71748b428ceccf9fccd358e61bb4213d54e29`, image `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...` (the ERC-8004 contracts: `rev=f18e25c4...`; `registry-v1`: `rev=8cec4e64...`). Its `build_command` reads `non-reproducible-wasm`: that is the `container_build_command` of each `Cargo.toml`, the command cargo-near runs inside that pinned image during a reproducible build |
+| `near contract call-function as-read-only v1.arras-escrow.near contract_source_metadata json-args '{}' network-config mainnet now` | NEP-330: `source_code_snapshot` `git+https://github.com/UltravioletaDAO/arras?rev=8da71748b428ceccf9fccd358e61bb4213d54e29`, image `sourcescan/cargo-near:0.21.1-rust-1.96.0@sha256:ccb22bb4...` (the ERC-8004 contracts: `rev=f18e25c4...`; `registry-v1`: `rev=8cec4e64...`; `payment-proof.arras-escrow.near`: `rev=40eba87e...`). Its `build_command` reads `non-reproducible-wasm`: that is the `container_build_command` of each `Cargo.toml`, the command cargo-near runs inside that pinned image during a reproducible build |
 | `near account list-keys em-capturer.arras-escrow.near network-config mainnet now` | one key: `only do ["release", "refund", "withdraw_for"] function calls on v1.arras-escrow.near with an allowance of 0.5 NEAR` |
 | `near contract call-function as-read-only v1.arras-escrow.near get_config json-args '{}' network-config mainnet now` | `"version": "arras-v1"`, `tope_por_pago` `10000000` (10 USDC), `tope_tvl_global` `1000000000` (1,000 USDC), the USDC token |
 | `near contract call-function as-read-only v1.arras-escrow.near get_payment json-args '{"payment_id":"DAtTVvHHPTfUbneHj1dUYi1mG3aqE8GbEK5aQzVExZ2X"}' network-config mainnet now` | the golden flow's payment: `"status": "Released"`, `amount` and `released` `100000` (0.10 USDC), `operator_id` `em`, `fee_bps` 1300 |
@@ -149,22 +187,30 @@ or with the old URL, changes it again.
 | the same arguments with `read_feedback_proof` | `"proof": "DAtTVvHH..."` (the payment above), `"verifier": "erc8004-verifier.arras-escrow.near"`, `"role": "receiver"`, `"context": "em"`, `"weight": "100000"` (the USDC released) |
 | `read_feedback` / `read_feedback_proof` with `'{"agent_id":"1","client_address":"826e8c640ba0ee77bf255ecb332dfaca73fc1e3aef2dbf370b5ffeb30f9ac7af","feedback_index":"1"}'` | the worker's rating of the agent: `"value": "85"`, the same payment as proof, `"role": "payer"` |
 | `near account view-account-summary v2.arras-escrow.near network-config mainnet now` | SHA-256 `1541525c...fa77`; no access keys. The same facts that `scripts/mainnet-v2.sh --mainnet-ok verificar` read on 2026-11-08: `code_hash` `2RyLHaUjZAXZzwEbnztZeJNB73wJqstjZpY7rtSVx44e` (the base58 of that sha256) and an empty `view_access_key_list` |
-| `near contract call-function as-read-only v2.arras-escrow.near get_operator json-args '{"operator_id":"em"}' network-config mainnet now` | `"capturers": ["em-capturer-v2.arras-escrow.near"]`, `"arbiter": "em-arbiter-v2.arras-escrow.near"`, `arbiter_window_ns` `604800000000000` (7 days), `fee_bps` 1300, `fee_recipient` `em-fees.arras-escrow.near`, `min_amount` `10000` (0.01 USDC), `"ticket_pubkey": "ed25519:9zh27mQwBQbKGYixfqUVEU4xNtz93Sad8crhhFH4B9YF"`, `sponsor_pool` `100000000000000000000000` (0.1 NEAR), `tvl_operador` `0` |
+| `near contract call-function as-read-only v2.arras-escrow.near get_operator json-args '{"operator_id":"em"}' network-config mainnet now` | on 2026-11-13: `"capturers": ["em-capturer-v2.arras-escrow.near"]` and `"ticket_pubkey": null`, since the owner removed the ticket key that day ([`7UQvpqRS...`](https://nearblocks.io/txns/7UQvpqRSyUScR94x1vztQznVdLAMG2x7WzyvgK2ko2bK)). On 2026-11-08, after the smoke test, it returned `"capturers": ["em-capturer-v2.arras-escrow.near"]`, `"arbiter": "em-arbiter-v2.arras-escrow.near"`, `arbiter_window_ns` `604800000000000` (7 days), `fee_bps` 1300, `fee_recipient` `em-fees.arras-escrow.near`, `min_amount` `10000` (0.01 USDC), `"ticket_pubkey": "ed25519:9zh27mQwBQbKGYixfqUVEU4xNtz93Sad8crhhFH4B9YF"`, `sponsor_pool` `100000000000000000000000` (0.1 NEAR), `tvl_operador` `0` |
 | `near account list-keys agent-v2.arras-escrow.near network-config mainnet now` | one key, `ed25519:3TJqivtjEskrdMQTQ8LWpdQcFNN6rFdZpNyGwAfxvdFU`: `only do ["authorize_from_budget"] function calls on v2.arras-escrow.near with an allowance of 0.0591054940912723 NEAR` |
 | `near contract call-function as-read-only v2.arras-escrow.near get_payment json-args '{"payment_id":"9nySy6vTK95bgPUm5MkdsZtzC9XaGrSCV1EjNnRR6uyC"}' network-config mainnet now` | the smoke's first payment: `"status": "Released"`, `amount` and `released` `50000` (0.05 USDC), `refunded` `0`, `payer` the funding account `fe0a5742...1079` (the human), `receiver` `worker-v2.arras-escrow.near`, `operator_id` `em`, `fee_bps` 1300, `"dispute": null` |
 | the same with `'{"payment_id":"8428jJdxtdVfJwrMKc7ircLp1Yr6D5nra5e16ZbRNS8w"}'` | the disputed one: `"status": "Resolved"`, `amount` and `refunded` `50000` (all of it back to the payer), `released` `0`, `dispute.opened_by` `Payer` |
+| `near account list-keys em-capturer-v2.arras-escrow.near network-config mainnet now` | Execution Market's capturer in v2: a function-call key that can only call `release`, `refund` and `withdraw_for` on `v2.arras-escrow.near` |
+| `near contract call-function as-read-only v2.arras-escrow.near get_payment json-args '{"payment_id":"2oxnrLfuZH95KJhcn9sSqjK4hE3BjpJHgB2upwYF7gs6"}' network-config mainnet now` | Execution Market's full cycle on v2 (task `a219f4db`, 2026-11-13): `"status": "Released"`, `amount` and `released` `100000` (0.10 USDC); `payer` and `receiver` are the team's test accounts |
+| the same with `'{"payment_id":"7wMcKUddY26TvkHLKWxf4ZzAD3Lsm6xKu3DVGK6CcbtJ"}'` | the first swarm task on v2 (2026-11-13): `"status": "Released"`, `amount` and `released` `10000` (0.01 USDC), `payer` `kk-athanw.karmakadabra.near`, `receiver` `kk-validator.karmakadabra.near` |
+| the same with `'{"payment_id":"8PwFN4wNweGjQVagaz72YcHfMtp9o8RBNfAhooGrC3kQ"}'` | the second: `"status": "Released"`, `amount` and `released` `10000`, `payer` `kk-0xroypi.karmakadabra.near`, `receiver` `kk-validator.karmakadabra.near` |
+| `near account view-account-summary payment-proof.arras-escrow.near network-config mainnet now` (and `list-keys`) | `Local Contract (SHA-256 checksum hex)` `ea430d5fbb3bbe3b59adf5c2cd7010e00f295e6be5a37eee935c560c5431e5a0` (the sha256 of the table); `Access keys: Account is locked (no access keys)`; `list-keys`: an empty table |
+| `near contract call-function as-read-only payment-proof.arras-escrow.near get_config json-args '{}' network-config mainnet now` | `"contract": "erc8004-arras-verifier"` (the name of the verifier interface, the same in both verifiers) and `"escrow": "v2.arras-escrow.near"`, the escrow it trusts, fixed by `new` |
+| `near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback_proof json-args '{"agent_id":"8","client_address":"kk-athanw.karmakadabra.near","feedback_index":"1"}' network-config mainnet now` | the paying agent's rating of the worker agent (agent 8, `kk-validator.karmakadabra.near`) in the first swarm task on v2: `"proof": "7wMcKUdd..."` (the payment above), `"verifier": "payment-proof.arras-escrow.near"`, `"counterparty": "kk-validator.karmakadabra.near"`, `"role": "receiver"`, `"weight": "10000"` |
 | `near contract call-function as-read-only v1.arras-escrow.near get_payment json-args '{"payment_id":"CFz3NrBxvbnf4netMY5EExdpFuGBsBZaGk8q6QmLos6b"}' network-config mainnet now` | the first swarm task (agent to agent): `"status": "Released"`, `amount` and `released` `10000` (0.01 USDC), `payer` `kk-davidtherich.karmakadabra.near`, `receiver` `kk-validator.karmakadabra.near`, `operator_id` `em`, `fee_bps` 1300 |
 | `near contract call-function as-read-only reputation-registry.erc-8004.near read_feedback_proof json-args '{"agent_id":"8","client_address":"kk-davidtherich.karmakadabra.near","feedback_index":"1"}' network-config mainnet now` (and `read_feedback` with the same arguments) | the paying agent's rating of the worker agent (agent 8, owned by `kk-validator.karmakadabra.near`): `"proof": "CFz3NrBx..."` (the payment above), `"counterparty": "kk-validator.karmakadabra.near"`, `"role": "receiver"`, `"context": "em"`, `"weight": "10000"`; `read_feedback`: `"value": "90"`, `tag2` `execution-market` |
 | `near contract call-function as-read-only reputation-registry.erc-8004.near get_verified_summary json-args '{"agent_id":"8","verifier":"erc8004-verifier.arras-escrow.near"}' network-config mainnet now` | agent 8's proof-backed reputation: `"count": "4"`, `"summary_value": "81"`, `"weight_sum": "40000"` (the USDC released in the 4 paid tasks behind those ratings) |
 | `near contract call-function as-read-only identity-registry.erc-8004.near nft_total_supply json-args '{}' network-config mainnet now` | `"10"` agents (agents 3 to 9 are swarm agents under `karmakadabra.near`; `nft_token` with `'{"token_id":"8"}'` gives `reference` `https://execution.market/profile/near:kk-validator.karmakadabra.near`) |
-| `curl -s https://facilitator.ultravioletadao.xyz/supported \| jq -c '.kinds[] \| select(.network=="near:mainnet") \| {scheme, feePayer: .extra.feePayer, contracts: .extra.nearEscrow.contracts}'` | `{"scheme":"exact","feePayer":"uvd-facilitator.near","contracts":null}` and `{"scheme":"escrow","feePayer":"uvd-facilitator.near","contracts":["v1.arras-escrow.near"]}`: the facilitator relays NEAR payments, and its escrow scheme pays into v1 only |
+| `curl -s https://facilitator.ultravioletadao.xyz/supported \| jq -c '.kinds[] \| select(.network=="near:mainnet") \| {scheme, feePayer: .extra.feePayer, contracts: .extra.nearEscrow.contracts}'` | since 2026-11-13 (x402-rs 2.57.2): the `escrow` kind with `"contracts":["v1.arras-escrow.near","v2.arras-escrow.near"]`, so its escrow scheme pays into both. On 2026-11-11 it returned `{"scheme":"exact","feePayer":"uvd-facilitator.near","contracts":null}` and `{"scheme":"escrow","feePayer":"uvd-facilitator.near","contracts":["v1.arras-escrow.near"]}`: the facilitator relays NEAR payments, and its escrow scheme paid into v1 only |
 
 To rebuild the code and compare hashes: `env -u CARGO_TARGET_DIR cargo near build reproducible-wasm --manifest-path
 contracts/<crate>/Cargo.toml` (Docker), with `escrow-v1` at commit `8da7174`, `registry-v1` at `8cec4e6`, and
 `erc8004-identity`, `erc8004-reputation` and `erc8004-arras-verifier` at `f18e25c`. Each wasm was built twice from
 clean clones before its deployment, with the same sha256 both times. `escrow-v2` at `ddc5121` gives
 `1541525c...fa77`, the wasm that `scripts/mainnet-v2.sh` pins and deployed (built twice from clean clones under Linux on
-2026-11-07, and again on macOS by `scripts/mainnet-v2.sh wasm` before the mainnet run: the same sha256). Execution
+2026-11-07, and again on macOS by `scripts/mainnet-v2.sh wasm` before the mainnet run: the same sha256).
+`erc8004-payment-proof` at `40eba87` gives `ea430d5f...e5a0`, the code of `payment-proof.arras-escrow.near`. Execution
 Market's own code is not in this repository; its use of the contracts can be seen on chain.
 
 **Built during the hackathon.** The repository was created on 2026-11-01. The hackathon work is everything after the
@@ -216,6 +262,22 @@ the ratings and the read-only checks are in [docs/EVIDENCE.md](docs/EVIDENCE.md)
 the swarm rows of "Check it yourself" above: `get_payment` for one of these payments, `read_feedback_proof` for its
 rating, and `get_verified_summary` for an agent's proof-backed reputation.
 
+### The swarm on `v2.arras-escrow.near` (2026-11-13)
+
+On 2026-11-13, from 10:49Z to 11:05Z, the swarm ran 2 more tasks of 0.01 USDC each, now through
+`v2.arras-escrow.near`: each with its lock and release in v2 and a rating in each direction with the payment as proof,
+through `payment-proof.arras-escrow.near`, the verifier of v2's payments. The worker agent is `kk-validator` (agent 8)
+in both:
+
+| Payer agent -> worker agent | Arras payment id (in `v2.arras-escrow.near`) | Ratings, one in each direction |
+|---|---|---|
+| `kk-athanw` -> `kk-validator` | `7wMcKUddY26TvkHLKWxf4ZzAD3Lsm6xKu3DVGK6CcbtJ` | [`YrVoiR64...`](https://nearblocks.io/txns/YrVoiR64wBBouWaBpkBx4SF3NisEhuF1GBGsSz3Xt5X), [`6d4xvCwR...`](https://nearblocks.io/txns/6d4xvCwRsLwVgg6etyMbTaiexpYBKin2EuiHjscfrLeV) |
+| `kk-0xroypi` -> `kk-validator` | `8PwFN4wNweGjQVagaz72YcHfMtp9o8RBNfAhooGrC3kQ` | [`AbTQdWLD...`](https://nearblocks.io/txns/AbTQdWLDqoHpmzuejPVF2qSmQJipaGnjCGhXMWojnG1P), [`3eg4C134...`](https://nearblocks.io/txns/3eg4C134Q31iVSzLZwb7AuBDW4DVY5oCZpU4DDYpz4qB) |
+
+The account names are shortened the same way. Their checks are the rows of 2026-11-13 in "Check it yourself" above
+(`get_payment` of both payments in v2, and `read_feedback_proof` of a rating), and
+[docs/EVIDENCE.md](docs/EVIDENCE.md), section 8.
+
 ## Payments: x402 on NEAR
 
 [x402](https://www.x402.org) is payment over HTTP: a server answers `402 Payment Required` with its terms, the client
@@ -229,8 +291,8 @@ signature is what moves its USDC; the relayer cannot change the delegate action 
 | What | Since | Evidence |
 |---|---|---|
 | NEAR `exact` | the code and the relayer account since 2025-12-04 (UTC) | x402-rs commit [`45f2fedd`](https://github.com/UltravioletaDAO/x402-rs/commit/45f2fedd73469859f4fb5f8823731f824863e649) ("Add NEAR Protocol support for USDC payments"); `uvd-facilitator.near` created in [`F1QFBWvn...`](https://nearblocks.io/txns/F1QFBWvnyEnwtd8BhbwgUXsqjKFb7kNVX7KjqaegQAQm) |
-| NEAR `escrow` into the Arras escrow, operator `em` | merged 2026-11-01 ([x402-rs#134](https://github.com/UltravioletaDAO/x402-rs/pull/134)), with pre-validation before relaying since 2026-11-03 ([#137](https://github.com/UltravioletaDAO/x402-rs/pull/137)); the first mainnet escrow payment it relayed was on 2026-11-03 | [docs/EVIDENCE.md](docs/EVIDENCE.md), section 2; the `/supported` row of "Check it yourself" (`v1.arras-escrow.near` only, on 2026-11-11) |
-| Client SDKs: [`uvd-x402-sdk`](https://pypi.org/project/uvd-x402-sdk/) for Python and [`uvd-x402-sdk`](https://www.npmjs.com/package/uvd-x402-sdk) for TypeScript | Arras escrow signing since Python 0.104.0 and TypeScript 2.108.0 (uploaded 2026-11-03 UTC; their CHANGELOG headings say 11-02), for `v1.arras-escrow.near` on mainnet since Python 0.106.0 and TypeScript 2.110.0 (2026-11-03); the OWS signer for NEAR (`OwsNearSigner`) since Python 0.109.0 (2026-11-05) | the registries' release pages; the CHANGELOGs ([Python](https://github.com/UltravioletaDAO/uvd-x402-sdk-python/blob/main/CHANGELOG.md), [TypeScript](https://github.com/UltravioletaDAO/uvd-x402-sdk-typescript/blob/main/CHANGELOG.md)) |
+| NEAR `escrow` into the Arras escrow, operator `em` | merged 2026-11-01 ([x402-rs#134](https://github.com/UltravioletaDAO/x402-rs/pull/134)), with pre-validation before relaying since 2026-11-03 ([#137](https://github.com/UltravioletaDAO/x402-rs/pull/137)); the first mainnet escrow payment it relayed was on 2026-11-03; `v2.arras-escrow.near` too since x402-rs 2.57.2, live on 2026-11-13 | [docs/EVIDENCE.md](docs/EVIDENCE.md), section 2; the `/supported` row of "Check it yourself" (`v1.arras-escrow.near` only on 2026-11-11, both escrows since 2026-11-13) |
+| Client SDKs: [`uvd-x402-sdk`](https://pypi.org/project/uvd-x402-sdk/) for Python and [`uvd-x402-sdk`](https://www.npmjs.com/package/uvd-x402-sdk) for TypeScript | Arras escrow signing since Python 0.104.0 and TypeScript 2.108.0 (uploaded 2026-11-03 UTC; their CHANGELOG headings say 11-02), for `v1.arras-escrow.near` on mainnet since Python 0.106.0 and TypeScript 2.110.0 (2026-11-03); the OWS signer for NEAR (`OwsNearSigner`) since Python 0.109.0 (2026-11-05); Execution Market pays through `v2.arras-escrow.near` and rates with `payment-proof.arras-escrow.near` on Python 0.114.0 and TypeScript 2.116.0 (2026-11-13) | the registries' release pages; the CHANGELOGs ([Python](https://github.com/UltravioletaDAO/uvd-x402-sdk-python/blob/main/CHANGELOG.md), [TypeScript](https://github.com/UltravioletaDAO/uvd-x402-sdk-typescript/blob/main/CHANGELOG.md)) |
 
 The facilitator's and the SDKs' hackathon work lives in their own repositories and is not part of this submission's
 code. HACKATHON.md lists what they could do before 2026-11-01.
@@ -273,8 +335,8 @@ formula, and log the same events for what they share:
 
 | Account (mainnet) | Since | Crate, commit | What it does |
 |---|---|---|---|
-| `v2.arras-escrow.near` | 2026-11-08 | `contracts/escrow-v2`, `ddc5121` | everything above |
-| `v1.arras-escrow.near` | 2026-11-03 | `contracts/escrow-v1`, `8da7174` | lock, release, refund, reclaim, withdraw and compact, without budgets, disputes or tickets. On 2026-11-11 Execution Market and the x402 facilitator pay through it, and every payment in [docs/EVIDENCE.md](docs/EVIDENCE.md) outside its section 6 is there |
+| `v2.arras-escrow.near` | 2026-11-08 | `contracts/escrow-v2`, `ddc5121` | everything above. Since 2026-11-13 Execution Market pays its NEAR tasks through it and the x402 facilitator serves it; its payments are verified as rating proofs by `payment-proof.arras-escrow.near` |
+| `v1.arras-escrow.near` | 2026-11-03 | `contracts/escrow-v1`, `8da7174` | lock, release, refund, reclaim, withdraw and compact, without budgets, disputes or tickets. Execution Market paid through it from 2026-11-03 until it moved to v2 on 2026-11-13, the x402 facilitator still serves it, and every payment in [docs/EVIDENCE.md](docs/EVIDENCE.md) outside its sections 6 and 8 is there |
 
 `contracts/escrow-v2` adds its code in its own crate: `arras-escrow-core` and `contracts/escrow-v1` are not touched
 (see "Repository").
@@ -362,6 +424,11 @@ near contract call-function as-transaction v2.arras-escrow.near update_operator 
 
 (`"patch":{"ticket_pubkey":"ed25519:..."}` sets or rotates it; sending both is `E48`.)
 
+On 2026-11-13 the owner, `owner.arras-escrow.near`, removed operator `em`'s ticket key in `v2.arras-escrow.near` this
+way ([`7UQvpqRS...`](https://nearblocks.io/txns/7UQvpqRSyUScR94x1vztQznVdLAMG2x7WzyvgK2ko2bK), 04:00:34Z), before
+Execution Market started paying there: `get_operator` answers `"ticket_pubkey": null`, and its payments need no
+ticket.
+
 ### Events, errors and the money invariant
 
 Events are NEP-297 with `standard` `arras`, version `1.0.0`, and `data` is always an array:
@@ -448,7 +515,7 @@ in Spanish.
 | `contracts/erc8004-identity` | `identity-registry.erc-8004.near` | each agent is an NFT (NEP-171/177/178/181): `agentId` = `token_id`, `agentURI` = `metadata.reference`, on-chain metadata key -> bytes, `agentWallet` (the new wallet confirms by calling the contract itself; cleared on every transfer; a pending one is cancelled by any approval revocation) |
 | `contracts/erc8004-reputation` | `reputation-registry.erc-8004.near` | open feedback (`value`/`valueDecimals`, tags, endpoint, `revokeFeedback`, `appendResponse`, `getSummary` with a mandatory client filter); the "agent exists and the rater is not its owner or an approved operator" check is a cross-contract call whose callback fails closed and refunds the whole deposit. Optional extension (cargo feature `feedback-proofs`, on by default): `give_feedback_with_proof` with an on-chain proof from any verifier contract |
 | `contracts/erc8004-arras-verifier` | `erc8004-verifier.arras-escrow.near` | the Arras proof verifier: one escrow fixed at init (`v1.arras-escrow.near`); a proof is an Arras payment in it that released money (`released > 0`, in any state), between the rater and the agent's owner or `agentWallet` |
-| `contracts/erc8004-payment-proof` | `payment-proof.arras-escrow.near` (**planned, not deployed**: [docs/MAINNET.md](docs/MAINNET.md), section 9) | the same proof verifier for the payments of `v2.arras-escrow.near`: a strict mirror of its `Payment`; a proof is a payment that released money (`released > 0`, disputed ones too), except one whose dispute expired in the receiver's favour with no arbiter decision (`ERC8004_ARV_E16`), the only way money leaves the escrow with no one at the operator acting |
+| `contracts/erc8004-payment-proof` | `payment-proof.arras-escrow.near` (since 2026-11-13, keyless: [docs/MAINNET.md](docs/MAINNET.md), section 9) | the same proof verifier for the payments of `v2.arras-escrow.near`: a strict mirror of its `Payment`; a proof is a payment that released money (`released > 0`, disputed ones too), except one whose dispute expired in the receiver's favour with no arbiter decision (`ERC8004_ARV_E16`), the only way money leaves the escrow with no one at the operator acting |
 | `contracts/erc8004-validation` | `validation-registry.erc-8004.near` (account reserved) | **draft, not deployable**: the ERC-8004 team has not finalized the Validation section |
 | `contracts/erc8004-common` | - | shared validation, canonical integers, the 256-bit summary, NEP-297 envelope and the cross-contract schemas |
 
@@ -496,8 +563,12 @@ verifier contract, in the same transaction, who the counterparty is. The rating 
 is the rated agent's owner or `agentWallet`. The Arras verifier (`erc8004-verifier.arras-escrow.near`) answers only
 for a payment in `v1.arras-escrow.near` that released money (`released > 0`, in any state: also one partly released
 and then refunded) between the rater and that account, and only while `get_payment` still returns it: a compacted
-payment can back no new rating, and the ratings already given keep their proof. The registry keeps no list of
-verifiers: a reader filters ratings by the verifier it trusts, just as ERC-8004 readers filter by client.
+payment can back no new rating, and the ratings already given keep their proof. Since 2026-11-13,
+`payment-proof.arras-escrow.near` answers the same way for the payments of `v2.arras-escrow.near`, where a payment can
+be disputed: it also refuses one whose dispute expired in the receiver's favour (`ERC8004_ARV_E16`). A rating names the
+verifier of the escrow that holds its payment; the other verifier looks the id up in its own escrow and finds no such
+payment, and the registry refuses the rating and returns the deposit. The registry keeps no list of verifiers: a reader filters ratings
+by the verifier it trusts, just as ERC-8004 readers filter by client.
 
 The extension sits behind the cargo feature `feedback-proofs`
 ([`erc8004-reputation/Cargo.toml:18`](contracts/erc8004-reputation/Cargo.toml#L18),
@@ -796,7 +867,7 @@ The checks below are on the first rehearsal's contract, except the last row, the
 | `contracts/registry-v1` | the agent registry (identity + reputation tied to Arras payments); `src/unit_tests/`, `tests/workspaces.rs` (WR-*) |
 | `contracts/test-escrow` | a mock escrow whose `get_payment` returns raw JSON, only for the registry's sandbox tests |
 | `contracts/erc8004-common`, `erc8004-identity`, `erc8004-reputation`, `erc8004-arras-verifier`, `erc8004-validation` | the ERC-8004 port (see "ERC-8004 on NEAR"); unit tests in each crate's `src/unit_tests/` (in `erc8004-common`, inside each module), the sandbox cycle across all of them in `contracts/erc8004-reputation/tests/workspaces.rs` (WE-*) |
-| `contracts/erc8004-payment-proof` | the ERC-8004 proof verifier for the payments of `v2.arras-escrow.near`; `src/unit_tests/` (`real.rs` against the escrow's own `Payment` type, `escrow.rs` against the escrow's contract code in the mock, `callback.rs` through `on_payment`) and `tests/workspaces.rs` (WP-*) |
+| `contracts/erc8004-payment-proof` | the ERC-8004 proof verifier for the payments of `v2.arras-escrow.near`, deployed at `payment-proof.arras-escrow.near` on 2026-11-13; `src/unit_tests/` (`real.rs` against the escrow's own `Payment` type, `escrow.rs` against the escrow's contract code in the mock, `callback.rs` through `on_payment`) and `tests/workspaces.rs` (WP-*) |
 | `contracts/test-nft-receiver` | a mock NFT receiver, only for the Identity Registry's sandbox tests |
 | `docs/vectores.json` | golden vectors V-1..V-3 and F-1..F-7; section `v2`: v2 `msg`s, VB-1, tickets T-1/T-2 |
 | `scripts/testnet.sh` | the testnet sequence of `contracts/escrow-v1` |
@@ -805,8 +876,8 @@ The checks below are on the first rehearsal's contract, except the last row, the
 | `scripts/mainnet-v2.sh` | the mainnet deployment of `v2.arras-escrow.near` and its smoke test (dry run by default; rehearsed on testnet; run on mainnet on 2026-11-08) |
 | `scripts/arras-comun.sh` | what both deployment scripts share (networks, flags, caps, transactions, RPC reads, the pinned wasm, keys through a pipe), written once |
 | `scripts/test_cadena.py` | the fake chain of the offline tests of `scripts/mainnet-v2.sh` |
-| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal, and the mainnet run of 2026-11-03; section 8, the runbook of `v2.arras-escrow.near`, its testnet rehearsals and its mainnet run of 2026-11-08 |
-| `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows, the smoke test of `v2.arras-escrow.near`, the KarmaKadabra swarm's agent-to-agent tasks), with explorer links |
+| `docs/MAINNET.md` | the mainnet runbook: pinned wasm, accounts and signers, the NEAR it needs (measured), the order with the facilitator, the testnet rehearsal, and the mainnet run of 2026-11-03; section 8, the runbook of `v2.arras-escrow.near`, its testnet rehearsals, its mainnet run of 2026-11-08 and the move of Execution Market and the facilitator to it on 2026-11-13; section 9, the payment-proof verifier's plan and its mainnet run of 2026-11-13 |
+| `docs/EVIDENCE.md` | the mainnet transactions behind each claim (deployments, Execution Market's test payments and golden flows, the smoke test of `v2.arras-escrow.near`, the KarmaKadabra swarm's agent-to-agent tasks, and the payments of Execution Market and the swarm through `v2.arras-escrow.near` on 2026-11-13 with the payment-proof verifier), with explorer links |
 | `docs/plans/` | plans written before the code (the ERC-8004 port: `erc8004-near-port.md`); working notes in Spanish |
 | `docs/handoffs/` | handoffs from one development session to the next (decisions, what was run, what is left); working notes in Spanish |
 | `HACKATHON.md` | the start SHA and the window of Q-001, what existed before 2026-11-01, what was built from then on, and what was deployed when |
